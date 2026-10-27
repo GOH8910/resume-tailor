@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -55,5 +55,12 @@ describe("BankRepository", () => {
     await mkdir(path.join(root, "sam"), { recursive: true });
     await writeFile(path.join(root, "sam", "bank.json"), "{ not json", "utf8");
     await expect(repo.read("sam")).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("leaves no temp file behind when the write fails", async () => {
+    await mkdir(path.join(root, "sam", "bank.json"), { recursive: true }); // a directory where the file should be
+    await expect(repo.write("sam", emptyBank("Sam"))).rejects.toThrow();
+    const names = await readdir(path.join(root, "sam"));
+    expect(names).toEqual(["bank.json"]);
   });
 });
