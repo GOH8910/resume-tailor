@@ -1,0 +1,95 @@
+%% Resume Tailor template. Reproduces the look of CV_Edward.pdf:
+%% Crimson serif, ruled section headings, right-aligned dates, FontAwesome contact icons.
+%% src/latex/build.ts replaces the marker line inside \resumeBody with the generated body.
+%% (The marker is deliberately not mentioned here, so a replace never matches this comment.)
+%%
+%% The resume always fills exactly one A4 page: the body is typeset into a box at decreasing
+%% font sizes until it fits, then the leftover space is spread across the section, entry and
+%% bullet spacing (all of it is stretchable glue). If it still overflows at the smallest size
+%% it runs onto a second page so the app can warn about it.
+\documentclass[a4paper,10pt]{article}
+\usepackage[a4paper,top=0.8in,bottom=0.8in,left=0.75in,right=0.75in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{crimson}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fontawesome5}
+\usepackage[hidelinks]{hyperref}
+
+% Keep page objects uncompressed so the app can count pages by scanning the PDF.
+\pdfobjcompresslevel=0
+
+% Backstop: render any Unicode character LaTeX does not know (emoji, CJK, ...) as "?"
+% instead of failing the compile. \UTFviii@undefined@err is the kernel's utf8 error hook.
+\makeatletter\def\UTFviii@undefined@err#1{?}\makeatother
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedbottom
+
+\makeatletter
+% Font sizes in tenths of a point: start large, shrink until the body fits one page.
+\newcount\resume@tenths
+\newcount\resume@mintenths
+\newcount\resume@steptenths
+\resume@tenths=120
+\resume@mintenths=85
+\resume@steptenths=2
+\newdimen\resume@fs
+\newdimen\resume@secfs
+\newdimen\resume@namefs
+\newbox\resume@box
+\newif\ifresume@again
+
+% Body text at the current size; headings and the name scale with it (1.2x and 2.5x, the
+% \large and \Huge ratios of the 10pt class).
+\def\resume@applysize{%
+  \resume@fs=\resume@tenths\p@ \divide\resume@fs by 10
+  \resume@secfs=1.2\resume@fs
+  \resume@namefs=2.5\resume@fs
+  \fontsize{\resume@fs}{1.2\resume@fs}\selectfont}
+
+\titleformat{\section}{\fontsize{\resume@secfs}{1.2\resume@secfs}\selectfont\bfseries}{}{0pt}{}[\vspace{-7pt}\rule{\textwidth}{0.7pt}]
+\titlespacing*{\section}{0pt}{9pt plus 6pt}{5pt plus 2pt}
+
+\setlist[itemize]{leftmargin=1.1em,labelsep=0.4em,itemsep=1pt plus 1pt,parsep=0pt,topsep=1pt plus 1pt,partopsep=0pt,label=\textbullet}
+
+% \resumeEntry{left text}{right text}
+\newcommand{\resumeEntry}[2]{\par\vspace{4pt plus 3pt}{#1\unskip\nobreak\hfill\penalty50\hskip1em\null\nobreak\hfill\mbox{#2}\parfillskip=0pt\par}\vspace{1pt}}
+\newcommand{\resumeName}[1]{\begin{center}{\fontsize{\resume@namefs}{1.2\resume@namefs}\selectfont #1}\end{center}\vspace{-6pt}}
+\newcommand{\resumeContact}[1]{\begin{center}#1\end{center}\vspace{2pt}}
+
+% Typeset \resumeBody into \resume@box at the current size.
+\def\resume@typeset{%
+  \setbox\resume@box=\vbox{%
+    \hsize=\textwidth \linewidth=\hsize \columnwidth=\hsize
+    \let\normalsize\resume@applysize \normalsize
+    \resumeBody\par}}
+
+\def\resumeFit{%
+  \loop
+    \resume@typeset
+    \resume@againfalse
+    \ifdim\dimexpr\ht\resume@box+\dp\resume@box\relax>\textheight
+      \ifnum\resume@tenths>\resume@mintenths \resume@againtrue \fi
+    \fi
+  \ifresume@again
+    \advance\resume@tenths by -\resume@steptenths
+    \ifnum\resume@tenths<\resume@mintenths \resume@tenths=\resume@mintenths \fi
+  \repeat
+  \ifdim\dimexpr\ht\resume@box+\dp\resume@box\relax>\textheight
+    % Too long even at the minimum size: let it flow onto a second page.
+    \unvbox\resume@box
+  \else
+    % The trailing kern moves the last line's depth into the height, so the box is exactly \textheight.
+    \vbox to\textheight{\unvbox\resume@box\kern\z@}%
+  \fi}
+\makeatother
+
+\begin{document}
+\long\def\resumeBody{%
+%%CONTENT%%
+}
+\resumeFit
+\end{document}

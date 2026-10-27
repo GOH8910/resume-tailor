@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "profile": {
+    "name": "Alex Example",
+    "email": "alex@example.com",
+    "phone": "+44 7700 900000",
+    "linkedin": "https://linkedin.com/in/alex-example",
+    "github": "https://github.com/alex-example"
+  },
+  "summary": "Software engineer who builds backend services and developer tools. Comfortable in TypeScript, Python and Go, with experience taking features from prototype to production.",
+  "education": [
+    {
+      "id": "e_edu1",
+      "title": "Example University",
+      "org": "BSc Computer Science",
+      "location": "London, UK",
+      "start": "Sep 2020",
+      "end": "Jun 2024",
+      "bullets": [
+        { "id": "b_edu1a", "text": "Modules: Distributed Systems, Databases, Machine Learning." },
+        { "id": "b_edu1b", "text": "Final-year project: a query planner for a toy SQL engine, 1st class." }
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "id": "e_exp1",
+      "title": "Software Engineer Intern",
+      "org": "Acme Corp",
+      "location": "London, UK",
+      "start": "Jul 2024",
+      "end": "Jan 2025",
+      "bullets": [
+        { "id": "b_exp1a", "text": "Built a Go service that ingests 2M events/day from Kafka into PostgreSQL with exactly-once semantics.", "pinned": true },
+        { "id": "b_exp1b", "text": "Cut p95 API latency from 800ms to 120ms by adding Redis caching and fixing N+1 queries." },
+        { "id": "b_exp1c", "text": "Wrote Playwright end-to-end tests covering the checkout flow, catching 3 regressions before release." },
+        { "id": "b_exp1d", "text": "Led the migration of CI from Jenkins to GitHub Actions, halving build time." }
+      ]
+    },
+    {
+      "id": "e_exp2",
+      "title": "Teaching Assistant",
+      "org": "Example University",
+      "location": "London, UK",
+      "start": "Oct 2022",
+      "end": "Jun 2023",
+      "bullets": [
+        { "id": "b_exp2a", "text": "Ran weekly labs for 40 students on data structures & algorithms in C++." },
+        { "id": "b_exp2b", "text": "Marked coursework and gave written feedback within 48 hours." }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "e_prj1",
+      "title": "Trail Planner",
+      "start": "Jan 2024",
+      "end": "Present",
+      "link": "https://github.com/alex-example/trail-planner",
+      "bullets": [
+        { "id": "b_prj1a", "text": "Built a Next.js + TypeScript app that turns GPX files into day-by-day hiking plans with 15 API endpoints." },
+        { "id": "b_prj1b", "text": "Deployed on a $5/month VPS with Docker Compose; ~90% of requests served from cache." }
+      ]
+    }
+  ],
+  "skills": [
+    { "id": "s_lang", "name": "Programming", "items": ["TypeScript", "Python", "Go", "C++", "SQL"] },
+    { "id": "s_infra", "name": "Systems & Infrastructure", "items": ["Linux", "Docker", "Kubernetes", "Kafka", "Redis", "PostgreSQL"] },
+    { "id": "s_tools", "name": "Frameworks", "items": ["Next.js", "React", "Node.js", "Playwright", "PyTest"] }
+  ]
+}

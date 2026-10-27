@@ -13,6 +13,7 @@ out/
 data/*
 !data/example/
 !data/example/**
+data/example/applications/
 
 # latex build artefacts
 *.aux
@@ -27,3 +28,10 @@ data/*
 coverage/
 test-results/
 playwright-report/
+
+# next.js generated
+next-env.d.ts
+*.tsbuildinfo
+
+# e2e scratch data
+.e2e-data/

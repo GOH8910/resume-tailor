@@ -1,0 +1,195 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { Bank } from "@/bank/schema";
+import type { ChatMessage, ResumeChange } from "@/chat/schema";
+import { api, errorMessage } from "@/ui/api";
+import { Button } from "@/ui/Button";
+import { FOCUS_RING } from "@/ui/Button";
+import { useProfile } from "@/ui/ProfileProvider";
+import { useChatContext } from "./ChatProvider";
+
+type Turn = ChatMessage & { applied?: string[]; warnings?: string[] };
+
+type ChatResponse = {
+  reply: string;
+  applied: string[];
+  warnings: string[];
+  bank: Bank;
+  bankChanged: boolean;
+  resumeChanges: ResumeChange[];
+};
+
+export function ChatDrawer() {
+  const { profile } = useProfile();
+  const { handlers } = useChatContext();
+  const [open, setOpen] = useState(false);
+  if (!profile) return null;
+  const storageKey = `resume-tailor:chat:${profile}:${handlers?.applicationId ?? "bank"}`;
+  return (
+    <>
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`fixed bottom-5 right-5 z-20 flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper shadow-card transition-colors hover:bg-accent ${FOCUS_RING}`}
+        >
+          <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-accent" />
+          Chat with Claude
+        </button>
+      )}
+      {open && <ChatPanel key={storageKey} storageKey={storageKey} profile={profile} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function readTurns(key: string): Turn[] {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as Turn[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function ChatPanel({ storageKey, profile, onClose }: { storageKey: string; profile: string; onClose: () => void }) {
+  const { handlers } = useChatContext();
+  const [turns, setTurns] = useState<Turn[]>(() => readTurns(storageKey));
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(turns));
+    } catch {
+      // Storage is a convenience; the conversation still works without it.
+    }
+    list.current?.scrollTo({ top: list.current.scrollHeight });
+  }, [turns, storageKey, busy]);
+
+  async function send() {
+    const content = input.trim();
+    if (!content || busy) return;
+    const history: Turn[] = [...turns, { role: "user", content }];
+    setTurns(history);
+    setInput("");
+    setBusy(true);
+    setError(null);
+    try {
+      await handlers?.flush?.();
+      const res = await api.send<ChatResponse>("/api/chat", "POST", {
+        profile,
+        applicationId: handlers?.applicationId,
+        resume: handlers?.getResume?.() ?? undefined,
+        messages: history.map(({ role, content: text }) => ({ role, content: text })),
+      });
+      let applied = res.applied;
+      let warnings = res.warnings;
+      if (handlers?.applyResumeChanges) {
+        const local = handlers.applyResumeChanges(res.resumeChanges, res.bank);
+        applied = [...applied, ...local.applied];
+        warnings = [...warnings, ...local.warnings];
+      }
+      if (res.bankChanged) await handlers?.reloadBank?.();
+      setTurns((t) => [...t, { role: "assistant", content: res.reply, applied, warnings }]);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+      textarea.current?.focus();
+    }
+  }
+
+  return (
+    <section
+      aria-label="Chat with Claude"
+      className="fixed bottom-4 right-4 z-20 flex h-[min(620px,calc(100vh-2rem))] w-[min(440px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-rule bg-card shadow-card"
+    >
+      <header className="flex items-center gap-3 border-b border-rule px-4 py-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="font-serif text-base leading-tight">Chat with Claude</p>
+          <p className="truncate text-xs text-ink-faint">{handlers?.label ?? "Bank only (open a resume to edit it here)"}</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setTurns([])} disabled={busy || turns.length === 0}>
+          Clear
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close chat">
+          ✕
+        </Button>
+      </header>
+
+      <div ref={list} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        {turns.length === 0 && (
+          <p className="text-sm text-ink-soft">
+            Paste an experience to add it to your bank, or ask for changes: “add my Kafka work to this resume”, “shorten the summary”, “I also interned at …”.
+          </p>
+        )}
+        {turns.map((turn, i) => (
+          <div key={i} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            <div className={`max-w-[88%] rounded-lg px-3 py-2 text-sm leading-relaxed ${turn.role === "user" ? "bg-ink text-paper" : "bg-paper-deep text-ink"}`}>
+              <p className="whitespace-pre-wrap">{turn.content}</p>
+              {turn.applied && turn.applied.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-ok">
+                  {turn.applied.map((a, j) => (
+                    <li key={j}>✓ {a}</li>
+                  ))}
+                </ul>
+              )}
+              {turn.warnings && turn.warnings.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs text-warn">
+                  {turn.warnings.map((w, j) => (
+                    <li key={j}>⚠ {w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ))}
+        {busy && (
+          <p role="status" className="text-xs text-ink-faint">
+            <span aria-hidden="true" className="mr-1 inline-block h-2 w-2 rounded-full bg-accent motion-safe:animate-pulse" />
+            Claude is working…
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-xs text-accent-deep">
+            {error}
+          </p>
+        )}
+      </div>
+
+      <form
+        className="border-t border-rule p-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send();
+        }}
+      >
+        <textarea
+          ref={textarea}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          rows={3}
+          placeholder="Type or paste here. Enter to send, Shift+Enter for a new line."
+          aria-label="Message"
+          className="w-full resize-none rounded-md border border-rule bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
+          disabled={busy}
+        />
+        <div className="mt-2 flex items-center justify-end gap-2">
+          <Button type="submit" variant="primary" size="sm" disabled={busy || !input.trim()}>
+            {busy ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </form>
+    </section>
+  );
+}
