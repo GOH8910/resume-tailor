@@ -712,6 +712,8 @@ git commit -m "feat: add file-based bank repository with atomic writes"
 
 ### Task 4: LaTeX escaping and PDF page counting
 
+> Updated during execution (commit f48abe9): `escapeLatex` also NFC-normalises, strips control and zero-width characters, maps typographic spaces to plain spaces, and maps `< > ≈ ≤ ≥ − ′ μ µ` to LaTeX commands, because a pdflatex probe showed those break the compile. The code below is the original; the repo is the source of truth.
+
 **Files:**
 - Create: `src/latex/escape.ts`, `src/latex/page-count.ts`
 - Test: `src/latex/escape.test.ts`, `src/latex/page-count.test.ts`
