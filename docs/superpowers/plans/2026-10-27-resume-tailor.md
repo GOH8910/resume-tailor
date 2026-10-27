@@ -1680,6 +1680,8 @@ git commit -m "feat: add application schema, ids and repository"
 
 ### Task 8: Tailor output schema, limits and validator
 
+> Updated during execution (review of commit 0a4ad4a): the validator ignores blank draft bullets, applies the project entry limit before validating bullets (naming dropped projects), restores forgotten pinned bullets at their bank position, keeps all pinned bullets when they exceed the limit without a false "Trimmed" warning, warns on duplicate bullets/skill categories and on entries left with no bullets, trims notes and rationale, and uses user-facing warning wording. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/tailor/schema.ts`, `src/tailor/limits.ts`, `src/tailor/validate.ts`
 - Test: `src/tailor/validate.test.ts`
@@ -2481,7 +2483,7 @@ describe("runTailor", () => {
     expect(app.model).toBe("fake-model");
     expect(app.notes).toContain("Rust");
     expect(app.resume.summary).toBe("Go-focused summary.");
-    expect(app.resume.experience[0].bullets.map((b) => b.bulletId)).toEqual(["b_exp1b", "b_exp1a"]);
+    expect(app.resume.experience[0].bullets.map((b) => b.bulletId)).toEqual(["b_exp1a", "b_exp1b"]);
     expect(model.requests[0].user).toContain("We need Go.");
     expect(await applications.get("example", app.id)).toEqual(app);
   });
@@ -2523,7 +2525,7 @@ Rules:
 1. Select bullets ONLY by their id. Never invent a bullet that has no id in the bank.
 2. For a selected bullet you may return "edited" text, or null to keep it unchanged. An edit must keep every fact, number, tool and outcome exactly. You may reorder clauses, mirror the JD's vocabulary where the bank already supports it, and tighten length. Never add claims, tools or metrics that are not in the bank.
 3. Bullets marked "pinned": true must be included whenever their entry is included.
-4. Limits: at most ${limits.experienceBullets} bullets per experience entry, at most ${limits.projectEntries} projects with at most ${limits.projectBullets} bullets each, at most ${limits.educationBullets} education bullets. The resume must fit one page, so prefer fewer, stronger bullets.
+4. Limits: at most ${limits.experienceBullets} bullets per experience entry, at most ${limits.projectEntries} projects with at most ${limits.projectBullets} bullets each, at most ${limits.educationBullets} bullets per education entry. The resume must fit one page, so prefer fewer, stronger bullets.
 5. Include every experience entry unless it is clearly irrelevant. Order experience and projects by relevance to the JD, most relevant first. Education stays in bank order.
 6. Rewrite "summary" in 2-3 sentences for this JD using only facts from the bank and the master summary.
 7. "skills": return the bank's categories by exact name and items by exact spelling, reordered so the most JD-relevant appear first. You may drop items. Never add items.
