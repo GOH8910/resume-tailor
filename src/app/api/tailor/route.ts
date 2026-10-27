@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AppError } from "@/lib/errors";
 import { applications, banks } from "@/lib/deps";
-import { handle } from "@/lib/http";
+import { handle, readJson } from "@/lib/http";
 import { AnthropicTailorModel, hasApiKey } from "@/tailor/anthropic-model";
 import { DEFAULT_MODEL_ID, MODEL_IDS } from "@/tailor/model";
 import { runTailor } from "@/tailor/tailor";
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     if (!hasApiKey()) {
       throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart `npm run dev`.", 400);
     }
-    const body = TailorRequestSchema.parse(await request.json());
+    const body = TailorRequestSchema.parse(await readJson(request));
     const application = await runTailor(body, { banks, applications, model: new AnthropicTailorModel(body.model) });
     return Response.json({ application }, { status: 201 });
   });

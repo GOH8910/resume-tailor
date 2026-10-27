@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ResumeStateSchema } from "@/applications/schema";
 import { applications } from "@/lib/deps";
-import { handle, requireProfile } from "@/lib/http";
+import { handle, readJson, requireProfile } from "@/lib/http";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -18,7 +18,7 @@ export async function PUT(request: Request, { params }: Context) {
   return handle(async () => {
     const { id } = await params;
     const profile = requireProfile(request);
-    const body = UpdateSchema.parse(await request.json());
+    const body = UpdateSchema.parse(await readJson(request));
     const existing = await applications.get(profile, id);
     const saved = await applications.save(profile, { ...existing, resume: body.resume });
     return Response.json({ application: saved });

@@ -6,5 +6,6 @@ export function templatePath(): string {
 }
 
 export async function loadTemplate(): Promise<string> {
-  return readFile(templatePath(), "utf8");
+  // The path is computed at runtime (env override), so Turbopack would otherwise trace the whole project.
+  return readFile(/*turbopackIgnore: true*/ templatePath(), "utf8");
 }

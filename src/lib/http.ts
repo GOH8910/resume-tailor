@@ -7,6 +7,7 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return await fn();
   } catch (err) {
     if (err instanceof AppError) {
+      if (err.status >= 500) console.error(err);
       return Response.json({ error: err.message, details: err.details ?? null }, { status: err.status });
     }
     if (err instanceof ZodError) {
@@ -15,6 +16,15 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     console.error(err);
     const message = err instanceof Error ? err.message : "Unexpected error";
     return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+/** A malformed or empty body is the client's mistake, so it is a 400, not a server error. */
+export async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    throw new AppError("Request body must be valid JSON", 400);
   }
 }
 
