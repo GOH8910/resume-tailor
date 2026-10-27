@@ -5462,6 +5462,7 @@ git commit -m "docs: add README and playwright smoke test"
 > - `src/tailor/validate.ts`: "a experience entry" wording; collapse the two overlapping pinned-over-limit warnings into one; skip the "no bullets" warning for bank entries that have no real bullets.
 > - `src/ui/bank/BankEditor.tsx`: on `pagehide`, also send the keepalive PUT when a queued save has not been confirmed yet (keep a ref to the last server-confirmed bank); after confirming a delete, move focus to the next entry heading or the Add button; Escape closes the inline confirm.
 > - `src/ui/bank/BankEditor.tsx` tabs at 375px: show that the strip scrolls (edge fade or tighter spacing so all five fit).
+> - `src/ui/Button.tsx`: `aria-disabled:hover:bg-ink aria-disabled:cursor-progress` so a busy button does not look clickable; `src/ui/Field.tsx`: `disabled:bg-paper disabled:text-ink-soft` so locked fields look locked; `src/ui/Banner.tsx`: app focus ring instead of the browser outline; `src/ui/tailor/TailorForm.tsx`: keep the `role="status"` element always mounted and swap its contents, move the sentence period inside the hidden timer span.
 > - Known, accepted for v1: two tabs editing the same bank are last-writer-wins; refusal fallbacks not enabled.
 
 - [ ] **Step 1: Full check**
