@@ -217,6 +217,8 @@ run once by hand; it is not part of the app.
 | LaTeX compile error | 422 with log; UI shows log panel. |
 | Bank JSON invalid on disk | Editor shows the zod error and refuses to overwrite. |
 | Empty JD or company | Client-side validation, button disabled. |
+| Malformed JSON body | 400 "Request body must be valid JSON". |
+| Request under a non-loopback Host or from another origin | 403 from `src/proxy.ts`; the dev server also binds to 127.0.0.1 only. |
 
 ## 9. Testing
 
@@ -238,6 +240,7 @@ src/app/                Next.js routes and pages (thin, call into src/)
   tailor/page.tsx       paste JD
   tailor/[id]/page.tsx  review screen
   api/bank, api/tailor, api/compile, api/applications, api/profiles
+src/proxy.ts            host/origin guard for /api (localhost only, same-origin only)
 src/
   bank/                 schema.ts, repository.ts, ids.ts, merge.ts
   tailor/               prompt.ts, schema.ts, validate.ts, claude.ts
