@@ -942,9 +942,19 @@ describe("renderContent", () => {
     expect(tex3).not.toContain("ghost");
     expect(tex3).not.toContain("phantom");
     expect(tex3).toContain("\\resumeEntry{\\textbf{Real}}{}");
-    expect(tex3.match(/\\item /g)?.length).toBe(
+    expect(tex3.match(/\\item\{\} /g)?.length).toBe(
       exampleDocument.education[0].bullets.length + exampleDocument.experience[0].bullets.length + 1 + exampleDocument.skills.length,
     );
+  });
+
+  it("uses \\item{} so bullets starting with [ keep their bullet glyph", () => {
+    const tex4 = renderContent({ ...exampleDocument, projects: [{ title: "P", start: "", end: "", bullets: ["[WIP] tool"] }] });
+    expect(tex4).toContain("\\item{} [WIP] tool");
+  });
+
+  it("collapses blank lines in single-line fields", () => {
+    const tex5 = renderContent({ ...exampleDocument, experience: [{ ...exampleDocument.experience[0], title: "Lead\n\nEngineer", org: " Acme \n Corp " }] });
+    expect(tex5).toContain("\\resumeEntry{\\textbf{Lead Engineer}, Acme Corp}");
   });
 
   it("matches the snapshot", () => {
@@ -991,6 +1001,10 @@ Expected: FAIL, modules not found.
 
 % Keep page objects uncompressed so the app can count pages by scanning the PDF.
 \pdfobjcompresslevel=0
+
+% Backstop: render any Unicode character LaTeX does not know (emoji, CJK, ...) as "?"
+% instead of failing the compile. \UTFviii@undefined@err is the kernel's utf8 error hook.
+\makeatletter\def\UTFviii@undefined@err#1{?}\makeatother
 
 \pagestyle{empty}
 \setlength{\parindent}{0pt}
@@ -1047,6 +1061,11 @@ import { escapeLatex } from "./escape";
 
 export const CONTENT_MARKER = "%%CONTENT%%";
 
+/** Single-line fields (titles, names, dates) must not contain blank lines: they break \textbf{}. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 export function buildTex(doc: ResumeDocument, template: string): string {
   if (!template.includes(CONTENT_MARKER)) {
     throw new Error(`Template is missing the ${CONTENT_MARKER} marker`);
@@ -1074,32 +1093,33 @@ function safeUrl(url: string): string {
 
 function renderHeader(p: Profile): string {
   const items: string[] = [];
-  if (p.email) items.push(`\\faEnvelope\\ \\href{mailto:${safeUrl(p.email)}}{${escapeLatex(p.email)}}`);
-  if (p.phone) items.push(`\\faPhone\\ ${escapeLatex(p.phone)}`);
+  if (p.email) items.push(`\\faEnvelope\\ \\href{mailto:${safeUrl(p.email)}}{${escapeLatex(oneLine(p.email))}}`);
+  if (p.phone) items.push(`\\faPhone\\ ${escapeLatex(oneLine(p.phone))}`);
   if (p.linkedin) items.push(`\\faLinkedin\\ \\href{${safeUrl(p.linkedin)}}{LinkedIn}`);
   if (p.github) items.push(`\\faGithub\\ \\href{${safeUrl(p.github)}}{GitHub}`);
   if (p.website) items.push(`\\faGlobe\\ \\href{${safeUrl(p.website)}}{Website}`);
   const contact = items.length ? `\\resumeContact{${items.join(" \\quad ")}}` : "";
-  return [`\\resumeName{${escapeLatex(p.name)}}`, contact].filter(Boolean).join("\n");
+  return [`\\resumeName{${escapeLatex(oneLine(p.name))}}`, contact].filter(Boolean).join("\n");
 }
 
 function renderDates(e: DocEntry): string {
-  const start = e.start.trim();
-  const end = e.end.trim();
+  const start = oneLine(e.start);
+  const end = oneLine(e.end);
   if (start && end) return `${escapeLatex(start)} -- ${escapeLatex(end)}`;
   return escapeLatex(start || end);
 }
 
 function renderEntry(e: DocEntry): string {
-  const boldTitle = `\\textbf{${escapeLatex(e.title)}}`;
+  const boldTitle = `\\textbf{${escapeLatex(oneLine(e.title))}}`;
   const title = e.link ? `\\href{${safeUrl(e.link)}}{${boldTitle}}` : boldTitle;
-  const left = e.org ? `${title}, ${escapeLatex(e.org)}` : title;
-  const right = [renderDates(e), e.location ? escapeLatex(e.location) : ""].filter(Boolean).join(" ~|~ ");
+  const left = e.org?.trim() ? `${title}, ${escapeLatex(oneLine(e.org))}` : title;
+  const right = [renderDates(e), e.location?.trim() ? escapeLatex(oneLine(e.location)) : ""].filter(Boolean).join(" ~|~ ");
   const bullets = e.bullets.map((b) => b.trim()).filter(Boolean);
   const lines = [`\\resumeEntry{${left}}{${right}}`];
   if (bullets.length > 0) {
     lines.push("\\begin{itemize}");
-    for (const bullet of bullets) lines.push(`  \\item ${escapeLatex(bullet)}`);
+    // \item{} so a bullet starting with "[" is not read as an optional argument.
+    for (const bullet of bullets) lines.push(`  \\item{} ${escapeLatex(bullet)}`);
     lines.push("\\end{itemize}");
   }
   return lines.join("\n");
@@ -1116,7 +1136,8 @@ function renderSkills(skills: SkillCategory[]): string {
   if (categories.length === 0) return "";
   const lines = ["\\section{Skills}", "\\begin{itemize}"];
   for (const c of categories) {
-    lines.push(`  \\item \\textbf{${escapeLatex(c.name)}:} ${c.items.map(escapeLatex).join(", ")}`);
+    const items = c.items.map((i) => escapeLatex(oneLine(i))).filter(Boolean);
+    lines.push(`  \\item{} \\textbf{${escapeLatex(oneLine(c.name))}:} ${items.join(", ")}`);
   }
   lines.push("\\end{itemize}");
   return lines.join("\n");
@@ -1142,7 +1163,7 @@ export async function loadTemplate(): Promise<string> {
 ```bash
 npm test -- src/latex/build.test.ts
 ```
-Expected: 9 tests pass; a snapshot file `src/latex/__snapshots__/build.test.ts.snap` is written. Open it and eyeball that the content looks like LaTeX, not garbage.
+Expected: 11 tests pass; a snapshot file `src/latex/__snapshots__/build.test.ts.snap` is written. Open it and eyeball that the content looks like LaTeX, not garbage.
 
 - [ ] **Step 6: Commit**
 
@@ -1186,6 +1207,27 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(result.pages).toBe(1);
+  }, 90_000);
+
+  it("compiles bullets full of special and unicode characters", async () => {
+    const nasty = [
+      "Specials: & % $ # _ { } ~ ^ \\ < > and [brackets] first",
+      "Unicode: ≥99.9% uptime, ≈2× faster, 5−3, μs, naïve – café’s “quote”, ✓ done, 日本語, 🚀",
+      "Spaces:\u200Bzero\u2009thin\u202Fnarrow and cafe\u0301",
+    ];
+    const doc = { ...exampleDocument, projects: [{ title: "Edge cases", start: "", end: "", bullets: nasty }] };
+    const result = await compileTex(buildTex(doc, await loadTemplate()));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pages).toBe(1);
+  }, 90_000);
+
+  it("counts pages even when the template does not disable object streams", async () => {
+    const template = (await loadTemplate()).replace("\\pdfobjcompresslevel=0", "");
+    const result = await compileTex(buildTex(exampleDocument, template));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
     expect(result.pages).toBe(1);
   }, 90_000);
 
@@ -1246,7 +1288,9 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(os.tmpdir(), "resume-tailor-"));
   try {
-    await writeFile(path.join(dir, "resume.tex"), tex, "utf8");
+    // Prepend (works before \documentclass) so page counting also works with a user-supplied template.
+    const source = `\\pdfobjcompresslevel=0\n${tex}`;
+    await writeFile(path.join(dir, "resume.tex"), source, "utf8");
     try {
       await execFileAsync(
         latexmk,
@@ -1281,7 +1325,7 @@ async function readLog(dir: string): Promise<string> {
 ```bash
 npm test -- src/latex/compile
 ```
-Expected: 3 tests pass (the first two take a few seconds each because they really run pdflatex). If the one-page test reports 2 pages, tighten `\titlespacing` or margins in the template rather than changing the test.
+Expected: 5 tests pass (the compile tests take a few seconds each because they really run pdflatex). If the one-page test reports 2 pages, tighten `\titlespacing` or margins in the template rather than changing the test.
 
 - [ ] **Step 5: Commit**
 
@@ -4234,15 +4278,17 @@ export function BulletDiff({ original, text }: { original: string; text: string 
 
 ```tsx
 export function PdfPreview({ url, pages }: { url: string; pages: number }) {
+  const unknown = pages === 0; // the counter found no page objects
   const onePage = pages === 1;
+  const badge = unknown ? "bg-paper-deep text-ink-faint" : onePage ? "bg-ok-soft text-ok" : "bg-warn-soft text-warn";
   return (
     <div className="rounded-lg border border-rule bg-card shadow-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-rule px-4 py-2 text-sm">
         <span className="font-medium">Preview</span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${onePage ? "bg-ok-soft text-ok" : "bg-warn-soft text-warn"}`}>
-          {pages} page{onePage ? "" : "s"}
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge}`}>
+          {unknown ? "page count unknown" : `${pages} page${onePage ? "" : "s"}`}
         </span>
-        {!onePage && <span className="text-xs text-warn">Spills past one page. Remove a bullet or two and compile again.</span>}
+        {!unknown && !onePage && <span className="text-xs text-warn">Spills past one page. Remove a bullet or two and compile again.</span>}
       </div>
       <iframe title="Resume PDF preview" src={url} className="h-[80vh] w-full rounded-b-lg bg-white" />
     </div>
