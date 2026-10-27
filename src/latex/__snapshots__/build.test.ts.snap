@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderContent > matches the snapshot 1`] = `
+"\\resumeName{Alex Example}
+\\resumeContact{\\faEnvelope\\ \\href{mailto:alex@example.com}{alex@example.com} \\quad \\faPhone\\ +44 7700 900000 \\quad \\faLinkedin\\ \\href{https://linkedin.com/in/alex-example}{LinkedIn} \\quad \\faGithub\\ \\href{https://github.com/alex-example}{GitHub}}
+
+Software engineer who builds backend services \\& developer tools.
+
+\\section{Education}
+\\resumeEntry{\\textbf{Example University}, BSc Computer Science}{Sep 2020 -- Jun 2024 ~|~ London, UK}
+\\begin{itemize}
+  \\item{} Modules: Distributed Systems, Databases, Machine Learning.
+\\end{itemize}
+
+\\section{Experience}
+\\resumeEntry{\\textbf{Software Engineer Intern}, Acme Corp}{Jul 2024 -- Jan 2025 ~|~ London, UK}
+\\begin{itemize}
+  \\item{} Built a Go service that ingests 2M events/day from Kafka into PostgreSQL.
+  \\item{} Cut p95 API latency from 800ms to 120ms by adding Redis caching and fixing N+1 queries.
+\\end{itemize}
+
+\\section{Projects}
+\\resumeEntry{\\href{https://github.com/alex-example/trail-planner}{\\textbf{Trail Planner}}}{Jan 2024 -- Present}
+\\begin{itemize}
+  \\item{} Built a Next.js app with 15 API endpoints; \\textasciitilde{}90\\% of requests served from cache.
+\\end{itemize}
+
+\\section{Skills}
+\\begin{itemize}
+  \\item{} \\textbf{Programming:} TypeScript, Python, C++
+  \\item{} \\textbf{Systems \\& Infrastructure:} Linux, Docker
+\\end{itemize}
+"
+`;

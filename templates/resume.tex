@@ -1,0 +1,38 @@
+%% Resume Tailor template. Reproduces the look of CV_Edward.pdf:
+%% Charter serif, ruled section headings, right-aligned dates, FontAwesome contact icons.
+%% src/latex/build.ts replaces the marker line just after \begin{document} with the generated body.
+%% (The marker is deliberately not mentioned here, so a replace never matches this comment.)
+\documentclass[a4paper,10pt]{article}
+\usepackage[a4paper,top=0.45in,bottom=0.45in,left=0.55in,right=0.55in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{charter}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fontawesome5}
+\usepackage[hidelinks]{hyperref}
+
+% Keep page objects uncompressed so the app can count pages by scanning the PDF.
+\pdfobjcompresslevel=0
+
+% Backstop: render any Unicode character LaTeX does not know (emoji, CJK, ...) as "?"
+% instead of failing the compile. \UTFviii@undefined@err is the kernel's utf8 error hook.
+\makeatletter\def\UTFviii@undefined@err#1{?}\makeatother
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedbottom
+
+\titleformat{\section}{\large\bfseries}{}{0pt}{}[\vspace{-7pt}\rule{\textwidth}{0.7pt}]
+\titlespacing*{\section}{0pt}{9pt}{5pt}
+
+\setlist[itemize]{leftmargin=1.1em,labelsep=0.4em,itemsep=1pt,parsep=0pt,topsep=1pt,partopsep=0pt,label=\textbullet}
+
+% \resumeEntry{left text}{right text}
+\newcommand{\resumeEntry}[2]{\par\vspace{4pt}{#1\hfill #2\par}\vspace{1pt}}
+\newcommand{\resumeName}[1]{\begin{center}{\Huge #1}\end{center}\vspace{-6pt}}
+\newcommand{\resumeContact}[1]{\begin{center}#1\end{center}\vspace{2pt}}
+
+\begin{document}
+%%CONTENT%%
+\end{document}
