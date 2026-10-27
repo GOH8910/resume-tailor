@@ -164,10 +164,13 @@ restores the review.
 - `src/latex/escape.ts`: escapes `& % $ # _ { } ~ ^ \` for user text.
 - `src/latex/build.ts`: pure function `(bank, resumeState) => texString`.
 - `src/latex/compile.ts`: writes the tex into a fresh OS temp dir (`fs.mkdtemp`),
-  runs `latexmk -pdf -interaction=nonstopmode -halt-on-error` there,
-  reads page count from the PDF (via `pdfinfo` if present, else parse
-  `/Type /Page` count), returns `{ pdf: Buffer, pages, log }`. On failure
-  returns the log; the UI shows it in a collapsible panel.
+  prepends `\pdfobjcompresslevel=0` (keeps page objects uncompressed, even
+  for a user-supplied template) and a Unicode backstop macro, runs latexmk in
+  its own process group with `-norc` and shell escape disabled, kills the group
+  on timeout, counts `/Type /Page` objects (0 means unknown; no `pdfinfo`
+  dependency), returns `{ pdf: Buffer, pages, log }`. On failure returns the
+  log (or captured output when the log is empty); the UI shows it in a
+  collapsible panel.
 - `POST /api/compile` takes `{ profile, applicationId }` or an inline resume
   state and returns the PDF.
 
