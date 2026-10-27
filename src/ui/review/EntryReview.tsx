@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ResumeBullet, ResumeEntry } from "@/applications/schema";
 import type { Bullet, Entry } from "@/bank/schema";
 import { Button } from "@/ui/Button";
@@ -103,13 +103,30 @@ type RowProps = {
 
 function BulletRow({ bullet, isFirst, isLast, onSetText, onRevert, onRemove, onMove }: RowProps) {
   const [editing, setEditing] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
   const changed = bullet.text !== bullet.original;
 
+  const closeEditor = () => {
+    setEditing(false);
+    toggle.current?.focus();
+  };
+
   return (
-    <li className="flex gap-2 rounded-md border border-rule/70 px-3 py-2">
-      <div className="min-w-0 flex-1">
+    <li className="grid gap-2 rounded-md border border-rule/70 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="min-w-0">
         {editing ? (
-          <TextArea rows={3} autoFocus value={bullet.text} onChange={(e) => onSetText(e.target.value)} onBlur={() => setEditing(false)} />
+          <TextArea
+            rows={3}
+            autoFocus
+            value={bullet.text}
+            onChange={(e) => onSetText(e.target.value)}
+            onBlur={() => setEditing(false)}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              e.preventDefault();
+              closeEditor();
+            }}
+          />
         ) : changed ? (
           <BulletDiff original={bullet.original} text={bullet.text} />
         ) : (
@@ -117,9 +134,15 @@ function BulletRow({ bullet, isFirst, isLast, onSetText, onRevert, onRemove, onM
         )}
         {changed && !editing && <p className="mt-1 text-[11px] uppercase tracking-wide text-ink-faint">edited from bank</p>}
       </div>
-      <div className="flex shrink-0 flex-col gap-1">
+      <div className="flex flex-wrap items-start gap-1">
         {/* Prevent the mousedown blur from closing the editor before the click toggles it. */}
-        <Button size="sm" variant="ghost" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing((v) => !v)}>
+        <Button
+          ref={toggle}
+          size="sm"
+          variant="ghost"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => (editing ? closeEditor() : setEditing(true))}
+        >
           {editing ? "Done" : "Edit"}
         </Button>
         {changed && (

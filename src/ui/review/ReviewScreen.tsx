@@ -11,6 +11,7 @@ import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
 import { useProfile } from "@/ui/ProfileProvider";
+import { loadApplication, saveApplication, saveApplicationOnExit } from "./application-saver";
 import { PdfPreview } from "./PdfPreview";
 import { SectionReview } from "./SectionReview";
 import { SkillsReview } from "./SkillsReview";
@@ -19,32 +20,52 @@ type Props = { applicationId: string };
 type Preview = { url: string; pages: number };
 type Problem = { message: string; log?: string };
 
+const SAVE_DELAY_MS = 800;
+
 export function ReviewScreen({ applicationId }: Props) {
   const { profile, loading, error: profileError } = useProfile();
+  if (loading) return <p className="text-ink-soft">Loading…</p>;
+  if (profileError) {
+    return (
+      <Banner tone="error" title="Profiles failed to load">
+        {profileError}
+      </Banner>
+    );
+  }
+  if (!profile) return <Banner tone="info" title="No profile selected" />;
+  // Keyed so switching profile (or application) remounts with fresh state, without setState inside an effect.
+  return <ProfileReview key={`${profile}/${applicationId}`} profile={profile} applicationId={applicationId} />;
+}
+
+function ProfileReview({ profile, applicationId }: { profile: string; applicationId: string }) {
   const [application, setApplication] = useState<Application | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
   const [resume, setResume] = useState<ResumeState | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
+  // The snapshot last written to disk. Edit helpers return new objects, so reference inequality means unsaved changes.
+  const [saved, setSaved] = useState<ResumeState | null>(null);
+  const [pendingSaves, setPendingSaves] = useState(0);
   const [compiling, setCompiling] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const previewUrl = useRef<string | null>(null);
+  const latest = useRef<ResumeState | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirty = resume !== saved;
+  const saving = pendingSaves > 0;
 
   useEffect(() => {
-    if (!profile) return;
     let cancelled = false;
-    Promise.all([
-      api.get<{ application: Application }>(withProfile(`/api/applications/${applicationId}`, profile)),
-      api.get<Bank>(withProfile("/api/bank", profile)),
-    ])
-      .then(([{ application: loaded }, loadedBank]) => {
+    Promise.all([loadApplication(profile, applicationId), api.get<Bank>(withProfile("/api/bank", profile))])
+      .then(([loaded, loadedBank]) => {
         if (cancelled) return;
+        // Entries deleted from the bank since tailoring are dropped so reordering stays predictable.
+        const pruned = edit.pruneMissing(loaded.resume, loadedBank);
+        latest.current = pruned;
         setApplication(loaded);
         setBank(loadedBank);
-        // Entries deleted from the bank since tailoring are dropped so reordering stays predictable.
-        setResume(edit.pruneMissing(loaded.resume, loadedBank));
-        setDirty(false);
+        setResume(pruned);
+        setSaved(pruned);
       })
       .catch((err) => {
         if (!cancelled) setProblem({ message: errorMessage(err) });
@@ -61,47 +82,69 @@ export function ReviewScreen({ applicationId }: Props) {
     [],
   );
 
-  const change = useCallback((fn: (state: ResumeState) => ResumeState) => {
-    setResume((prev) => {
-      if (!prev) return prev;
-      const next = fn(prev);
-      // The edit helpers return the same reference for no-op edits, so only real changes mark the state dirty.
-      if (next !== prev) setDirty(true);
-      return next;
-    });
+  const save = useCallback(
+    async (state: ResumeState): Promise<void> => {
+      setPendingSaves((n) => n + 1);
+      try {
+        setApplication(await saveApplication(profile, applicationId, state));
+        setSaved(state); // the snapshot that was written, so edits made while saving stay dirty
+        setSaveError(null);
+      } finally {
+        setPendingSaves((n) => n - 1);
+      }
+    },
+    [profile, applicationId],
+  );
+
+  const cancelTimer = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
   }, []);
 
-  async function save(state: ResumeState): Promise<void> {
-    if (!profile) return;
-    setSaving(true);
-    try {
-      const { application: saved } = await api.send<{ application: Application }>(
-        withProfile(`/api/applications/${applicationId}`, profile),
-        "PUT",
-        { resume: state },
-      );
-      setApplication(saved);
-      setDirty(false);
-    } finally {
-      setSaving(false);
-    }
-  }
+  const saveLatest = useCallback(() => {
+    cancelTimer();
+    if (latest.current) save(latest.current).catch((err) => setSaveError(errorMessage(err)));
+  }, [cancelTimer, save]);
 
-  async function onSave() {
-    if (!resume) return;
-    setProblem(null);
-    try {
-      await save(resume);
-    } catch (err) {
-      setProblem({ message: errorMessage(err) });
-    }
-  }
+  const change = useCallback(
+    (fn: (state: ResumeState) => ResumeState) => {
+      const prev = latest.current;
+      if (!prev) return;
+      const next = fn(prev);
+      // The edit helpers return the same reference for no-op edits, so only real changes are saved.
+      if (next === prev) return;
+      latest.current = next; // computed outside the updater: no side effect inside setState
+      setResume(next);
+      cancelTimer();
+      timer.current = setTimeout(saveLatest, SAVE_DELAY_MS);
+    },
+    [cancelTimer, saveLatest],
+  );
+
+  useEffect(() => {
+    const onPageHide = () => {
+      if (!timer.current || !latest.current) return;
+      cancelTimer();
+      saveApplicationOnExit(profile, applicationId, latest.current);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      // Unmount (dashboard link, profile switch): save now rather than drop the edit.
+      if (timer.current && latest.current) {
+        const state = latest.current;
+        cancelTimer();
+        void saveApplication(profile, applicationId, state).catch(() => undefined);
+      }
+    };
+  }, [profile, applicationId, cancelTimer]);
 
   async function onCompile() {
-    if (!profile || !resume) return;
+    if (!resume) return;
     setCompiling(true);
     setProblem(null);
     try {
+      cancelTimer();
       if (dirty) await save(resume);
       const { blob, pages } = await compilePdf(profile, resume, applicationId);
       if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
@@ -116,15 +159,6 @@ export function ReviewScreen({ applicationId }: Props) {
     }
   }
 
-  if (loading) return <p className="text-ink-soft">Loading…</p>;
-  if (profileError) {
-    return (
-      <Banner tone="error" title="Profiles failed to load">
-        {profileError}
-      </Banner>
-    );
-  }
-  if (!profile) return <Banner tone="info" title="No profile selected" />;
   if (problem && !application) {
     return (
       <Banner tone="error" title="Could not load this application">
@@ -137,7 +171,7 @@ export function ReviewScreen({ applicationId }: Props) {
   const filename = `${slugify(application.company)}-resume.pdf`;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <aside className="grid content-start gap-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-auto">
         <div>
           <Link href="/" className="text-xs text-ink-faint hover:text-ink">
@@ -163,19 +197,19 @@ export function ReviewScreen({ applicationId }: Props) {
             </ul>
           </Banner>
         )}
-        <div className="rounded-lg border border-rule bg-card p-4 shadow-card">
+        <div className="max-h-64 overflow-auto rounded-lg border border-rule bg-card p-4 shadow-card lg:max-h-none lg:overflow-visible">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">Job description</p>
           <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-ink-soft">{application.jobDescription}</pre>
         </div>
       </aside>
 
-      <div className="grid content-start gap-6">
-        <div className="sticky top-16 z-[5] -mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-rule bg-paper/95 px-3 py-2 shadow-card backdrop-blur">
+      <div className="grid grid-cols-1 content-start gap-6">
+        <div className="-mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-rule bg-paper/95 px-3 py-2 shadow-card backdrop-blur lg:sticky lg:top-16 lg:z-[5]">
           <Button variant="primary" onClick={() => void onCompile()} disabled={compiling || saving}>
             {compiling ? "Compiling…" : "Compile PDF"}
           </Button>
-          <Button onClick={() => void onSave()} disabled={!dirty || saving || compiling}>
-            {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+          <Button onClick={saveLatest} disabled={!dirty || saving || compiling}>
+            {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
           </Button>
           {preview && (
             <a href={preview.url} download={filename} className={buttonClass({ variant: "secondary" })}>
@@ -185,14 +219,16 @@ export function ReviewScreen({ applicationId }: Props) {
           <span className="ml-auto text-xs text-ink-faint">{dirty ? "Unsaved changes" : ""}</span>
         </div>
 
+        {saveError && (
+          <Banner tone="error" title="Could not save your changes">
+            <p>{saveError}</p>
+            <p>Your edits are still on this page. Use Save now to try again.</p>
+          </Banner>
+        )}
+
         {problem && (
           <Banner tone="error" title={problem.message}>
-            {problem.log && (
-              <details className="mt-1">
-                <summary className="cursor-pointer text-xs">LaTeX log</summary>
-                <pre className="mt-1 max-h-72 overflow-auto rounded bg-ink p-2 font-mono text-[11px] text-paper">{problem.log}</pre>
-              </details>
-            )}
+            {problem.log && <LatexLog log={problem.log} />}
           </Banner>
         )}
 
@@ -221,5 +257,23 @@ export function ReviewScreen({ applicationId }: Props) {
         <SkillsReview bank={bank} skills={resume.skills} onChange={(skills) => change((s) => edit.setSkills(s, skills))} />
       </div>
     </div>
+  );
+}
+
+/** The error is at the end of a LaTeX log, so the panel opens scrolled to the bottom. */
+function LatexLog({ log }: { log: string }) {
+  const pre = useRef<HTMLPreElement>(null);
+  return (
+    <details
+      className="mt-1"
+      onToggle={(e) => {
+        if (e.currentTarget.open && pre.current) pre.current.scrollTop = pre.current.scrollHeight;
+      }}
+    >
+      <summary className="cursor-pointer text-xs">LaTeX log</summary>
+      <pre ref={pre} className="mt-1 max-h-72 overflow-auto rounded bg-ink p-2 font-mono text-[11px] text-paper">
+        {log}
+      </pre>
+    </details>
   );
 }

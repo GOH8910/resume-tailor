@@ -11,7 +11,7 @@ export function PdfPreview({ url, pages }: { url: string; pages: number }) {
         </span>
         {!unknown && !onePage && <span className="text-xs text-warn">Spills past one page. Remove a bullet or two and compile again.</span>}
       </div>
-      <iframe title="Resume PDF preview" src={url} className="h-[80vh] w-full rounded-b-lg bg-white" />
+      <iframe title="Resume PDF preview" src={`${url}#navpanes=0&view=FitH`} className="h-[80vh] w-full rounded-b-lg bg-white" />
     </div>
   );
 }

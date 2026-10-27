@@ -20,8 +20,8 @@ export function SkillsReview({ bank, skills, onChange }: Props) {
       </h2>
       <div className="grid gap-2">
         {skills.map((cat, i) => (
-          <div key={cat.id} className="flex items-center gap-2 rounded-lg border border-rule bg-card px-3 py-2 shadow-card">
-            <span className="w-44 shrink-0 text-sm font-semibold">{cat.name}:</span>
+          <div key={cat.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-rule bg-card px-3 py-2 shadow-card">
+            <span className="w-full text-sm font-semibold sm:w-44 sm:shrink-0">{cat.name}:</span>
             <ItemsInput items={cat.items} onCommit={(items) => replace(cat.id, (c) => ({ ...c, items }))} />
             <Button size="sm" variant="ghost" aria-label="Move category up" disabled={i === 0} onClick={() => onChange(moveItem(skills, i, i - 1))}>
               ↑
@@ -52,18 +52,22 @@ function ItemsInput({ items, onCommit }: { items: string[]; onCommit: (items: st
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   return (
-    <TextInput
-      aria-label="Skill items, comma-separated"
-      value={editing ? text : items.join(", ")}
-      onFocus={() => {
-        setText(items.join(", "));
-        setEditing(true);
-      }}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        setEditing(false);
-        onCommit(splitItems(text));
-      }}
-    />
+    <div className="min-w-0 flex-1">
+      <TextInput
+        aria-label="Skill items, comma-separated"
+        value={editing ? text : items.join(", ")}
+        onFocus={() => {
+          setText(items.join(", "));
+          setEditing(true);
+        }}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          // Focusing and leaving without a change must not count as an edit (it would trigger an autosave).
+          const next = splitItems(text);
+          if (next.length !== items.length || next.some((item, i) => item !== items[i])) onCommit(next);
+        }}
+      />
+    </div>
   );
 }
