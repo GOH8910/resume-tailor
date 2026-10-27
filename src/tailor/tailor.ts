@@ -1,0 +1,80 @@
+import { newApplicationId } from "@/applications/ids";
+import type { ApplicationRepository } from "@/applications/repository";
+import { fromTailorResult, fullStateFromBank } from "@/applications/resume-state";
+import type { Application } from "@/applications/schema";
+import type { BankRepository } from "@/bank/repository";
+import { AppError } from "@/lib/errors";
+import { DEFAULT_LIMITS, type TailorLimits } from "./limits";
+import type { TailorModel } from "./model";
+import { buildSystemPrompt, buildUserMessage } from "./prompt";
+import { validateTailorResult } from "./validate";
+
+export type TailorInput = {
+  profile: string;
+  jobDescription: string;
+  company: string;
+  roleTitle?: string;
+};
+
+export type TailorDeps = {
+  banks: BankRepository;
+  applications: ApplicationRepository;
+  model: TailorModel;
+  limits?: TailorLimits;
+  now?: () => Date;
+};
+
+function cleanInput(input: TailorInput) {
+  const jobDescription = input.jobDescription.trim();
+  const company = input.company.trim();
+  if (!jobDescription) throw new AppError("Job description is required", 400);
+  if (!company) throw new AppError("Company is required", 400);
+  return { jobDescription, company, roleTitle: input.roleTitle?.trim() ?? "" };
+}
+
+/** Ask Claude for a selection, validate it against the bank, and save the application. */
+export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<Application> {
+  const { jobDescription, company, roleTitle } = cleanInput(input);
+  const limits = deps.limits ?? DEFAULT_LIMITS;
+  const bank = await deps.banks.read(input.profile);
+  const raw = await deps.model.tailor({
+    system: buildSystemPrompt(limits),
+    user: buildUserMessage(bank, jobDescription, company, roleTitle),
+  });
+  const { result, warnings } = validateTailorResult(bank, raw, limits);
+  const now = (deps.now ?? (() => new Date()))();
+  const application: Application = {
+    id: newApplicationId(company, now),
+    createdAt: now.toISOString(),
+    company,
+    roleTitle,
+    jobDescription,
+    model: deps.model.id,
+    warnings,
+    notes: result.notes,
+    resume: fromTailorResult(bank, result),
+  };
+  return deps.applications.save(input.profile, application);
+}
+
+/** No-AI path: start from the whole bank and let the user prune. */
+export async function createManualApplication(
+  input: TailorInput,
+  deps: Pick<TailorDeps, "banks" | "applications" | "now">,
+): Promise<Application> {
+  const { jobDescription, company, roleTitle } = cleanInput(input);
+  const bank = await deps.banks.read(input.profile);
+  const now = (deps.now ?? (() => new Date()))();
+  const application: Application = {
+    id: newApplicationId(company, now),
+    createdAt: now.toISOString(),
+    company,
+    roleTitle,
+    jobDescription,
+    model: "manual",
+    warnings: [],
+    notes: "",
+    resume: fullStateFromBank(bank),
+  };
+  return deps.applications.save(input.profile, application);
+}
