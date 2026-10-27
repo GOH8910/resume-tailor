@@ -18,10 +18,11 @@ test("bank editor adds a bullet and persists it", async ({ page }) => {
   await fresh.fill("Shipped the smoke test bullet");
   await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible({ timeout: 10_000 });
   await page.reload();
-  const values = await page
-    .locator('textarea[placeholder="New bullet"]')
-    .evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).value));
-  expect(values).toContain("Shipped the smoke test bullet");
+  const bullets = page.locator('textarea[placeholder="New bullet"]');
+  await expect(bullets.first()).toBeVisible();
+  await expect
+    .poll(() => bullets.evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).value)))
+    .toContain("Shipped the smoke test bullet");
 });
 
 test("manual application compiles to a one-page PDF", async ({ page }) => {
