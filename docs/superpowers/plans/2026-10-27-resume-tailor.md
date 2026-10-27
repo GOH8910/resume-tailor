@@ -3662,7 +3662,7 @@ export default function BankSectionPage() {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bank, SectionKey } from "@/bank/schema";
-import { api, errorMessage } from "@/ui/api";
+import { api, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { useProfile } from "@/ui/ProfileProvider";
 import { EntryEditor } from "./EntryEditor";
@@ -3684,8 +3684,15 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 const SAVE_DELAY_MS = 800;
 
 export function BankEditor({ section }: { section: BankSection }) {
-  const { profile, loading } = useProfile();
+  const { profile, loading, error: profileError } = useProfile();
   if (loading) return <p className="text-ink-soft">Loading…</p>;
+  if (profileError) {
+    return (
+      <Banner tone="error" title="Profiles failed to load">
+        {profileError}
+      </Banner>
+    );
+  }
   if (!profile) {
     return (
       <Banner tone="info" title="No profile yet">
@@ -3707,7 +3714,7 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
   useEffect(() => {
     let cancelled = false;
     api
-      .get<Bank>(`/api/bank?profile=${profile}`)
+      .get<Bank>(withProfile("/api/bank", profile))
       .then((loaded) => {
         if (cancelled) return;
         latest.current = loaded;
@@ -3725,7 +3732,7 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
     if (!latest.current) return;
     setStatus("saving");
     try {
-      await api.send(`/api/bank?profile=${profile}`, "PUT", latest.current);
+      await api.send(withProfile("/api/bank", profile), "PUT", latest.current);
       setStatus("saved");
       setError(null);
     } catch (err) {
@@ -4142,7 +4149,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Application } from "@/applications/schema";
 import { DEFAULT_MODEL_ID, MODEL_IDS, MODEL_LABELS, type ModelId } from "@/tailor/model";
-import { api, errorMessage } from "@/ui/api";
+import { api, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { Field, Select, TextArea, TextInput } from "@/ui/Field";
@@ -4152,7 +4159,7 @@ type Mode = "ai" | "manual";
 
 export function TailorForm() {
   const router = useRouter();
-  const { profile, loading } = useProfile();
+  const { profile, loading, error: profileError } = useProfile();
   const [company, setCompany] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
@@ -4170,7 +4177,7 @@ export function TailorForm() {
       const { application } =
         mode === "ai"
           ? await api.send<{ application: Application }>("/api/tailor", "POST", { profile, company, roleTitle, jobDescription, model })
-          : await api.send<{ application: Application }>(`/api/applications?profile=${profile}`, "POST", { company, roleTitle, jobDescription });
+          : await api.send<{ application: Application }>(withProfile("/api/applications", profile), "POST", { company, roleTitle, jobDescription });
       router.push(`/tailor/${application.id}`);
     } catch (err) {
       setError(errorMessage(err));
@@ -4179,10 +4186,17 @@ export function TailorForm() {
   }
 
   if (loading) return <p className="text-ink-soft">Loading…</p>;
+  if (profileError) {
+    return (
+      <Banner tone="error" title="Profiles failed to load">
+        {profileError}
+      </Banner>
+    );
+  }
   if (!profile) {
     return (
       <Banner tone="info" title="No profile yet">
-        Create one with the “+ New” button in the top bar, then fill in your bank.
+        Create one with the “New profile” button in the top bar, then fill in your bank.
       </Banner>
     );
   }
@@ -4649,9 +4663,9 @@ import * as edit from "@/applications/edit";
 import { slugify } from "@/applications/ids";
 import type { Application, ResumeState } from "@/applications/schema";
 import { type Bank, SECTION_KEYS } from "@/bank/schema";
-import { ApiError, api, compilePdf, errorMessage } from "@/ui/api";
+import { ApiError, api, compilePdf, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
-import { Button } from "@/ui/Button";
+import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
 import { useProfile } from "@/ui/ProfileProvider";
 import { PdfPreview } from "./PdfPreview";
@@ -4663,7 +4677,7 @@ type Preview = { url: string; pages: number };
 type Problem = { message: string; log?: string };
 
 export function ReviewScreen({ applicationId }: Props) {
-  const { profile, loading } = useProfile();
+  const { profile, loading, error: profileError } = useProfile();
   const [application, setApplication] = useState<Application | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
   const [resume, setResume] = useState<ResumeState | null>(null);
@@ -4678,8 +4692,8 @@ export function ReviewScreen({ applicationId }: Props) {
     if (!profile) return;
     let cancelled = false;
     Promise.all([
-      api.get<{ application: Application }>(`/api/applications/${applicationId}?profile=${profile}`),
-      api.get<Bank>(`/api/bank?profile=${profile}`),
+      api.get<{ application: Application }>(withProfile(`/api/applications/${applicationId}`, profile)),
+      api.get<Bank>(withProfile("/api/bank", profile)),
     ])
       .then(([{ application: loaded }, loadedBank]) => {
         if (cancelled) return;
@@ -4719,7 +4733,7 @@ export function ReviewScreen({ applicationId }: Props) {
     setSaving(true);
     try {
       const { application: saved } = await api.send<{ application: Application }>(
-        `/api/applications/${applicationId}?profile=${profile}`,
+        withProfile(`/api/applications/${applicationId}`, profile),
         "PUT",
         { resume: state },
       );
@@ -4760,6 +4774,13 @@ export function ReviewScreen({ applicationId }: Props) {
   }
 
   if (loading) return <p className="text-ink-soft">Loading…</p>;
+  if (profileError) {
+    return (
+      <Banner tone="error" title="Profiles failed to load">
+        {profileError}
+      </Banner>
+    );
+  }
   if (!profile) return <Banner tone="info" title="No profile selected" />;
   if (problem && !application) {
     return (
@@ -4814,11 +4835,7 @@ export function ReviewScreen({ applicationId }: Props) {
             {saving ? "Saving…" : dirty ? "Save" : "Saved"}
           </Button>
           {preview && (
-            <a
-              href={preview.url}
-              download={filename}
-              className="rounded-md border border-rule bg-card px-3.5 py-2 text-sm font-medium transition-colors hover:border-ink"
-            >
+            <a href={preview.url} download={filename} className={buttonClass({ variant: "secondary" })}>
               Download PDF
             </a>
           )}
