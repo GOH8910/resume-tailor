@@ -2472,7 +2472,7 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 describe("runTailor", () => {
   it("calls the model with the bank, validates, and saves an application", async () => {
     const model = new FakeModel(fakeResult);
-    const now = () => new Date("2026-10-27T09:00:00Z");
+    const now = () => new Date(2026, 9, 27, 9); // local time: ids use the local date
     const app = await runTailor(
       { profile: "example", jobDescription: "We need Go.", company: "Acme Corp", roleTitle: "Backend" },
       { banks, applications, model, now },
