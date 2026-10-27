@@ -5393,7 +5393,7 @@ Design spec: `docs/superpowers/specs/2026-10-27-resume-tailor-design.md`
 ```bash
 npm install
 cp .env.example .env.local      # then paste your ANTHROPIC_API_KEY
-npm run dev                     # http://localhost:3000
+npm run dev                     # open http://localhost:3000 (use the localhost name, not 127.0.0.1)
 ```
 
 ## Using it
