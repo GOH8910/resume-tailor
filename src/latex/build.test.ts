@@ -71,6 +71,11 @@ describe("renderContent", () => {
     expect(tex).toContain("\\href{https://x.com/in/jos\\%C3\\%A9?x=1&y=2\\#frag}{LinkedIn}");
   });
 
+  it("escapes ^ in URLs so TeX ^^xx notation cannot smuggle characters", () => {
+    const tex = renderContent({ ...exampleDocument, profile: { ...exampleDocument.profile, website: "https://x.com/a^^5cb" } });
+    expect(tex).toContain("\\href{https://x.com/a\\%5E\\%5E5cb}{Website}");
+  });
+
   it("omits whitespace-only contact fields and links", () => {
     const tex = renderContent({
       ...exampleDocument,

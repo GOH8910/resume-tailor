@@ -39,8 +39,8 @@ export function renderContent(doc: ResumeDocument): string {
 
 /** URLs go inside \href{...}: escape the characters that would break the argument or the link target. */
 function safeUrl(url: string): string {
-  const map: Record<string, string> = { "%": "\\%", "#": "\\#", "{": "\\%7B", "}": "\\%7D", "\\": "\\%5C" };
-  return url.trim().replace(/[%#{}\\\s]/g, (ch) => map[ch] ?? "\\%20");
+  const map: Record<string, string> = { "%": "\\%", "#": "\\#", "{": "\\%7B", "}": "\\%7D", "\\": "\\%5C", "^": "\\%5E" };
+  return url.trim().replace(/[%#{}\\^\s]/g, (ch) => map[ch] ?? "\\%20");
 }
 
 function renderHeader(p: Profile): string {

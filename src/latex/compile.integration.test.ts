@@ -51,6 +51,30 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
     if (result.ok) return;
     expect(result.log).toContain("Undefined control sequence");
   }, 90_000);
+
+  it("kills latexmk and pdflatex when the compile times out", async () => {
+    const loop = "\\documentclass{article}\\begin{document}\\def\\x{\\x}\\x\\end{document}";
+    const result = await compileTex(loop, { timeoutMs: 3000 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/timed out/);
+    await new Promise((r) => setTimeout(r, 300));
+    let orphans = "";
+    try {
+      orphans = execFileSync("pgrep", ["-f", "pdflatex.*resume.tex"], { encoding: "utf8" });
+    } catch {
+      // pgrep exits 1 when nothing matches, which is what we want.
+    }
+    expect(orphans.trim()).toBe("");
+  }, 30_000);
+
+  it("refuses shell escape from the document", async () => {
+    const evil = "\\documentclass{article}\\begin{document}x\\immediate\\write18{kpsewhich --version}\\end{document}";
+    const result = await compileTex(evil);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.log).toMatch(/runsystem\(kpsewhich --version\)\.\.\.disabled/);
+  }, 90_000);
 });
 
 describe("compileTex with a missing binary", () => {
