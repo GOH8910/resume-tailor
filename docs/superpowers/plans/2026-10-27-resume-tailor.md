@@ -5456,6 +5456,12 @@ git commit -m "docs: add README and playwright smoke test"
 
 ### Task 18: Final verification and push
 
+> Polish items deferred from reviews, to do before the final check (each small):
+> - `src/tailor/validate.ts`: "a experience entry" wording; collapse the two overlapping pinned-over-limit warnings into one; skip the "no bullets" warning for bank entries that have no real bullets.
+> - `src/ui/bank/BankEditor.tsx`: on `pagehide`, also send the keepalive PUT when a queued save has not been confirmed yet (keep a ref to the last server-confirmed bank); after confirming a delete, move focus to the next entry heading or the Add button; Escape closes the inline confirm.
+> - `src/ui/bank/BankEditor.tsx` tabs at 375px: show that the strip scrolls (edge fade or tighter spacing so all five fit).
+> - Known, accepted for v1: two tabs editing the same bank are last-writer-wins; refusal fallbacks not enabled.
+
 - [ ] **Step 1: Full check**
 
 ```bash
