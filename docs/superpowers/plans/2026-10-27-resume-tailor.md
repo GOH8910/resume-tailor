@@ -2321,12 +2321,12 @@ describe("bankForPrompt", () => {
         { id: "e_draft", title: "", start: "", end: "", bullets: [{ id: "b_x", text: "x" }] },
       ],
       experience: [{ ...bank.experience[0], bullets: [...bank.experience[0].bullets, { id: "b_blank", text: "  " }] }],
-      skills: [...bank.skills, { id: "s_draft", name: "", items: ["x"] }],
+      skills: [...bank.skills, { id: "s_draft", name: "  ", items: ["x"] }],
     };
     const compact = bankForPrompt(withDrafts);
     expect(compact.projects.map((p) => p.id)).toEqual(["e_prj1"]);
     expect(compact.experience[0].bullets.map((b) => b.id)).not.toContain("b_blank");
-    expect(compact.skills.map((s) => s.name)).not.toContain("");
+    expect(compact.skills.map((s) => s.name)).not.toContain("  ");
   });
 });
 
