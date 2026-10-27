@@ -29,7 +29,7 @@ hosting, no accounts.
 | Matching | Claude picks and lightly rewords (Anthropic API). |
 | Hosting | Local only, `npm run dev`, data in JSON files in the repo folder. |
 | Output | Review screen, then PDF compiled from LaTeX via local `latexmk`. |
-| Template | Reproduce `CV_Edward.pdf` look (Charter, FontAwesome icons, ruled headings). If the Overleaf `.tex` is supplied later, adapt it for exact match. |
+| Template | Reproduce `CV_Edward.pdf` look (Crimson serif, measured A4 margins, FontAwesome icons, ruled headings). If the Overleaf `.tex` is supplied later, adapt it for exact match. |
 | Stack | Next.js App Router, TypeScript, Tailwind, `@anthropic-ai/sdk`, Vitest. No database. |
 | Profiles | One folder per person under `data/`, switcher in the UI. |
 | Git | Private GitHub repo, work on a feature branch, user opens PRs manually. |
@@ -155,8 +155,9 @@ restores the review.
 
 ## 4. PDF generation
 
-- `templates/resume.tex` reproduces `CV_Edward.pdf`: `article`, Charter font
-  (`charter` package), `geometry` margins ~0.5in, `titlesec` for section
+- `templates/resume.tex` reproduces `CV_Edward.pdf` (measured: A4, 0.75in side and
+  0.8in top/bottom margins; embedded font Amiri, whose Latin glyphs derive from
+  Crimson): `article`, Crimson (`crimson` package, pdflatex), `titlesec` for section
   headings with a rule, `enumitem` for tight bullets, `fontawesome5` for the
   contact icons, `hyperref` for links, `tabularx` or `\hfill` for right-aligned
   date/location.

@@ -838,6 +838,8 @@ git commit -m "feat: add latex escaping and pdf page counting"
 
 ### Task 5: LaTeX template and tex builder
 
+> Updated during execution (review of commit 4f02c6a): the template now uses Crimson and the reference CV's measured margins, the `\resumeEntry` macro uses the right-flush form, `safeUrl` escapes `%`/`#` instead of deleting them, whitespace-only contact fields and links are omitted, skill items are normalised before the emptiness check, bullets go through `oneLine` and marker stripping before the blank filter, and regression tests were added. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `templates/resume.tex`, `src/latex/document.ts`, `src/latex/build.ts`, `src/latex/template.ts`, `src/latex/fixture.ts`
 - Test: `src/latex/build.test.ts`
@@ -1000,15 +1002,16 @@ Expected: FAIL, modules not found.
 - [ ] **Step 3: Create the template `templates/resume.tex`**
 
 ```latex
-%% Resume Tailor template. Reproduces the look of CV_Edward.pdf:
-%% Charter serif, ruled section headings, right-aligned dates, FontAwesome contact icons.
+%% Resume Tailor template. Reproduces the look of CV_Edward.pdf (measured: A4, 0.75in sides,
+%% 0.8in top/bottom, Amiri whose Latin derives from Crimson): Crimson serif, ruled section
+%% headings, right-aligned dates, FontAwesome contact icons.
 %% src/latex/build.ts replaces the marker line just after \begin{document} with the generated body.
 %% (The marker is deliberately not mentioned here, so a replace never matches this comment.)
 \documentclass[a4paper,10pt]{article}
-\usepackage[a4paper,top=0.45in,bottom=0.45in,left=0.55in,right=0.55in]{geometry}
+\usepackage[a4paper,top=0.8in,bottom=0.8in,left=0.75in,right=0.75in]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage{charter}
+\usepackage{crimson}
 \usepackage{titlesec}
 \usepackage{enumitem}
 \usepackage{fontawesome5}
@@ -1031,7 +1034,8 @@ Expected: FAIL, modules not found.
 \setlist[itemize]{leftmargin=1.1em,labelsep=0.4em,itemsep=1pt,parsep=0pt,topsep=1pt,partopsep=0pt,label=\textbullet}
 
 % \resumeEntry{left text}{right text}
-\newcommand{\resumeEntry}[2]{\par\vspace{4pt}{#1\hfill #2\par}\vspace{1pt}}
+% Right-flush form: if left + right do not fit on one line, the right part moves to the next line flush right.
+\newcommand{\resumeEntry}[2]{\par\vspace{4pt}{#1\unskip\nobreak\hfill\penalty50\hskip1em\null\nobreak\hfill\mbox{#2}\parfillskip=0pt\par}\vspace{1pt}}
 \newcommand{\resumeName}[1]{\begin{center}{\Huge #1}\end{center}\vspace{-6pt}}
 \newcommand{\resumeContact}[1]{\begin{center}#1\end{center}\vspace{2pt}}
 
