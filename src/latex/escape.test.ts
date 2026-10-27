@@ -59,4 +59,13 @@ describe("escapeLatex", () => {
     expect(escapeLatex("%%")).toBe("\\%\\%");
     expect(escapeLatex("$&")).toBe("\\$\\&");
   });
+
+  it("turns line-break characters into spaces instead of joining words", () => {
+    expect(escapeLatex("first line\u000Bsecond line third")).toBe("first line second line third");
+  });
+
+  it("strips bidi marks and variation selectors", () => {
+    // U+202A LRE, U+200E LRM, U+FE0F variation selector-16, U+2069 PDI
+    expect(escapeLatex("‪a‎b️c⁩")).toBe("abc");
+  });
 });
