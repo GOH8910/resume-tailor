@@ -116,7 +116,7 @@ function ProfileApplications({ profile }: { profile: string }) {
       )}
 
       {apps && apps.length > 0 && (
-        <ul className="mt-8 grid gap-4 sm:grid-cols-2">
+        <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {apps.map((app) => (
             <li
               key={app.id}
@@ -129,7 +129,7 @@ function ProfileApplications({ profile }: { profile: string }) {
                 </div>
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    app.hasPdf ? "bg-ok-soft text-ok" : "bg-paper-deep text-ink-faint"
+                    app.hasPdf ? "bg-ok-soft text-ok" : "bg-paper-deep text-ink-soft"
                   }`}
                 >
                   {app.hasPdf ? "PDF ready" : "No PDF"}

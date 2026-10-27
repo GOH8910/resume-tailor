@@ -90,6 +90,7 @@ export function TopBar() {
                 placeholder="slug, e.g. edward"
                 aria-label="New profile slug"
                 autoCapitalize="off"
+                maxLength={40}
                 spellCheck={false}
                 pattern="[a-z0-9][a-z0-9\-]*"
                 title="lowercase letters, digits and dashes"
