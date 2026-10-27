@@ -12,7 +12,10 @@ export class ApiError extends Error {
 }
 
 async function parseResponse<T>(res: Response): Promise<T> {
-  if (res.ok) return (await res.json()) as T;
+  if (res.ok) {
+    if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
+    return (await res.json()) as T;
+  }
   let message = `${res.status} ${res.statusText}`;
   let details: unknown;
   try {
@@ -38,6 +41,13 @@ export const api = {
   },
 };
 
+/** Appends ?profile=<slug> to an API path, encoding the slug and keeping any existing query. */
+export function withProfile(path: string, profile: string): string {
+  const url = new URL(path, "http://localhost");
+  url.searchParams.set("profile", profile);
+  return `${url.pathname}${url.search}`;
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
@@ -52,6 +62,6 @@ export async function compilePdf(profile: string, resume: ResumeState, applicati
     body: JSON.stringify({ profile, resume, applicationId }),
   });
   if (!res.ok) await parseResponse<never>(res);
-  const pages = Number(res.headers.get("X-Page-Count") ?? "0");
-  return { blob: await res.blob(), pages };
+  const pages = Number.parseInt(res.headers.get("X-Page-Count") ?? "", 10);
+  return { blob: await res.blob(), pages: Number.isNaN(pages) ? 0 : pages };
 }

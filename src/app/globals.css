@@ -6,7 +6,7 @@
   --color-card: #fffdf8;
   --color-ink: #1d1b17;
   --color-ink-soft: #5e5849;
-  --color-ink-faint: #9a9382;
+  --color-ink-faint: #6f685a;
   --color-rule: #d8d0bf;
   --color-accent: #8a2f2f;
   --color-accent-deep: #6e2323;
@@ -22,26 +22,21 @@
   --shadow-card: 0 1px 2px rgb(29 27 23 / 0.06), 0 8px 24px -12px rgb(29 27 23 / 0.25);
 }
 
-html {
-  color-scheme: light;
-}
+@layer base {
+  html {
+    color-scheme: light;
+  }
 
-body {
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
 
-h1,
-h2,
-h3 {
-  font-family: var(--font-serif);
-}
-
-textarea,
-input,
-select,
-button {
-  font: inherit;
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+  }
 }
