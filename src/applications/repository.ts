@@ -1,9 +1,9 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { assertProfileSlug } from "@/bank/repository";
 import { AppError } from "@/lib/errors";
-import { exists, isEnoent, writeJsonAtomic } from "@/lib/fs";
-import { assertApplicationId } from "./ids";
+import { exists, isEnoent, writeFileAtomic, writeJsonAtomic } from "@/lib/fs";
+import { APPLICATION_ID, assertApplicationId } from "./ids";
 import { type Application, ApplicationSchema, type ApplicationSummary } from "./schema";
 
 export class ApplicationRepository {
@@ -29,21 +29,33 @@ export class ApplicationRepository {
       if (isEnoent(err)) return [];
       throw err;
     }
-    const ids = names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -".json".length));
+    const ids = names
+      .filter((n) => n.endsWith(".json"))
+      .map((n) => n.slice(0, -".json".length))
+      .filter((stem) => APPLICATION_ID.test(stem));
+    // One unreadable file must not break the whole listing, so skip it with a warning.
     const summaries = await Promise.all(
-      ids.map(async (id): Promise<ApplicationSummary> => {
-        const app = await this.get(slug, id);
-        return {
-          id: app.id,
-          createdAt: app.createdAt,
-          company: app.company,
-          roleTitle: app.roleTitle,
-          model: app.model,
-          hasPdf: await exists(this.pdfPath(slug, id)),
-        };
+      ids.map(async (id): Promise<ApplicationSummary | null> => {
+        try {
+          const app = await this.get(slug, id);
+          return {
+            id: app.id,
+            createdAt: app.createdAt,
+            company: app.company,
+            roleTitle: app.roleTitle,
+            model: app.model,
+            hasPdf: await exists(this.pdfPath(slug, id)),
+          };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`Skipping unreadable application ${this.jsonPath(slug, id)}: ${message}`);
+          return null;
+        }
       }),
     );
-    return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return summaries
+      .filter((s): s is ApplicationSummary => s !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
   }
 
   async get(slug: string, id: string): Promise<Application> {
@@ -63,6 +75,9 @@ export class ApplicationRepository {
     }
     const parsed = ApplicationSchema.safeParse(json);
     if (!parsed.success) throw new AppError(`${file} does not match the application schema`, 500, parsed.error.issues);
+    if (parsed.data.id !== id) {
+      throw new AppError(`${file} contains id "${parsed.data.id}", expected "${id}"`, 500);
+    }
     return parsed.data;
   }
 
@@ -74,14 +89,15 @@ export class ApplicationRepository {
   }
 
   async delete(slug: string, id: string): Promise<void> {
-    await rm(this.jsonPath(slug, id), { force: true });
+    // PDF first: if the second removal fails, the application stays listed and can be retried.
     await rm(this.pdfPath(slug, id), { force: true });
+    await rm(this.jsonPath(slug, id), { force: true });
   }
 
   async savePdf(slug: string, id: string, pdf: Buffer): Promise<void> {
     const file = this.pdfPath(slug, id);
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, pdf);
+    if (!(await exists(this.jsonPath(slug, id)))) throw new AppError(`Application "${id}" not found`, 404);
+    await writeFileAtomic(file, pdf);
   }
 
   async readPdf(slug: string, id: string): Promise<Buffer | null> {

@@ -7,6 +7,7 @@ export function slugify(text: string, max = 30): string {
   const slug = text
     .toLowerCase()
     .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, max)
@@ -15,7 +16,10 @@ export function slugify(text: string, max = 30): string {
 }
 
 export function newApplicationId(company: string, now: Date = new Date()): string {
-  const date = now.toISOString().slice(0, 10);
+  // Local date, so the id matches the day the dashboard shows.
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const date = `${now.getFullYear()}-${month}-${day}`;
   const random = newId("a").slice(2);
   return `${date}-${slugify(company)}-${random}`;
 }

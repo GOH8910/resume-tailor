@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SkillCategorySchema } from "@/bank/schema";
+import { APPLICATION_ID } from "./ids";
 
 export const ResumeBulletSchema = z.object({
   bulletId: z.string(),
@@ -23,8 +24,8 @@ export const ResumeStateSchema = z.object({
 });
 
 export const ApplicationSchema = z.object({
-  id: z.string(),
-  createdAt: z.string(),
+  id: z.string().regex(APPLICATION_ID),
+  createdAt: z.iso.datetime(),
   company: z.string(),
   roleTitle: z.string().default(""),
   jobDescription: z.string(),
