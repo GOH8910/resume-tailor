@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildTex } from "./build";
 import { compileTex, latexEnv } from "./compile";
@@ -7,7 +10,7 @@ import { loadTemplate } from "./template";
 
 function hasLatexmk(): boolean {
   try {
-    execFileSync("latexmk", ["--version"], { env: latexEnv(), stdio: "ignore" });
+    execFileSync(process.env.LATEXMK_PATH ?? "latexmk", ["--version"], { env: latexEnv(), stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -85,5 +88,21 @@ describe("compileTex with a missing binary", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.message).toMatch(/latexmk/i);
+  });
+});
+
+describe("compileTex with a stand-in latexmk that leaves no log", () => {
+  it("falls back to the captured output", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "fake-latexmk-"));
+    try {
+      const script = path.join(dir, "latexmk");
+      await writeFile(script, "#!/bin/sh\necho 'fake latexmk output' >&2\nexit 1\n", { mode: 0o755 });
+      const result = await compileTex("x", { latexmkPath: script });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.log).toContain("fake latexmk output");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

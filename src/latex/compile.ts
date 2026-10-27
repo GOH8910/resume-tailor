@@ -5,13 +5,25 @@ import path from "node:path";
 import { isEnoent } from "@/lib/fs";
 import { countPdfPages } from "./page-count";
 
+/**
+ * `pages` is 0 when the page objects could not be counted, so callers must treat 0 as unknown rather than as an empty PDF.
+ * `pdf` is `Buffer<ArrayBuffer>` so it is accepted as a `Response` body.
+ */
 export type CompileResult =
-  | { ok: true; pdf: Buffer; pages: number; log: string }
+  | { ok: true; pdf: Buffer<ArrayBuffer>; pages: number; log: string }
   | { ok: false; message: string; log: string };
 
 export type CompileOptions = { latexmkPath?: string; timeoutMs?: number };
 
-type RunResult = { code: number | null; timedOut: boolean; error?: NodeJS.ErrnoException };
+type RunResult = { code: number | null; timedOut: boolean; output: string; error?: NodeJS.ErrnoException };
+
+const MAX_OUTPUT_CHARS = 1024 * 1024;
+
+// Kept on the same line as the document so LaTeX log line numbers match the generated source. It works before
+// \documentclass, so it also protects a user-supplied template: page objects stay uncompressed for page counting,
+// and unknown Unicode renders as "?" instead of failing.
+const PREAMBLE_PREFIX =
+  "\\pdfobjcompresslevel=0\\makeatletter\\def\\UTFviii@undefined@err#1{?}\\makeatother";
 
 /** PATH with the usual MacTeX and Homebrew locations appended, for servers launched from an IDE. */
 export function latexEnv(): NodeJS.ProcessEnv {
@@ -24,7 +36,8 @@ function runLatexmk(latexmk: string, args: string[], dir: string, timeoutMs: num
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
-    const child = spawn(latexmk, args, { cwd: dir, env: latexEnv(), detached: true, stdio: "ignore" });
+    let output = "";
+    const child = spawn(latexmk, args, { cwd: dir, env: latexEnv(), detached: true, stdio: ["ignore", "pipe", "pipe"] });
     const timer = setTimeout(() => {
       timedOut = true;
       if (child.pid) {
@@ -35,14 +48,22 @@ function runLatexmk(latexmk: string, args: string[], dir: string, timeoutMs: num
         }
       }
     }, timeoutMs);
-    const finish = (result: RunResult) => {
+    const finish = (result: Omit<RunResult, "output" | "timedOut">) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(result);
+      resolve({ ...result, timedOut, output });
     };
-    child.once("error", (err) => finish({ code: null, timedOut, error: err as NodeJS.ErrnoException }));
-    child.once("exit", (code) => finish({ code, timedOut }));
+    const collect = (chunk: string) => {
+      if (output.length < MAX_OUTPUT_CHARS) output = (output + chunk).slice(0, MAX_OUTPUT_CHARS);
+    };
+    for (const stream of [child.stdout, child.stderr]) {
+      stream?.setEncoding("utf8");
+      stream?.on("data", collect);
+    }
+    child.once("error", (err) => finish({ code: null, error: err as NodeJS.ErrnoException }));
+    // "close" rather than "exit" so the captured output is complete when it fires.
+    child.once("close", (code) => finish({ code }));
   });
 }
 
@@ -51,18 +72,12 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(os.tmpdir(), "resume-tailor-"));
   try {
-    // Prepended lines work before \documentclass, so they also protect a user-supplied template:
-    // keep page objects uncompressed for page counting, and render unknown Unicode as "?" instead of failing.
-    const source = [
-      "\\pdfobjcompresslevel=0",
-      "\\makeatletter\\def\\UTFviii@undefined@err#1{?}\\makeatother",
-      tex,
-    ].join("\n");
-    await writeFile(path.join(dir, "resume.tex"), source, "utf8");
+    await writeFile(path.join(dir, "resume.tex"), PREAMBLE_PREFIX + tex, "utf8");
     // -norc ignores any ~/.latexmkrc (it could move the aux dir or enable shell escape); -no-shell-escape blocks \write18.
-    const args = ["-norc", "-no-shell-escape", "-pdf", "-interaction=nonstopmode", "-halt-on-error", `-output-directory=${dir}`, "resume.tex"];
+    const args = ["-norc", "-no-shell-escape", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "resume.tex"];
     const run = await runLatexmk(latexmk, args, dir, timeout);
-    const log = await readLog(dir);
+    // The captured output covers a timeout or an early latexmk failure, where no log file exists.
+    const log = (await readLog(dir)) || run.output;
     if (run.error) {
       if (run.error.code === "ENOENT") {
         return { ok: false, message: `latexmk not found at "${latexmk}". Install MacTeX or set LATEXMK_PATH.`, log };
@@ -75,7 +90,7 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
     if (run.code !== 0) {
       return { ok: false, message: "LaTeX compilation failed. See the log for details.", log };
     }
-    let pdf: Buffer;
+    let pdf: Buffer<ArrayBuffer>;
     try {
       pdf = await readFile(path.join(dir, "resume.pdf"));
     } catch (err) {
@@ -84,14 +99,20 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
     }
     return { ok: true, pdf, pages: countPdfPages(pdf), log };
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    // Cleanup must never mask the compile result.
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch (err) {
+      console.error(`Could not remove temp dir ${dir}:`, err);
+    }
   }
 }
 
 async function readLog(dir: string): Promise<string> {
   try {
     return await readFile(path.join(dir, "resume.log"), "utf8");
-  } catch {
-    return "";
+  } catch (err) {
+    if (isEnoent(err)) return "";
+    throw err;
   }
 }
