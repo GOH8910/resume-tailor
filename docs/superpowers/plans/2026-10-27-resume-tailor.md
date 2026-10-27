@@ -3044,6 +3044,8 @@ git commit -m "feat: add API routes for profiles, bank, applications, tailor and
 
 ### Task 12: UI foundation (API client, profile context, top bar, primitives, dashboard)
 
+> Updated during execution (review of commit 8a8faab): the unlayered `font: inherit` rule in globals.css was removed (it cancelled Button/Field size utilities) and base rules moved into `@layer base`; `--color-ink-faint` darkened for AA contrast; `Button.tsx` exports `buttonClass()` and `FOCUS_RING` for links styled as buttons; `Field` renders hints outside the label with `aria-describedby`; `api.ts` gained `withProfile()`, a 204/empty-body guard and NaN-safe page-count parsing; the top bar handles profile-load errors, uses a real form with pending state and returns focus on close; the dashboard renders a `ProfileApplications` child keyed by profile (cancelled-flag effect, no eslint suppression), manages focus in the two-step delete and fixes 375px overflow. **Patterns Tasks 13-15 must follow:** keyed child per profile with a cancelled-flag effect (no setState directly in an effect body), `buttonClass()` for links, focus management when a confirm step swaps in, read `error` from `useProfile()`, build URLs with `withProfile()`.
+
 **Files:**
 - Create: `src/ui/api.ts`, `src/ui/ProfileProvider.tsx`, `src/ui/TopBar.tsx`, `src/ui/Button.tsx`, `src/ui/Banner.tsx`, `src/ui/Field.tsx`, `src/ui/dashboard/ApplicationList.tsx`
 - Replace: `src/app/layout.tsx`, `src/app/page.tsx`
