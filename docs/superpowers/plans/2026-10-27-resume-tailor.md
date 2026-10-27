@@ -1372,6 +1372,8 @@ git commit -m "feat: compile tex to pdf with latexmk and report page count"
 
 ### Task 7: Applications schema, ids and repository
 
+> Updated during execution (review of commit 7c773cf): `list` skips stray or unreadable files with a console warning instead of failing the whole dashboard, `get` rejects a file whose content id differs from its filename, `savePdf` is atomic (shared `writeFileAtomic` in `src/lib/fs.ts`) and 404s when the application does not exist, `delete` removes the PDF first, `slugify` strips combining marks (accent-safe), `newApplicationId` uses the local date, the schema validates `id` against `APPLICATION_ID` and `createdAt` as an ISO datetime, and tests cover these. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/applications/schema.ts`, `src/applications/ids.ts`, `src/applications/repository.ts`
 - Test: `src/applications/ids.test.ts`, `src/applications/repository.test.ts`
