@@ -1542,7 +1542,13 @@ export class ApplicationRepository {
       if (isEnoent(err)) throw new AppError(`Application "${id}" not found`, 404);
       throw err;
     }
-    const parsed = ApplicationSchema.safeParse(JSON.parse(raw));
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      throw new AppError(`${file} is not valid JSON`, 500);
+    }
+    const parsed = ApplicationSchema.safeParse(json);
     if (!parsed.success) throw new AppError(`${file} does not match the application schema`, 500, parsed.error.issues);
     return parsed.data;
   }
