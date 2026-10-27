@@ -2970,7 +2970,7 @@ const TailorRequestSchema = z.object({
 export async function POST(request: Request) {
   return handle(async () => {
     if (!hasApiKey()) {
-      throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart `npm run dev`.", 400);
+      throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart npm run dev.", 400);
     }
     const body = TailorRequestSchema.parse(await request.json());
     const application = await runTailor(body, { banks, applications, model: new AnthropicTailorModel(body.model) });
