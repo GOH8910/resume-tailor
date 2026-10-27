@@ -8,8 +8,8 @@ const MARKER_LINE = /^%%CONTENT%%$/m;
 
 /** Bullets pasted from Word or the web often start with their own bullet glyph; drop one. */
 function stripLeadingMarker(bullet: string): string {
-  // A dash or asterisk only counts as a marker when followed by whitespace ("-20%" is content).
-  return bullet.replace(/^(?:[•●▪∙·]\s*|[-*]\s+)/, "");
+  // A dash or asterisk only counts as a marker when followed by whitespace or the end ("-20%" is content).
+  return bullet.replace(/^(?:[\u2022\u25CF\u25AA\u2219\u00B7\uF0B7]\s*|[-*](?:\s+|$))/, "");
 }
 
 /** Single-line fields (titles, names, dates) must not contain blank lines: they break \textbf{}. */
@@ -37,18 +37,19 @@ export function renderContent(doc: ResumeDocument): string {
   return `${parts.filter(Boolean).join("\n\n")}\n`;
 }
 
-/** URLs go inside \href{...}; strip the characters that would break the argument. */
+/** URLs go inside \href{...}: escape the characters that would break the argument or the link target. */
 function safeUrl(url: string): string {
-  return url.replace(/[{}\\%#\s]/g, "");
+  const map: Record<string, string> = { "%": "\\%", "#": "\\#", "{": "\\%7B", "}": "\\%7D", "\\": "\\%5C" };
+  return url.trim().replace(/[%#{}\\\s]/g, (ch) => map[ch] ?? "\\%20");
 }
 
 function renderHeader(p: Profile): string {
   const items: string[] = [];
-  if (p.email) items.push(`\\faEnvelope\\ \\href{mailto:${safeUrl(p.email)}}{${escapeLatex(oneLine(p.email))}}`);
-  if (p.phone) items.push(`\\faPhone\\ ${escapeLatex(oneLine(p.phone))}`);
-  if (p.linkedin) items.push(`\\faLinkedin\\ \\href{${safeUrl(p.linkedin)}}{LinkedIn}`);
-  if (p.github) items.push(`\\faGithub\\ \\href{${safeUrl(p.github)}}{GitHub}`);
-  if (p.website) items.push(`\\faGlobe\\ \\href{${safeUrl(p.website)}}{Website}`);
+  if (p.email?.trim()) items.push(`\\faEnvelope\\ \\href{mailto:${safeUrl(p.email)}}{${escapeLatex(oneLine(p.email))}}`);
+  if (p.phone?.trim()) items.push(`\\faPhone\\ ${escapeLatex(oneLine(p.phone))}`);
+  if (p.linkedin?.trim()) items.push(`\\faLinkedin\\ \\href{${safeUrl(p.linkedin)}}{LinkedIn}`);
+  if (p.github?.trim()) items.push(`\\faGithub\\ \\href{${safeUrl(p.github)}}{GitHub}`);
+  if (p.website?.trim()) items.push(`\\faGlobe\\ \\href{${safeUrl(p.website)}}{Website}`);
   const contact = items.length ? `\\resumeContact{${items.join(" \\quad ")}}` : "";
   return [`\\resumeName{${escapeLatex(oneLine(p.name))}}`, contact].filter(Boolean).join("\n");
 }
@@ -62,15 +63,17 @@ function renderDates(e: DocEntry): string {
 
 function renderEntry(e: DocEntry): string {
   const boldTitle = `\\textbf{${escapeLatex(oneLine(e.title))}}`;
-  const title = e.link ? `\\href{${safeUrl(e.link)}}{${boldTitle}}` : boldTitle;
+  const link = e.link?.trim();
+  const title = link ? `\\href{${safeUrl(link)}}{${boldTitle}}` : boldTitle;
   const left = e.org?.trim() ? `${title}, ${escapeLatex(oneLine(e.org))}` : title;
   const right = [renderDates(e), e.location?.trim() ? escapeLatex(oneLine(e.location)) : ""].filter(Boolean).join(" ~|~ ");
-  const bullets = e.bullets.map((b) => b.trim()).filter(Boolean);
+  // Strip the marker before the blank filter so a glyph-only bullet is dropped; a bullet is one paragraph.
+  const bullets = e.bullets.map((b) => oneLine(stripLeadingMarker(b.trim()))).filter(Boolean);
   const lines = [`\\resumeEntry{${left}}{${right}}`];
   if (bullets.length > 0) {
     lines.push("\\begin{itemize}");
     // \item{} so a bullet starting with "[" is not read as an optional argument.
-    for (const bullet of bullets) lines.push(`  \\item{} ${escapeLatex(stripLeadingMarker(bullet))}`);
+    for (const bullet of bullets) lines.push(`  \\item{} ${escapeLatex(bullet)}`);
     lines.push("\\end{itemize}");
   }
   return lines.join("\n");
@@ -83,12 +86,14 @@ function renderSection(title: string, entries: DocEntry[]): string {
 }
 
 function renderSkills(skills: SkillCategory[]): string {
-  const categories = skills.filter((c) => c.name.trim() && c.items.length > 0);
+  // Normalise first, then filter, so a category whose items are all blank is dropped.
+  const categories = skills
+    .map((c) => ({ name: oneLine(c.name), items: c.items.map(oneLine).filter(Boolean) }))
+    .filter((c) => c.name && c.items.length > 0);
   if (categories.length === 0) return "";
   const lines = ["\\section{Skills}", "\\begin{itemize}"];
   for (const c of categories) {
-    const items = c.items.map((i) => escapeLatex(oneLine(i))).filter(Boolean);
-    lines.push(`  \\item{} \\textbf{${escapeLatex(oneLine(c.name))}:} ${items.join(", ")}`);
+    lines.push(`  \\item{} \\textbf{${escapeLatex(c.name)}:} ${c.items.map(escapeLatex).join(", ")}`);
   }
   lines.push("\\end{itemize}");
   return lines.join("\n");

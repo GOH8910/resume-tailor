@@ -22,7 +22,7 @@ describe("renderContent", () => {
     expect(tex).toContain("\\resumeEntry{\\textbf{Software Engineer Intern}, Acme Corp}{Jul 2024 -- Jan 2025 ~|~ London, UK}");
   });
 
-  it("links a project title when a link is present and omits the location", () => {
+  it("links a project title when a link is present", () => {
     expect(tex).toContain("\\resumeEntry{\\href{https://github.com/alex-example/trail-planner}{\\textbf{Trail Planner}}}{Jan 2024 -- Present}");
   });
 
@@ -64,6 +64,37 @@ describe("renderContent", () => {
   it("collapses blank lines in single-line fields", () => {
     const tex5 = renderContent({ ...exampleDocument, experience: [{ ...exampleDocument.experience[0], title: "Lead\n\nEngineer", org: " Acme \n Corp " }] });
     expect(tex5).toContain("\\resumeEntry{\\textbf{Lead Engineer}, Acme Corp}");
+  });
+
+  it("escapes % and # in URLs instead of deleting them", () => {
+    const tex = renderContent({ ...exampleDocument, profile: { ...exampleDocument.profile, linkedin: "https://x.com/in/jos%C3%A9?x=1&y=2#frag" } });
+    expect(tex).toContain("\\href{https://x.com/in/jos\\%C3\\%A9?x=1&y=2\\#frag}{LinkedIn}");
+  });
+
+  it("omits whitespace-only contact fields and links", () => {
+    const tex = renderContent({
+      ...exampleDocument,
+      profile: { ...exampleDocument.profile, email: "  ", github: " ", website: "\t" },
+      projects: [{ ...exampleDocument.projects[0], link: "  " }],
+    });
+    expect(tex).not.toContain("\\faEnvelope");
+    expect(tex).not.toContain("\\faGithub");
+    expect(tex).not.toContain("\\faGlobe");
+    expect(tex).toContain("\\resumeEntry{\\textbf{Trail Planner}}");
+  });
+
+  it("drops skill categories whose items are all blank", () => {
+    const tex = renderContent({ ...exampleDocument, skills: [{ id: "s", name: "Empty", items: ["", "  "] }, ...exampleDocument.skills] });
+    expect(tex).not.toContain("Empty");
+  });
+
+  it("drops bullets that are only a glyph and strips a symbol-font bullet", () => {
+    const tex = renderContent({ ...exampleDocument, projects: [{ title: "P", start: "", end: "", bullets: ["•", "\uF0B7 word", "-", "- real"] }] });
+    expect(tex.match(/\\item\{\} /g)?.length).toBe(
+      exampleDocument.education[0].bullets.length + exampleDocument.experience[0].bullets.length + 2 + exampleDocument.skills.length,
+    );
+    expect(tex).toContain("\\item{} word");
+    expect(tex).toContain("\\item{} real");
   });
 
   it("matches the snapshot", () => {
