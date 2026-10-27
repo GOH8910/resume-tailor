@@ -35,6 +35,14 @@ npm run dev                     # open http://localhost:3000 (use the localhost 
    The badge tells you if it spilled past one page. **Download PDF** when happy.
 5. **Dashboard**: every tailored resume is kept with its JD and PDF.
 
+## Chat with Claude
+
+The "Chat with Claude" button (bottom right) is on every page. Paste or
+describe an experience ("I also interned at X, built Y") and it turns it into
+bullets in your bank; on a review screen you can also say "add my Kafka work to
+this resume", "shorten the summary" or "drop the second project" and the
+changes land on that resume. Claude only ever uses facts you give it.
+
 ## Seeding a bank from old resumes
 
 ```bash

@@ -6,10 +6,13 @@ import * as edit from "@/applications/edit";
 import { slugify } from "@/applications/ids";
 import type { Application, ResumeState } from "@/applications/schema";
 import { type Bank, SECTION_KEYS } from "@/bank/schema";
+import { applyResumeChanges } from "@/chat/apply-resume";
+import type { ResumeChange } from "@/chat/schema";
 import { ApiError, api, compilePdf, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
+import { useChatContext } from "@/ui/chat/ChatProvider";
 import { useProfile } from "@/ui/ProfileProvider";
 import { loadApplication, saveApplication, saveApplicationOnExit } from "./application-saver";
 import { PdfPreview } from "./PdfPreview";
@@ -53,6 +56,7 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = resume !== saved;
   const saving = pendingSaves > 0;
+  const { register: registerChat } = useChatContext();
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +142,29 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
       }
     };
   }, [profile, applicationId, cancelTimer]);
+
+  // Chat drawer hooks: flush pending edits before Claude reads the resume; apply its changes through `change`.
+  const flush = useCallback(async () => {
+    if (!timer.current || !latest.current) return;
+    cancelTimer();
+    await save(latest.current);
+  }, [cancelTimer, save]);
+  const applyChat = useCallback(
+    (changes: ResumeChange[], updatedBank: Bank) => {
+      setBank(updatedBank);
+      const current = latest.current;
+      if (!current) return { applied: [], warnings: [] };
+      const result = applyResumeChanges(current, updatedBank, changes);
+      change(() => result.state);
+      return { applied: result.applied, warnings: result.warnings };
+    },
+    [change],
+  );
+  const company = application?.company;
+  useEffect(() => {
+    if (!company) return;
+    return registerChat({ label: `Resume · ${company}`, applicationId, getResume: () => latest.current, applyResumeChanges: applyChat, flush });
+  }, [registerChat, company, applicationId, applyChat, flush]);
 
   async function onCompile() {
     if (!resume) return;

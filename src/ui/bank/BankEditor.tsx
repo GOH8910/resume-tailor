@@ -6,6 +6,7 @@ import { type Bank, SECTION_LABELS, type SectionKey } from "@/bank/schema";
 import { errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, FOCUS_RING } from "@/ui/Button";
+import { useChatContext } from "@/ui/chat/ChatProvider";
 import { useProfile } from "@/ui/ProfileProvider";
 import { loadBank, saveBank, saveBankOnExit } from "./bank-saver";
 import { EntryEditor } from "./EntryEditor";
@@ -49,6 +50,7 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<Bank | null>(null);
   const tabs = useRef<HTMLElement>(null);
+  const { register: registerChat } = useChatContext();
 
   // The tab strip scrolls sideways on narrow screens, and each section mounts fresh, so reveal the active tab.
   useEffect(() => {
@@ -101,6 +103,21 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
     },
     [save],
   );
+
+  // The chat drawer saves pending edits before Claude reads the bank, and re-reads it after Claude changes it.
+  const flush = useCallback(async () => {
+    if (!timer.current) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+    await save();
+  }, [save]);
+  const reloadBank = useCallback(async () => {
+    const loaded = await loadBank(profile);
+    latest.current = loaded;
+    setBank(loaded);
+    setStatus("saved");
+  }, [profile]);
+  useEffect(() => registerChat({ label: `Bank · ${LABELS[section]}`, flush, reloadBank }), [registerChat, section, flush, reloadBank]);
 
   useEffect(() => {
     const onPageHide = () => {
