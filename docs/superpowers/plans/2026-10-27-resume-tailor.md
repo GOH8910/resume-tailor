@@ -954,6 +954,13 @@ describe("renderContent", () => {
     expect(tex4).toContain("\\item{} [WIP] tool");
   });
 
+  it("drops a pasted bullet glyph at the start of a bullet", () => {
+    const tex6 = renderContent({ ...exampleDocument, projects: [{ title: "P", start: "", end: "", bullets: ["• pasted", "- dashed", "plain"] }] });
+    expect(tex6).toContain("\\item{} pasted");
+    expect(tex6).toContain("\\item{} dashed");
+    expect(tex6).toContain("\\item{} plain");
+  });
+
   it("collapses blank lines in single-line fields", () => {
     const tex5 = renderContent({ ...exampleDocument, experience: [{ ...exampleDocument.experience[0], title: "Lead\n\nEngineer", org: " Acme \n Corp " }] });
     expect(tex5).toContain("\\resumeEntry{\\textbf{Lead Engineer}, Acme Corp}");
@@ -975,6 +982,11 @@ describe("buildTex", () => {
   it("throws when the marker is missing", () => {
     expect(() => buildTex(exampleDocument, "\\documentclass{article}")).toThrow(/marker/);
   });
+  it("ignores a marker mentioned inside a comment and fills the marker line", () => {
+    const template = "%% uses %%CONTENT%%\n\\begin{document}\n%%CONTENT%%\n\\end{document}\n";
+    const out = buildTex(exampleDocument, template);
+    expect(out.startsWith("%% uses %%CONTENT%%\n\\begin{document}\n\\resumeName")).toBe(true);
+  });
 });
 ```
 
@@ -990,7 +1002,8 @@ Expected: FAIL, modules not found.
 ```latex
 %% Resume Tailor template. Reproduces the look of CV_Edward.pdf:
 %% Charter serif, ruled section headings, right-aligned dates, FontAwesome contact icons.
-%% src/latex/build.ts replaces the %%CONTENT%% line with the generated body.
+%% src/latex/build.ts replaces the marker line just after \begin{document} with the generated body.
+%% (The marker is deliberately not mentioned here, so a replace never matches this comment.)
 \documentclass[a4paper,10pt]{article}
 \usepackage[a4paper,top=0.45in,bottom=0.45in,left=0.55in,right=0.55in]{geometry}
 \usepackage[T1]{fontenc}
@@ -1062,6 +1075,14 @@ import type { DocEntry, ResumeDocument } from "./document";
 import { escapeLatex } from "./escape";
 
 export const CONTENT_MARKER = "%%CONTENT%%";
+/** The marker must occupy a whole line, so a mention inside a comment is never replaced. */
+const MARKER_LINE = /^%%CONTENT%%$/m;
+
+/** Bullets pasted from Word or the web often start with their own bullet glyph; drop one. */
+function stripLeadingMarker(bullet: string): string {
+  // A dash or asterisk only counts as a marker when followed by whitespace ("-20%" is content).
+  return bullet.replace(/^(?:[\u2022\u25CF\u25AA\u2219\u00B7\uF0B7]\s*|[-*]\s+)/, "");
+}
 
 /** Single-line fields (titles, names, dates) must not contain blank lines: they break \textbf{}. */
 function oneLine(text: string): string {
@@ -1069,11 +1090,11 @@ function oneLine(text: string): string {
 }
 
 export function buildTex(doc: ResumeDocument, template: string): string {
-  if (!template.includes(CONTENT_MARKER)) {
-    throw new Error(`Template is missing the ${CONTENT_MARKER} marker`);
+  if (!MARKER_LINE.test(template)) {
+    throw new Error(`Template is missing the ${CONTENT_MARKER} marker on its own line`);
   }
   // Function replacer: a string replacement would interpret "$&" patterns in the content.
-  return template.replace(CONTENT_MARKER, () => renderContent(doc));
+  return template.replace(MARKER_LINE, () => renderContent(doc));
 }
 
 export function renderContent(doc: ResumeDocument): string {
@@ -1121,7 +1142,7 @@ function renderEntry(e: DocEntry): string {
   if (bullets.length > 0) {
     lines.push("\\begin{itemize}");
     // \item{} so a bullet starting with "[" is not read as an optional argument.
-    for (const bullet of bullets) lines.push(`  \\item{} ${escapeLatex(bullet)}`);
+    for (const bullet of bullets) lines.push(`  \\item{} ${escapeLatex(stripLeadingMarker(bullet))}`);
     lines.push("\\end{itemize}");
   }
   return lines.join("\n");
@@ -1165,7 +1186,7 @@ export async function loadTemplate(): Promise<string> {
 ```bash
 npm test -- src/latex/build.test.ts
 ```
-Expected: 11 tests pass; a snapshot file `src/latex/__snapshots__/build.test.ts.snap` is written. Open it and eyeball that the content looks like LaTeX, not garbage.
+Expected: 13 tests pass; a snapshot file `src/latex/__snapshots__/build.test.ts.snap` is written. Open it and eyeball that the content looks like LaTeX, not garbage.
 
 - [ ] **Step 6: Commit**
 
@@ -1290,8 +1311,13 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(os.tmpdir(), "resume-tailor-"));
   try {
-    // Prepend (works before \documentclass) so page counting also works with a user-supplied template.
-    const source = `\\pdfobjcompresslevel=0\n${tex}`;
+    // Prepended lines work before \documentclass, so they also protect a user-supplied template:
+    // keep page objects uncompressed for page counting, and render unknown Unicode as "?" instead of failing.
+    const source = [
+      "\\pdfobjcompresslevel=0",
+      "\\makeatletter\\def\\UTFviii@undefined@err#1{?}\\makeatother",
+      tex,
+    ].join("\n");
     await writeFile(path.join(dir, "resume.tex"), source, "utf8");
     try {
       await execFileAsync(
