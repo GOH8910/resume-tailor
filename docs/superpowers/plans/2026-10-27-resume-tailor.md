@@ -1203,6 +1203,8 @@ git commit -m "feat: add latex template and tex builder"
 
 ### Task 6: Compile with latexmk
 
+> Updated during execution (review of commit 257e7cb): `compileTex` now spawns latexmk in its own process group and SIGKILLs the whole group on timeout (the execFile timeout orphaned pdflatex at 100% CPU), passes `-norc` and the pdflatex flag that disables `\write18` (a crafted URL could reach it via TeX `^^xx` notation; `safeUrl` in Task 5 now also escapes `^`), distinguishes timeout and "no PDF produced" outcomes, and has tests for the timeout kill and the shell-escape refusal. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/latex/compile.ts`
 - Test: `src/latex/compile.integration.test.ts`
