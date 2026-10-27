@@ -32,9 +32,11 @@ npm run dev                     # open http://localhost:3000 (use the localhost 
    Claude". Without an API key, "Start from full bank" lets you prune by hand.
 4. **Review**: Claude's edits show as a word diff against your bank wording.
    Revert, edit, reorder, add bullets back from the bank, then **Compile PDF**.
-   The PDF always fills exactly one A4 page: the font scales between 8.5pt and
-   12pt to fit, and any leftover space is spread between sections. The badge
-   warns if it still spills past one page at the smallest size. **Download
+   The PDF always fills exactly one A4 page: by default the font scales
+   between 8.5pt and 12pt to fit, and any leftover space is spread between
+   sections. The **Layout** box sets a fixed font size and the four margins
+   (inches) for that resume; "Use for new resumes" makes them the profile
+   default. The badge warns if the resume spills past one page. **Download
    PDF** when happy.
 5. **Dashboard**: every tailored resume is kept with its JD and PDF.
 

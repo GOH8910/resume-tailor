@@ -8,6 +8,7 @@ import type { Application, ResumeState } from "@/applications/schema";
 import { type Bank, SECTION_KEYS } from "@/bank/schema";
 import { applyResumeChanges } from "@/chat/apply-resume";
 import type { ResumeChange } from "@/chat/schema";
+import { resolveLayout } from "@/latex/layout";
 import { ApiError, api, compilePdf, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
@@ -15,6 +16,7 @@ import { Field, TextArea } from "@/ui/Field";
 import { useChatContext } from "@/ui/chat/ChatProvider";
 import { useProfile } from "@/ui/ProfileProvider";
 import { loadApplication, saveApplication, saveApplicationOnExit } from "./application-saver";
+import { LayoutControls } from "./LayoutControls";
 import { PdfPreview } from "./PdfPreview";
 import { SectionReview } from "./SectionReview";
 import { SkillsReview } from "./SkillsReview";
@@ -186,6 +188,20 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     }
   }
 
+  /** The current layout becomes the profile default; this resume then follows the default instead of its own copy. */
+  async function saveDefaultLayout() {
+    if (!bank || !resume) return;
+    try {
+      // Re-read the bank first so a stale copy here cannot overwrite edits made elsewhere.
+      const fresh = await api.get<Bank>(withProfile("/api/bank", profile));
+      const layout = resolveLayout(resume.layout, bank.layout);
+      setBank(await api.send<Bank>(withProfile("/api/bank", profile), "PUT", { ...fresh, layout }));
+      change((s) => edit.setLayout(s, undefined));
+    } catch (err) {
+      setSaveError(errorMessage(err));
+    }
+  }
+
   if (problem && !application) {
     return (
       <Banner tone="error" title="Could not load this application">
@@ -258,6 +274,14 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
             {problem.log && <LatexLog log={problem.log} />}
           </Banner>
         )}
+
+        <LayoutControls
+          layout={resolveLayout(resume.layout, bank.layout)}
+          customised={resume.layout !== undefined}
+          onChange={(layout) => change((s) => edit.setLayout(s, layout))}
+          onReset={() => change((s) => edit.setLayout(s, undefined))}
+          onSaveDefault={saveDefaultLayout}
+        />
 
         {preview && <PdfPreview url={preview.url} pages={preview.pages} />}
 

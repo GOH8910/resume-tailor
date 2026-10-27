@@ -1,4 +1,5 @@
 import type { Bank, Bullet, SectionKey, SkillCategory } from "@/bank/schema";
+import { type Layout, sameLayout } from "@/latex/layout";
 import { isRealBullet, toResumeBullet, toResumeEntry } from "./resume-state";
 import type { ResumeBullet, ResumeEntry, ResumeState } from "./schema";
 
@@ -91,6 +92,17 @@ export function moveEntry(state: ResumeState, section: SectionKey, entryId: stri
 
 export function setSummary(state: ResumeState, summary: string): ResumeState {
   return summary === state.summary ? state : { ...state, summary };
+}
+
+/** `undefined` drops the resume's own layout so it follows the profile default again. */
+export function setLayout(state: ResumeState, layout: Layout | undefined): ResumeState {
+  if (sameLayout(state.layout, layout)) return state;
+  if (layout === undefined) {
+    const rest = { ...state };
+    delete rest.layout;
+    return rest;
+  }
+  return { ...state, layout };
 }
 
 export function setSkills(state: ResumeState, skills: SkillCategory[]): ResumeState {

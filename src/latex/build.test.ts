@@ -121,6 +121,17 @@ describe("buildTex", () => {
   it("ignores a marker mentioned inside a comment and fills the marker line", () => {
     const template = "%% uses %%CONTENT%%\n\\begin{document}\n%%CONTENT%%\n\\end{document}\n";
     const out = buildTex(exampleDocument, template);
-    expect(out.startsWith("%% uses %%CONTENT%%\n\\begin{document}\n\\resumeName")).toBe(true);
+    expect(out).toContain("%% uses %%CONTENT%%\n\\begin{document}\n\\resumeName");
+  });
+  it("prepends the layout definitions on the template's first line", () => {
+    const doc = { ...exampleDocument, layout: { fontSize: 10.5, margins: { top: 0.5, bottom: 0.6, left: 0.7, right: 0.8 } } };
+    const out = buildTex(doc, "%% t\n%%CONTENT%%\n");
+    expect(out.split("\n")[0]).toBe(
+      "\\def\\resumeFontTenths{105}\\def\\resumeMarginTop{0.50in}\\def\\resumeMarginBottom{0.60in}\\def\\resumeMarginLeft{0.70in}\\def\\resumeMarginRight{0.80in}%% t",
+    );
+  });
+  it("encodes an automatic font size as zero tenths", () => {
+    const out = buildTex(exampleDocument, "%%CONTENT%%\n");
+    expect(out.startsWith("\\def\\resumeFontTenths{0}")).toBe(true);
   });
 });

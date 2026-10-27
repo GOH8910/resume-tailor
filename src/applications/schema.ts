@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SkillCategorySchema } from "@/bank/schema";
+import { LayoutSchema } from "@/latex/layout";
 import { APPLICATION_ID } from "./ids";
 
 export const ResumeBulletSchema = z.object({
@@ -21,6 +22,8 @@ export const ResumeStateSchema = z.object({
   experience: z.array(ResumeEntrySchema),
   projects: z.array(ResumeEntrySchema),
   skills: z.array(SkillCategorySchema),
+  /** Page margins and font size for this resume; absent means the profile default. */
+  layout: LayoutSchema.optional(),
 });
 
 export const ApplicationSchema = z.object({

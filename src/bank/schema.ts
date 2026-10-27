@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LayoutSchema } from "@/latex/layout";
 
 // Empty text/title/category names are allowed: the editor creates drafts while the user types.
 // The LaTeX builder and the prompt skip blank bullets and untitled entries.
@@ -42,6 +43,8 @@ export const BankSchema = z.object({
   experience: z.array(EntrySchema),
   projects: z.array(EntrySchema),
   skills: z.array(SkillCategorySchema),
+  /** Default PDF layout for new resumes of this profile. */
+  layout: LayoutSchema.optional(),
 });
 
 export type Bullet = z.infer<typeof BulletSchema>;

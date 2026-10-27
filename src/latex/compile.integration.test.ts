@@ -58,6 +58,14 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
     expect(result.pages).toBeGreaterThan(1);
   }, 90_000);
 
+  it("honours a fixed font size and custom margins", async () => {
+    const layout = { fontSize: 9, margins: { top: 0.4, bottom: 0.4, left: 0.5, right: 0.5 } };
+    const result = await compileTex(buildTex({ ...exampleDocument, layout }, await loadTemplate()));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pages).toBe(1);
+  }, 90_000);
+
   it("counts pages even when the template does not disable object streams", async () => {
     const template = (await loadTemplate()).replace("\\pdfobjcompresslevel=0", "");
     const result = await compileTex(buildTex(exampleDocument, template));

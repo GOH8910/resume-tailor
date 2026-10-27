@@ -1,6 +1,7 @@
 import type { Profile, SkillCategory } from "@/bank/schema";
 import type { DocEntry, ResumeDocument } from "./document";
 import { escapeLatex } from "./escape";
+import { layoutPreamble } from "./layout";
 
 export const CONTENT_MARKER = "%%CONTENT%%";
 /** The marker must occupy a whole line, so a mention inside a comment is never replaced. */
@@ -21,8 +22,9 @@ export function buildTex(doc: ResumeDocument, template: string): string {
   if (!MARKER_LINE.test(template)) {
     throw new Error(`Template is missing the ${CONTENT_MARKER} marker on its own line`);
   }
+  // The layout goes on the template's first line (no newline) so LaTeX log line numbers still match the template.
   // Function replacer: a string replacement would interpret "$&" patterns in the content.
-  return template.replace(MARKER_LINE, () => renderContent(doc));
+  return layoutPreamble(doc.layout) + template.replace(MARKER_LINE, () => renderContent(doc));
 }
 
 export function renderContent(doc: ResumeDocument): string {

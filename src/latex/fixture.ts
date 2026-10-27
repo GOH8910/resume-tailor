@@ -1,6 +1,8 @@
 import type { ResumeDocument } from "./document";
+import { DEFAULT_LAYOUT } from "./layout";
 
 export const exampleDocument: ResumeDocument = {
+  layout: DEFAULT_LAYOUT,
   profile: {
     name: "Alex Example",
     email: "alex@example.com",

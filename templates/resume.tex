@@ -7,8 +7,15 @@
 %% font sizes until it fits, then the leftover space is spread across the section, entry and
 %% bullet spacing (all of it is stretchable glue). If it still overflows at the smallest size
 %% it runs onto a second page so the app can warn about it.
+%% Layout knobs. src/latex/build.ts prepends \def's for these from the resume's layout settings;
+%% the \providecommand defaults only apply when the template is compiled on its own.
+\providecommand{\resumeFontTenths}{0}% body font size in tenths of a point; 0 = auto (largest of 8.5-12pt that fits)
+\providecommand{\resumeMarginTop}{0.8in}
+\providecommand{\resumeMarginBottom}{0.8in}
+\providecommand{\resumeMarginLeft}{0.75in}
+\providecommand{\resumeMarginRight}{0.75in}
 \documentclass[a4paper,10pt]{article}
-\usepackage[a4paper,top=0.8in,bottom=0.8in,left=0.75in,right=0.75in]{geometry}
+\usepackage[a4paper,top=\resumeMarginTop,bottom=\resumeMarginBottom,left=\resumeMarginLeft,right=\resumeMarginRight]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{crimson}
@@ -36,6 +43,11 @@
 \resume@tenths=120
 \resume@mintenths=85
 \resume@steptenths=2
+% A fixed font size pins both bounds, so the loop runs once and an overflow runs onto page two.
+\ifnum\resumeFontTenths>0
+  \resume@tenths=\resumeFontTenths\relax
+  \resume@mintenths=\resumeFontTenths\relax
+\fi
 \newdimen\resume@fs
 \newdimen\resume@secfs
 \newdimen\resume@namefs
