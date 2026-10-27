@@ -1,7 +1,21 @@
-import type { Bank, Entry, SectionKey } from "@/bank/schema";
+import type { Bank, Bullet, Entry, SectionKey } from "@/bank/schema";
 import type { DocEntry, ResumeDocument } from "@/latex/document";
 import type { SelectedEntry, TailorResult } from "@/tailor/schema";
-import type { ResumeEntry, ResumeState } from "./schema";
+import type { ResumeBullet, ResumeEntry, ResumeState } from "./schema";
+
+/** Blank draft bullets never reach the prompt or the PDF, so they never enter review state either. */
+export function isRealBullet(b: Bullet): boolean {
+  return b.text.trim().length > 0;
+}
+
+export function toResumeBullet(b: Bullet): ResumeBullet {
+  return { bulletId: b.id, original: b.text, text: b.text };
+}
+
+/** All of an entry's real bullets, in bank order. */
+export function toResumeEntry(entry: Entry, rationale: string): ResumeEntry {
+  return { entryId: entry.id, rationale, bullets: entry.bullets.filter(isRealBullet).map(toResumeBullet) };
+}
 
 /** Turn a validated Claude result into editable review state, keeping original bullet text. */
 export function fromTailorResult(bank: Bank, result: TailorResult): ResumeState {
@@ -13,8 +27,8 @@ export function fromTailorResult(bank: Bank, result: TailorResult): ResumeState 
       const bulletsById = new Map(entry.bullets.map((b) => [b.id, b]));
       const bullets = sel.bullets.flatMap((sb) => {
         const bullet = bulletsById.get(sb.bulletId);
-        if (!bullet) return [];
-        return [{ bulletId: bullet.id, original: bullet.text, text: sb.edited ?? bullet.text }];
+        if (!bullet || !isRealBullet(bullet)) return [];
+        return [{ ...toResumeBullet(bullet), text: sb.edited ?? bullet.text }];
       });
       return [{ entryId: entry.id, rationale: sel.rationale, bullets }];
     });
@@ -34,22 +48,20 @@ export function fromTailorResult(bank: Bank, result: TailorResult): ResumeState 
 
 /** Everything in the bank, unchanged. Used for the no-AI path and tests. */
 export function fullStateFromBank(bank: Bank): ResumeState {
-  const all = (entries: Entry[]): ResumeEntry[] =>
-    entries.map((e) => ({
-      entryId: e.id,
-      rationale: "",
-      bullets: e.bullets.map((b) => ({ bulletId: b.id, original: b.text, text: b.text })),
-    }));
+  const all = (entries: Entry[]): ResumeEntry[] => entries.filter((e) => e.title.trim()).map((e) => toResumeEntry(e, ""));
   return {
     summary: bank.summary,
     education: all(bank.education),
     experience: all(bank.experience),
     projects: all(bank.projects),
-    skills: bank.skills.map((c) => ({ ...c, items: [...c.items] })),
+    skills: bank.skills.filter((c) => c.name.trim()).map((c) => ({ ...c, items: [...c.items] })),
   };
 }
 
-/** Join review state with bank headers into a render-ready document. Entries missing from the bank are skipped. */
+/**
+ * Join review state with bank headers into a render-ready document. Entries missing from the bank are skipped.
+ * Headers come from the live bank; bullet text is the snapshot taken at tailoring time, so later bank edits do not change a saved resume.
+ */
 export function resolveResume(bank: Bank, state: ResumeState): ResumeDocument {
   const section = (key: SectionKey): DocEntry[] => {
     const byId = new Map(bank[key].map((e) => [e.id, e]));

@@ -39,6 +39,53 @@ describe("fromTailorResult", () => {
     expect(state.skills).toEqual([{ id: "s_lang", name: "Programming", items: ["Go", "TypeScript"] }]);
     expect(state.projects).toEqual([]);
   });
+
+  it("drops unknown entries, bullets and skill categories without throwing", () => {
+    const messy: TailorResult = {
+      ...result,
+      experience: [
+        { entryId: "e_ghost", rationale: "", bullets: [{ bulletId: "b_exp1a", edited: null }] },
+        {
+          entryId: "e_exp1",
+          rationale: "",
+          bullets: [
+            { bulletId: "b_ghost", edited: null },
+            { bulletId: "b_exp1a", edited: null },
+          ],
+        },
+      ],
+      skills: [
+        { name: "Underwater Basket Weaving", items: ["x"] },
+        { name: "Programming", items: ["Go"] },
+      ],
+    };
+    const state = fromTailorResult(bank, messy);
+    expect(state.experience.map((e) => e.entryId)).toEqual(["e_exp1"]);
+    expect(state.experience[0].bullets.map((b) => b.bulletId)).toEqual(["b_exp1a"]);
+    expect(state.skills.map((s) => s.id)).toEqual(["s_lang"]);
+  });
+
+  it("skips blank draft bullets even when selected", () => {
+    const draftBank = {
+      ...bank,
+      experience: [{ ...bank.experience[0], bullets: [...bank.experience[0].bullets, { id: "b_blank", text: "  " }] }],
+    };
+    const selected: TailorResult = {
+      ...result,
+      experience: [
+        {
+          entryId: "e_exp1",
+          rationale: "",
+          bullets: [
+            { bulletId: "b_blank", edited: null },
+            { bulletId: "b_exp1a", edited: null },
+          ],
+        },
+      ],
+    };
+    const state = fromTailorResult(draftBank, selected);
+    expect(state.experience[0].bullets.map((b) => b.bulletId)).toEqual(["b_exp1a"]);
+  });
 });
 
 describe("fullStateFromBank", () => {
