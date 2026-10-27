@@ -118,7 +118,8 @@ function BulletRow({ bullet, isFirst, isLast, onSetText, onRevert, onRemove, onM
         {changed && !editing && <p className="mt-1 text-[11px] uppercase tracking-wide text-ink-faint">edited from bank</p>}
       </div>
       <div className="flex shrink-0 flex-col gap-1">
-        <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
+        {/* Prevent the mousedown blur from closing the editor before the click toggles it. */}
+        <Button size="sm" variant="ghost" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing((v) => !v)}>
           {editing ? "Done" : "Edit"}
         </Button>
         {changed && (
