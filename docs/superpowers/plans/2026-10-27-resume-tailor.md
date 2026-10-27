@@ -3683,6 +3683,19 @@ const SAVE_DELAY_MS = 800;
 
 export function BankEditor({ section }: { section: BankSection }) {
   const { profile, loading } = useProfile();
+  if (loading) return <p className="text-ink-soft">Loading…</p>;
+  if (!profile) {
+    return (
+      <Banner tone="info" title="No profile yet">
+        Create one with the “+ New” button in the top bar.
+      </Banner>
+    );
+  }
+  // Keyed by profile so switching profiles remounts with fresh state (no setState inside an effect).
+  return <ProfileBankEditor key={profile} profile={profile} section={section} />;
+}
+
+function ProfileBankEditor({ profile, section }: { profile: string; section: BankSection }) {
   const [bank, setBank] = useState<Bank | null>(null);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -3690,11 +3703,7 @@ export function BankEditor({ section }: { section: BankSection }) {
   const latest = useRef<Bank | null>(null);
 
   useEffect(() => {
-    if (!profile) return;
     let cancelled = false;
-    setBank(null);
-    setStatus("idle");
-    setError(null);
     api
       .get<Bank>(`/api/bank?profile=${profile}`)
       .then((loaded) => {
@@ -3711,7 +3720,7 @@ export function BankEditor({ section }: { section: BankSection }) {
   }, [profile]);
 
   const save = useCallback(async () => {
-    if (!profile || !latest.current) return;
+    if (!latest.current) return;
     setStatus("saving");
     try {
       await api.send(`/api/bank?profile=${profile}`, "PUT", latest.current);
@@ -3744,15 +3753,6 @@ export function BankEditor({ section }: { section: BankSection }) {
     },
     [],
   );
-
-  if (loading) return <p className="text-ink-soft">Loading…</p>;
-  if (!profile) {
-    return (
-      <Banner tone="info" title="No profile yet">
-        Create one with the “+ New” button in the top bar.
-      </Banner>
-    );
-  }
 
   return (
     <section aria-labelledby="bank-heading">
