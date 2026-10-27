@@ -3623,6 +3623,8 @@ git commit -m "feat: add UI shell, profile switcher and dashboard"
 
 ### Task 13: Bank editor
 
+> Updated during execution (review of commit eb91520): a module-level save queue in `src/ui/bank/bank-saver.ts` serialises PUTs and makes loads wait for them, the editor flushes a pending save on unmount and uses a keepalive PUT on `pagehide` (a tab switch within the 800 ms debounce used to drop the edit, and a naive flush raced the next tab's load), "Saved" is only shown for the latest state, save errors show beside the indicator with Retry, a shared `src/ui/ReorderControls.tsx` provides move/delete with focus retention and an inline confirm for entries and categories, bullets have labels, tabs have the focus ring and `aria-current`, the Pin hint is visible, unchanged skill blurs do not save, and entry cards gained a header plus mobile layout fixes. Known follow-up: two tabs editing the same bank are last-writer-wins (no revision check). The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/app/bank/page.tsx`, `src/app/bank/[section]/page.tsx`
 - Create: `src/ui/bank/BankEditor.tsx`, `src/ui/bank/ProfileForm.tsx`, `src/ui/bank/EntryEditor.tsx`, `src/ui/bank/SkillsEditor.tsx`
