@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Empty text/title are allowed: the editor creates drafts while the user types.
+// Empty text/title/category names are allowed: the editor creates drafts while the user types.
 // The LaTeX builder and the prompt skip blank bullets and untitled entries.
 export const BulletSchema = z.object({
   id: z.string().min(1),
@@ -21,7 +21,7 @@ export const EntrySchema = z.object({
 
 export const SkillCategorySchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string(),
   items: z.array(z.string()),
 });
 
