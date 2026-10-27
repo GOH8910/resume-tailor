@@ -4129,6 +4129,8 @@ git commit -m "feat: add bank editor with autosave"
 
 ### Task 14: Tailor page (paste a job description)
 
+> Updated during execution (review of commit 426b60c): the form no longer navigates after the user has left the page (unmount guard), has a synchronous re-entry guard, shows a full-contrast `role="status"` busy line with an elapsed timer and locks the fields while a call runs, keeps the busy button focusable with `aria-disabled`, moves focus to the error banner on failure, marks Company required with clearer placeholders and a readiness hint, and the side card is sticky; the API-key error message lost its backticks. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/app/tailor/page.tsx`, `src/ui/tailor/TailorForm.tsx`
 
