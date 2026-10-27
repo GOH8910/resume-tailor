@@ -32,6 +32,10 @@ function cleanInput(input: TailorInput) {
   return { jobDescription, company, roleTitle: input.roleTitle?.trim() ?? "" };
 }
 
+function newApplication(fields: Omit<Application, "id" | "createdAt">, now: Date): Application {
+  return { id: newApplicationId(fields.company, now), createdAt: now.toISOString(), ...fields };
+}
+
 /** Ask Claude for a selection, validate it against the bank, and save the application. */
 export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<Application> {
   const { jobDescription, company, roleTitle } = cleanInput(input);
@@ -43,17 +47,10 @@ export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<A
   });
   const { result, warnings } = validateTailorResult(bank, raw, limits);
   const now = (deps.now ?? (() => new Date()))();
-  const application: Application = {
-    id: newApplicationId(company, now),
-    createdAt: now.toISOString(),
-    company,
-    roleTitle,
-    jobDescription,
-    model: deps.model.id,
-    warnings,
-    notes: result.notes,
-    resume: fromTailorResult(bank, result),
-  };
+  const application = newApplication(
+    { company, roleTitle, jobDescription, model: deps.model.id, warnings, notes: result.notes, resume: fromTailorResult(bank, result) },
+    now,
+  );
   return deps.applications.save(input.profile, application);
 }
 
@@ -65,16 +62,9 @@ export async function createManualApplication(
   const { jobDescription, company, roleTitle } = cleanInput(input);
   const bank = await deps.banks.read(input.profile);
   const now = (deps.now ?? (() => new Date()))();
-  const application: Application = {
-    id: newApplicationId(company, now),
-    createdAt: now.toISOString(),
-    company,
-    roleTitle,
-    jobDescription,
-    model: "manual",
-    warnings: [],
-    notes: "",
-    resume: fullStateFromBank(bank),
-  };
+  const application = newApplication(
+    { company, roleTitle, jobDescription, model: "manual", warnings: [], notes: "", resume: fullStateFromBank(bank) },
+    now,
+  );
   return deps.applications.save(input.profile, application);
 }

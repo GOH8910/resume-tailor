@@ -4,7 +4,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ApplicationRepository } from "@/applications/repository";
 import { BankRepository } from "@/bank/repository";
+import { AppError } from "@/lib/errors";
+import { DEFAULT_LIMITS } from "./limits";
 import type { TailorModel, TailorRequest } from "./model";
+import { buildSystemPrompt } from "./prompt";
 import type { TailorResult } from "./schema";
 import { createManualApplication, runTailor } from "./tailor";
 
@@ -52,7 +55,9 @@ describe("runTailor", () => {
     expect(app.notes).toContain("Rust");
     expect(app.resume.summary).toBe("Go-focused summary.");
     expect(app.resume.experience[0].bullets.map((b) => b.bulletId)).toEqual(["b_exp1a", "b_exp1b"]);
+    expect(model.requests[0].system).toBe(buildSystemPrompt(DEFAULT_LIMITS));
     expect(model.requests[0].user).toContain("We need Go.");
+    expect(model.requests[0].user).toContain('"id":"b_exp1a"');
     expect(await applications.get("example", app.id)).toEqual(app);
   });
 
@@ -60,6 +65,20 @@ describe("runTailor", () => {
     const deps = { banks, applications, model: new FakeModel(fakeResult) };
     await expect(runTailor({ profile: "example", jobDescription: " ", company: "Acme" }, deps)).rejects.toMatchObject({ status: 400 });
     await expect(runTailor({ profile: "example", jobDescription: "x", company: " " }, deps)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("runTailor when the model fails", () => {
+  it("rethrows and saves nothing", async () => {
+    const failure = new AppError("boom", 502);
+    const model: TailorModel = {
+      id: "fake-model",
+      tailor: async () => {
+        throw failure;
+      },
+    };
+    await expect(runTailor({ profile: "example", jobDescription: "We need Go.", company: "Acme" }, { banks, applications, model })).rejects.toBe(failure);
+    expect(await applications.list("example")).toEqual([]);
   });
 });
 
