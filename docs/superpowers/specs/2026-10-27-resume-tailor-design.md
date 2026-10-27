@@ -1,7 +1,7 @@
 # Resume Tailor — Design
 
 Date: 2026-10-27
-Status: approved by Edward, pending spec review
+Status: approved by Edward 2026-10-27
 
 ## Goal
 
@@ -126,9 +126,10 @@ type SelectedEntry = {
 - Return `{ result, warnings[] }`; warnings are surfaced in the review screen.
 
 ### Model
-Default `claude-sonnet-5-5`; settings allow `claude-opus-5-5`. API key read
-from `ANTHROPIC_API_KEY` in `.env.local`. A missing key returns a 400 with a
-clear message that the UI shows.
+Default `claude-opus-5-5` (the current default Claude model); the tailor page
+lets you pick `claude-sonnet-5-5` instead. API key read from
+`ANTHROPIC_API_KEY` in `.env.local`. A missing key returns a 400 with a clear
+message that the UI shows.
 
 ## 3. Review screen
 
@@ -208,7 +209,7 @@ run once by hand; it is not part of the app.
 | `ANTHROPIC_API_KEY` missing | 400 from `/api/tailor`, banner in UI explaining where to put it. |
 | Claude returns ids not in bank | Dropped by validator; warning shown. |
 | Claude call fails / times out | 502 with message; UI offers Retry. |
-| `latexmk` missing | 500 with install hint. |
+| `latexmk` missing | 422 with install hint (same path as a compile failure). |
 | LaTeX compile error | 422 with log; UI shows log panel. |
 | Bank JSON invalid on disk | Editor shows the zod error and refuses to overwrite. |
 | Empty JD or company | Client-side validation, button disabled. |
@@ -227,14 +228,14 @@ Vitest, co-located `*.test.ts`.
 ## 10. Project layout
 
 ```
-app/                    Next.js routes and pages (thin, call into src/)
+src/app/                Next.js routes and pages (thin, call into src/)
   page.tsx              dashboard
   bank/[section]/       editor pages
   tailor/page.tsx       paste JD
   tailor/[id]/page.tsx  review screen
   api/bank, api/tailor, api/compile, api/applications, api/profiles
 src/
-  bank/                 schema.ts, repository.ts, ids.ts
+  bank/                 schema.ts, repository.ts, ids.ts, merge.ts
   tailor/               prompt.ts, schema.ts, validate.ts, claude.ts
   latex/                escape.ts, build.ts, compile.ts
   applications/         repository.ts, resume-state.ts
