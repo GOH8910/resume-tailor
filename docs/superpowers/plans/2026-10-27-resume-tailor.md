@@ -2012,6 +2012,8 @@ git commit -m "feat: add tailor output schema and bank-aware validator"
 
 ### Task 9: Resume state (from tailor result, full bank, resolve) and edit helpers
 
+> Updated during execution (review of commit 959d6bb): shared `isRealBullet`/`toResumeBullet`/`toResumeEntry` helpers keep blank draft bullets, untitled entries and unnamed skill categories out of review state; `addBullet` takes the bank and re-adds at bank position (as does `includeEntry`); no-op edits return the same state reference; `pruneMissing(state, bank)` drops entries deleted from the bank and Task 15 calls it on load. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/applications/resume-state.ts`, `src/applications/edit.ts`
 - Test: `src/applications/resume-state.test.ts`, `src/applications/edit.test.ts`
@@ -4525,7 +4527,7 @@ export function SectionReview({ section, bank, resume, onChange }: Props) {
               onRevert={(bulletId) => onChange((s) => edit.revertBullet(s, section, entry.id, bulletId))}
               onRemove={(bulletId) => onChange((s) => edit.removeBullet(s, section, entry.id, bulletId))}
               onMoveBullet={(bulletId, d) => onChange((s) => edit.moveBullet(s, section, entry.id, bulletId, d))}
-              onAdd={(bullet) => onChange((s) => edit.addBullet(s, section, entry.id, bullet))}
+              onAdd={(bullet) => onChange((s) => edit.addBullet(s, section, entry.id, bullet, bank))}
             />
           );
         })}
@@ -4677,7 +4679,8 @@ export function ReviewScreen({ applicationId }: Props) {
         if (cancelled) return;
         setApplication(loaded);
         setBank(loadedBank);
-        setResume(loaded.resume);
+        // Entries deleted from the bank since tailoring are dropped so reordering stays predictable.
+        setResume(edit.pruneMissing(loaded.resume, loadedBank));
         setDirty(false);
       })
       .catch((err) => {
