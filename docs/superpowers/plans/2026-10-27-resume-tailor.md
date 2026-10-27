@@ -2760,6 +2760,8 @@ git commit -m "feat: add tailor prompt, Claude structured-output client and orch
 
 ### Task 11: HTTP helpers and API route handlers
 
+> Updated during execution (review of commit cb3a84b): `npm run dev`/`start` bind to 127.0.0.1 (Next's default is 0.0.0.0), `src/proxy.ts` rejects API requests whose Host is not a loopback name or whose Origin differs from the Host (cross-site POSTs and DNS rebinding), `readJson()` in `src/lib/http.ts` turns malformed bodies into 400s, `handle` logs AppErrors with status >= 500, the compile route checks the application exists before compiling, and `loadTemplate` carries a `turbopackIgnore` hint so `next build` stops tracing the project. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/lib/http.ts`, `src/lib/deps.ts`
 - Create: `src/app/api/profiles/route.ts`, `src/app/api/bank/route.ts`, `src/app/api/applications/route.ts`, `src/app/api/applications/[id]/route.ts`, `src/app/api/applications/[id]/pdf/route.ts`, `src/app/api/tailor/route.ts`, `src/app/api/compile/route.ts`
@@ -5397,6 +5399,12 @@ Each PDF is extracted with `pdftotext`, structured by Claude, and merged into
 `data/<profile>/bank.json` and `data/<profile>/applications/`. The whole
 `data/` folder is git-ignored except `data/example/`, so personal details never
 reach GitHub. Back it up however you like.
+
+## Only you can reach it
+
+The dev server binds to `127.0.0.1` only, so nothing on your Wi-Fi can read
+your bank or trigger Claude calls, and `src/proxy.ts` refuses API requests that
+arrive under another hostname or from another website's origin.
 
 ## Tests
 
