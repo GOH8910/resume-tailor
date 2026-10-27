@@ -47,8 +47,8 @@ type Bullet = {
 
 type Entry = {            // used for education, experience, projects
   id: string;
-  title: string;         // "Software Engineer Intern" | "AI Travel Planner" | "MEng Biomedical Engineering"
-  org?: string;          // "Tencent" | "Imperial College London" | undefined for projects
+  title: string;         // "Software Engineer Intern" | "AI Travel Planner" | "Imperial College London"
+  org?: string;          // "Tencent" | "MEng Biomedical Engineering" | undefined for projects
   location?: string;     // "London, UK"
   start: string;         // "Jul 2026"  (free text, shown verbatim)
   end: string;           // "Present"

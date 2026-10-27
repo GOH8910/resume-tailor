@@ -91,7 +91,7 @@ e2e/smoke.spec.ts                Playwright smoke test (manual run)
 ### Task 1: Scaffold the project
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `eslint.config.mjs`, `postcss.config.mjs`, `src/app/*` (via create-next-app)
+- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `eslint.config.mjs`, `src/app/*` (via create-next-app; Next 16.4 wires Tailwind via a turbopack rule, so there is no postcss config)
 - Create: `vitest.config.ts`, `.env.example`, `data/example/bank.json`
 - Modify: `.gitignore`, `src/app/globals.css`
 
@@ -236,7 +236,7 @@ button {
   "profile": {
     "name": "Alex Example",
     "email": "alex@example.com",
-    "phone": "+44 7000 000000",
+    "phone": "+44 7700 900000",
     "linkedin": "https://linkedin.com/in/alex-example",
     "github": "https://github.com/alex-example"
   },
@@ -846,7 +846,7 @@ export const exampleDocument: ResumeDocument = {
   profile: {
     name: "Alex Example",
     email: "alex@example.com",
-    phone: "+44 7000 000000",
+    phone: "+44 7700 900000",
     linkedin: "https://linkedin.com/in/alex-example",
     github: "https://github.com/alex-example",
   },
