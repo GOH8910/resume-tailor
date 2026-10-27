@@ -354,7 +354,11 @@ describe("BankSchema", () => {
 
   it("accepts an empty draft bullet and entry (the editor creates these while typing)", () => {
     const bank = emptyBank("A");
-    const draft = { ...bank, experience: [{ id: "e1", title: "", start: "", end: "", bullets: [{ id: "b1", text: "" }] }] };
+    const draft = {
+      ...bank,
+      experience: [{ id: "e1", title: "", start: "", end: "", bullets: [{ id: "b1", text: "" }] }],
+      skills: [{ id: "s1", name: "", items: [] }],
+    };
     expect(BankSchema.safeParse(draft).success).toBe(true);
   });
 
@@ -408,8 +412,8 @@ export class AppError extends Error {
 ```ts
 import { z } from "zod";
 
-// Empty text/title are allowed: the editor creates drafts while the user types.
-// The LaTeX builder and the prompt skip blank bullets and untitled entries.
+// Empty text/title/category names are allowed: the editor creates drafts while the user types.
+// The LaTeX builder and the prompt skip blank bullets, untitled entries and unnamed categories.
 export const BulletSchema = z.object({
   id: z.string().min(1),
   text: z.string(),
@@ -429,7 +433,7 @@ export const EntrySchema = z.object({
 
 export const SkillCategorySchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string(),
   items: z.array(z.string()),
 });
 
@@ -933,8 +937,10 @@ describe("renderContent", () => {
         { title: "  ", start: "", end: "", bullets: ["ghost"] },
         { title: "Real", start: "", end: "", bullets: ["", "  ", "kept"] },
       ],
+      skills: [...exampleDocument.skills, { id: "s_draft", name: "  ", items: ["phantom"] }],
     });
     expect(tex3).not.toContain("ghost");
+    expect(tex3).not.toContain("phantom");
     expect(tex3).toContain("\\resumeEntry{\\textbf{Real}}{}");
     expect(tex3.match(/\\item /g)?.length).toBe(
       exampleDocument.education[0].bullets.length + exampleDocument.experience[0].bullets.length + 1 + exampleDocument.skills.length,
@@ -1106,7 +1112,7 @@ function renderSection(title: string, entries: DocEntry[]): string {
 }
 
 function renderSkills(skills: SkillCategory[]): string {
-  const categories = skills.filter((c) => c.items.length > 0);
+  const categories = skills.filter((c) => c.name.trim() && c.items.length > 0);
   if (categories.length === 0) return "";
   const lines = ["\\section{Skills}", "\\begin{itemize}"];
   for (const c of categories) {
@@ -2315,10 +2321,12 @@ describe("bankForPrompt", () => {
         { id: "e_draft", title: "", start: "", end: "", bullets: [{ id: "b_x", text: "x" }] },
       ],
       experience: [{ ...bank.experience[0], bullets: [...bank.experience[0].bullets, { id: "b_blank", text: "  " }] }],
+      skills: [...bank.skills, { id: "s_draft", name: "", items: ["x"] }],
     };
     const compact = bankForPrompt(withDrafts);
     expect(compact.projects.map((p) => p.id)).toEqual(["e_prj1"]);
     expect(compact.experience[0].bullets.map((b) => b.id)).not.toContain("b_blank");
+    expect(compact.skills.map((s) => s.name)).not.toContain("");
   });
 });
 
@@ -2437,7 +2445,7 @@ Rules:
 9. "notes": anything the candidate should know, for example JD requirements the bank cannot support. Use an empty string if there is nothing.`;
 }
 
-/** Compact bank for the prompt: keeps ids and pinned flags, drops untitled drafts and blank bullets. */
+/** Compact bank for the prompt: keeps ids and pinned flags, drops untitled drafts, blank bullets and unnamed skill categories. */
 export function bankForPrompt(bank: Bank) {
   const entries = (list: Entry[]) =>
     list
@@ -2458,7 +2466,7 @@ export function bankForPrompt(bank: Bank) {
     education: entries(bank.education),
     experience: entries(bank.experience),
     projects: entries(bank.projects),
-    skills: bank.skills.map((c) => ({ name: c.name, items: c.items })),
+    skills: bank.skills.filter((c) => c.name.trim()).map((c) => ({ name: c.name, items: c.items })),
   };
 }
 
