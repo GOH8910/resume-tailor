@@ -4699,8 +4699,13 @@ export function ReviewScreen({ applicationId }: Props) {
   );
 
   const change = useCallback((fn: (state: ResumeState) => ResumeState) => {
-    setResume((prev) => (prev ? fn(prev) : prev));
-    setDirty(true);
+    setResume((prev) => {
+      if (!prev) return prev;
+      const next = fn(prev);
+      // The edit helpers return the same reference for no-op edits, so only real changes mark the state dirty.
+      if (next !== prev) setDirty(true);
+      return next;
+    });
   }, []);
 
   async function save(state: ResumeState): Promise<void> {
