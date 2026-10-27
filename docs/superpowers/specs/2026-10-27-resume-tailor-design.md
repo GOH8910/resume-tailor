@@ -212,7 +212,7 @@ run once by hand; it is not part of the app.
 |---|---|
 | `ANTHROPIC_API_KEY` missing | 400 from `/api/tailor`, banner in UI explaining where to put it. |
 | Claude returns ids not in bank | Dropped by validator; warning shown. |
-| Claude call fails / times out | 502 with message; UI offers Retry. |
+| Claude call fails / times out | 502 (504 on timeout, 401 for a rejected API key, 429 when rate limited) with message; the tailor form shows it and the user can retry. |
 | `latexmk` missing | 422 with install hint (same path as a compile failure). |
 | LaTeX compile error | 422 with log; UI shows log panel. |
 | Bank JSON invalid on disk | Editor shows the zod error and refuses to overwrite. |

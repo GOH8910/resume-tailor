@@ -2369,6 +2369,8 @@ git commit -m "feat: add resume state conversion and pure edit helpers"
 
 ### Task 10: Prompt, Claude model client, tailor orchestrator
 
+> Updated during execution (review of commit 8eb73a0): the client calls `messages.create` with the zod output format, checks `stop_reason` (refusal, max_tokens) BEFORE parsing with the format's parser (a `messages.parse` call would throw first and surface a raw 500), uses a 5-minute timeout with one retry, maps timeouts to 504; the system prompt names the tagged blocks as data (prompt-injection guard), forbids moving facts between bullets, states that pinned bullets count toward limits, requires at least one bullet per entry, and routes unmet JD requirements to notes; a pasted `</job_description>` tag is neutralised; stubbed-fetch tests cover the client's failure paths. Known follow-up: server-side refusal fallbacks (`fallbacks: "default"` beta) are not enabled. The repo is the source of truth for the final code.
+
 **Files:**
 - Create: `src/tailor/prompt.ts`, `src/tailor/model.ts`, `src/tailor/anthropic-model.ts`, `src/tailor/tailor.ts`
 - Test: `src/tailor/prompt.test.ts`, `src/tailor/tailor.test.ts`
