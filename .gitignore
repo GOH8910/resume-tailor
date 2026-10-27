@@ -13,6 +13,7 @@ out/
 data/*
 !data/example/
 !data/example/**
+data/example/applications/
 
 # latex build artefacts
 *.aux
