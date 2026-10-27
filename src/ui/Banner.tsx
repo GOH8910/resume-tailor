@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentProps } from "react";
 
 type Tone = "error" | "warn" | "ok" | "info";
 
@@ -9,9 +9,12 @@ const TONES: Record<Tone, string> = {
   info: "border-rule bg-paper-deep text-ink-soft",
 };
 
-export function Banner({ tone = "info", title, children }: { tone?: Tone; title?: string; children?: ReactNode }) {
+// Extra div props (ref, tabIndex, ...) pass through so callers can move focus to a banner.
+type Props = Omit<ComponentProps<"div">, "title" | "className" | "role"> & { tone?: Tone; title?: string };
+
+export function Banner({ tone = "info", title, children, ...rest }: Props) {
   return (
-    <div role={tone === "error" ? "alert" : "status"} className={`rounded-md border px-3.5 py-2.5 text-sm ${TONES[tone]}`}>
+    <div {...rest} role={tone === "error" ? "alert" : "status"} className={`rounded-md border px-3.5 py-2.5 text-sm ${TONES[tone]}`}>
       {title && <p className="font-semibold">{title}</p>}
       {children && <div className={title ? "mt-0.5" : ""}>{children}</div>}
     </div>
