@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Bank, SectionKey } from "@/bank/schema";
-import { api, errorMessage, withProfile } from "@/ui/api";
+import { type Bank, SECTION_LABELS, type SectionKey } from "@/bank/schema";
+import { errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
+import { Button, FOCUS_RING } from "@/ui/Button";
 import { useProfile } from "@/ui/ProfileProvider";
+import { loadBank, saveBank, saveBankOnExit } from "./bank-saver";
 import { EntryEditor } from "./EntryEditor";
 import { ProfileForm } from "./ProfileForm";
 import { SkillsEditor } from "./SkillsEditor";
@@ -13,13 +15,7 @@ import { SkillsEditor } from "./SkillsEditor";
 export const BANK_SECTIONS = ["profile", "experience", "projects", "education", "skills"] as const;
 export type BankSection = (typeof BANK_SECTIONS)[number];
 
-const LABELS: Record<BankSection, string> = {
-  profile: "Profile",
-  experience: "Experience",
-  projects: "Projects",
-  education: "Education",
-  skills: "Skills",
-};
+const LABELS: Record<BankSection, string> = { profile: "Profile", skills: "Skills", ...SECTION_LABELS };
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 const SAVE_DELAY_MS = 800;
@@ -48,21 +44,27 @@ export function BankEditor({ section }: { section: BankSection }) {
 function ProfileBankEditor({ profile, section }: { profile: string; section: BankSection }) {
   const [bank, setBank] = useState<Bank | null>(null);
   const [status, setStatus] = useState<SaveStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<Bank | null>(null);
+  const tabs = useRef<HTMLElement>(null);
+
+  // The tab strip scrolls sideways on narrow screens, and each section mounts fresh, so reveal the active tab.
+  useEffect(() => {
+    tabs.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [section]);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .get<Bank>(withProfile("/api/bank", profile))
+    loadBank(profile)
       .then((loaded) => {
         if (cancelled) return;
         latest.current = loaded;
         setBank(loaded);
       })
       .catch((err) => {
-        if (!cancelled) setError(errorMessage(err));
+        if (!cancelled) setLoadError(errorMessage(err));
       });
     return () => {
       cancelled = true;
@@ -70,39 +72,54 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
   }, [profile]);
 
   const save = useCallback(async () => {
-    if (!latest.current) return;
+    const bank = latest.current;
+    if (!bank) return;
     setStatus("saving");
     try {
-      await api.send(withProfile("/api/bank", profile), "PUT", latest.current);
+      await saveBank(profile, bank);
+      if (latest.current !== bank) return; // a newer edit supersedes this save; it reports its own status
       setStatus("saved");
-      setError(null);
+      setSaveError(null);
     } catch (err) {
+      if (latest.current !== bank) return;
       setStatus("error");
-      setError(errorMessage(err));
+      setSaveError(errorMessage(err));
     }
   }, [profile]);
 
   const update = useCallback(
     (fn: (bank: Bank) => Bank) => {
-      setBank((prev) => {
-        if (!prev) return prev;
-        const next = fn(prev);
-        latest.current = next;
-        return next;
-      });
+      if (!latest.current) return;
+      latest.current = fn(latest.current); // computed outside the updater: no side effect inside setState
+      setBank(latest.current);
       setStatus("dirty");
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        void save();
+      }, SAVE_DELAY_MS);
     },
     [save],
   );
 
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+  useEffect(() => {
+    const onPageHide = () => {
+      if (!timer.current || !latest.current) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      saveBankOnExit(profile, latest.current);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      // Unmount (section tab, leaving /bank, profile switch): save now rather than drop the edit.
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        void save();
+      }
+    };
+  }, [profile, save]);
 
   return (
     <section aria-labelledby="bank-heading">
@@ -113,15 +130,26 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
             {LABELS[section]}
           </h1>
         </div>
-        <SaveIndicator status={status} />
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {saveError && (
+            <div role="alert" className="flex items-center gap-2 text-sm text-danger">
+              <span>{saveError}</span>
+              <Button size="sm" disabled={status === "saving"} onClick={() => void save()}>
+                Retry
+              </Button>
+            </div>
+          )}
+          <SaveIndicator status={status} />
+        </div>
       </div>
 
-      <nav aria-label="Bank sections" className="mt-6 flex flex-wrap gap-1 border-b border-rule">
+      <nav ref={tabs} aria-label="Bank sections" className="mt-6 flex flex-nowrap gap-1 overflow-x-auto whitespace-nowrap border-b border-rule">
         {BANK_SECTIONS.map((s) => (
           <Link
             key={s}
             href={`/bank/${s}`}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
+            aria-current={s === section ? "page" : undefined}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${FOCUS_RING} focus-visible:ring-inset ${
               s === section ? "border-accent text-ink" : "border-transparent text-ink-soft hover:text-ink"
             }`}
           >
@@ -130,14 +158,14 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
         ))}
       </nav>
 
-      {error && (
+      {loadError && (
         <div className="mt-4">
           <Banner tone="error" title="Problem with the bank">
-            {error}
+            {loadError}
           </Banner>
         </div>
       )}
-      {!bank && !error && <p className="mt-6 text-ink-soft">Loading bank…</p>}
+      {!bank && !loadError && <p className="mt-6 text-ink-soft">Loading bank…</p>}
 
       {bank && (
         <div className="mt-6">
