@@ -9,9 +9,16 @@ export function PdfPreview({ url, pages }: { url: string; pages: number }) {
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge}`}>
           {unknown ? "page count unknown" : `${pages} page${onePage ? "" : "s"}`}
         </span>
-        {!unknown && !onePage && <span className="text-xs text-warn">Spills past one page. Remove a bullet or two and compile again.</span>}
+        {!unknown && !onePage && (
+          <span className="text-xs text-warn">Too long even at the smallest font size. Remove a bullet or two and compile again.</span>
+        )}
       </div>
-      <iframe title="Resume PDF preview" src={`${url}#navpanes=0&view=FitH`} className="h-[80vh] w-full rounded-b-lg bg-white" />
+      {/* A4 proportions so the whole page is visible at once; view=Fit asks the viewer to fit the page. */}
+      <iframe
+        title="Resume PDF preview"
+        src={`${url}#toolbar=0&navpanes=0&view=Fit`}
+        className="aspect-[210/297] w-full rounded-b-lg bg-white"
+      />
     </div>
   );
 }

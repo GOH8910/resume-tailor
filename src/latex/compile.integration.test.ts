@@ -40,6 +40,24 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
     expect(result.pages).toBe(1);
   }, 90_000);
 
+  it("fills one page from a nearly empty document", async () => {
+    const doc = { ...exampleDocument, summary: "", education: [], experience: [], projects: [], skills: [] };
+    const result = await compileTex(buildTex(doc, await loadTemplate()));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pages).toBe(1);
+  }, 90_000);
+
+  it("runs onto more pages when the body does not fit at the smallest font size", async () => {
+    const long = "Built and deployed a multi-agent incident-triage service on Kubernetes, cutting mean time to resolution by 40%.";
+    const bullets = Array.from({ length: 70 }, (_, i) => `${i + 1}. ${long}`);
+    const doc = { ...exampleDocument, projects: [{ title: "Huge", start: "", end: "", bullets }] };
+    const result = await compileTex(buildTex(doc, await loadTemplate()));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pages).toBeGreaterThan(1);
+  }, 90_000);
+
   it("counts pages even when the template does not disable object streams", async () => {
     const template = (await loadTemplate()).replace("\\pdfobjcompresslevel=0", "");
     const result = await compileTex(buildTex(exampleDocument, template));

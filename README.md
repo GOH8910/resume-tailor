@@ -32,7 +32,10 @@ npm run dev                     # open http://localhost:3000 (use the localhost 
    Claude". Without an API key, "Start from full bank" lets you prune by hand.
 4. **Review**: Claude's edits show as a word diff against your bank wording.
    Revert, edit, reorder, add bullets back from the bank, then **Compile PDF**.
-   The badge tells you if it spilled past one page. **Download PDF** when happy.
+   The PDF always fills exactly one A4 page: the font scales between 8.5pt and
+   12pt to fit, and any leftover space is spread between sections. The badge
+   warns if it still spills past one page at the smallest size. **Download
+   PDF** when happy.
 5. **Dashboard**: every tailored resume is kept with its JD and PDF.
 
 ## Chat with Claude
