@@ -1,6 +1,6 @@
 import { isAPIError } from "better-auth/api";
-import { describe, expect, it } from "vitest";
-import { checkSignupAllowed } from "./auth";
+import { describe, expect, it, vi } from "vitest";
+import { checkMagicLinkAllowed, checkSignupAllowed } from "./auth";
 
 describe("checkSignupAllowed", () => {
   it("lets anyone sign up when no allowlist is configured", () => {
@@ -20,5 +20,32 @@ describe("checkSignupAllowed", () => {
     }
     expect(isAPIError(error)).toBe(true);
     expect(error).toMatchObject({ statusCode: 403, message: "Sign-ups are invite-only right now" });
+  });
+});
+
+describe("checkMagicLinkAllowed", () => {
+  const invited = new Set(["ada@example.com"]);
+
+  it("lets anyone request a link when no allowlist is configured, without a lookup", async () => {
+    const hasAccount = vi.fn();
+    await expect(checkMagicLinkAllowed("anyone@example.com", new Set(), hasAccount)).resolves.toBeUndefined();
+    expect(hasAccount).not.toHaveBeenCalled();
+  });
+
+  it("lets an invited address request a link", async () => {
+    await expect(checkMagicLinkAllowed("Ada@Example.com", invited, async () => false)).resolves.toBeUndefined();
+  });
+
+  it("refuses an uninvited address without an account before any link is sent", async () => {
+    await expect(checkMagicLinkAllowed("mallory@example.com", invited, async () => false)).rejects.toMatchObject({
+      statusCode: 403,
+      body: expect.objectContaining({ code: "SIGNUP_INVITE_ONLY" }),
+    });
+  });
+
+  it("keeps sending links to an existing account the allowlist no longer names", async () => {
+    const hasAccount = vi.fn(async () => true);
+    await expect(checkMagicLinkAllowed("grace@example.com", invited, hasAccount)).resolves.toBeUndefined();
+    expect(hasAccount).toHaveBeenCalledWith("grace@example.com");
   });
 });

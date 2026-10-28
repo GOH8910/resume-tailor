@@ -1,6 +1,6 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { getDbSync } from "@/db/client";
@@ -17,6 +17,20 @@ export function checkSignupAllowed(email: string, allowed: Set<string>): void {
   if (allowed.size === 0 || allowed.has(email.toLowerCase())) return;
   // The code lets the magic-link verify endpoint redirect with ?error= instead of answering raw JSON.
   throw new APIError("FORBIDDEN", { code: "SIGNUP_INVITE_ONLY", message: "Sign-ups are invite-only right now" });
+}
+
+/**
+ * Refuses a magic-link request that could only end in a refused sign-up, so no email goes to an uninvited
+ * address. Existing accounts keep getting links even if the allowlist later drops them.
+ */
+export async function checkMagicLinkAllowed(
+  email: string,
+  allowed: Set<string>,
+  hasAccount: (email: string) => Promise<boolean>,
+): Promise<void> {
+  if (allowed.size === 0) return;
+  if (await hasAccount(email)) return;
+  checkSignupAllowed(email, allowed);
 }
 
 function createAuth() {
@@ -41,6 +55,15 @@ function createAuth() {
       // nextCookies() must stay last: it sets cookies for the plugins' server-action calls.
       nextCookies(),
     ],
+    hooks: {
+      // Runs before the endpoint, so a refused request stores no verification token and sends nothing.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/sign-in/magic-link" || typeof ctx.body?.email !== "string") return;
+        await checkMagicLinkAllowed(ctx.body.email, env.signupEmails, async (email) =>
+          Boolean(await ctx.context.internalAdapter.findUserByEmail(email)),
+        );
+      }),
+    },
     databaseHooks: {
       user: {
         create: {
