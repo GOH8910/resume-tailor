@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildTex } from "./build";
 import { compileTex, latexEnv } from "./compile";
 import { exampleDocument } from "./fixture";
@@ -159,6 +159,23 @@ describe("compileTex with a stand-in latexmk that leaves no log", () => {
       if (result.ok) return;
       expect(result.log).toContain("fake latexmk output");
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("compileTex with a stand-in latexmk that prints its environment", () => {
+  it("runs latexmk without the server's secrets", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://app:hunter2@db.internal/resume");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "env-latexmk-"));
+    try {
+      const script = path.join(dir, "latexmk");
+      await writeFile(script, "#!/bin/sh\nenv >&2\nexit 1\n", { mode: 0o755 });
+      const result = await compileTex("x", { latexmkPath: script });
+      expect(result.log).toMatch(/^openout_any=p$/m);
+      expect(result.log).not.toContain("hunter2");
+    } finally {
+      vi.unstubAllEnvs();
       await rm(dir, { recursive: true, force: true });
     }
   });
