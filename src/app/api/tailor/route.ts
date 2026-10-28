@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { hasApiKey } from "@/lib/anthropic";
 import { AppError } from "@/lib/errors";
 import { applications, banks } from "@/lib/deps";
 import { handle, readJson, requireUser } from "@/lib/http";
-import { AnthropicTailorModel, hasApiKey } from "@/tailor/anthropic-model";
+import { AnthropicTailorModel } from "@/tailor/anthropic-model";
 import { DEFAULT_MODEL_ID, MODEL_IDS } from "@/tailor/model";
 import { runTailor } from "@/tailor/tailor";
 

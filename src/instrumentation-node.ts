@@ -1,5 +1,7 @@
 // Runs once at server boot, before the first request. Better Auth queries through getDbSync(),
 // which does not migrate, so the schema has to be in place before any route is hit.
+const MIGRATION_RETRY_MS = 30_000;
+
 export async function registerNode() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
@@ -15,7 +17,21 @@ export async function registerNode() {
   try {
     await getDb();
   } catch (err) {
-    // If register throws, Next answers 500 forever; getDb() retries on its next call instead.
-    console.error("[db] migration at boot failed, will retry on first use", err);
+    // If register throws, Next answers 500 forever. Keep serving, and keep migrating in the background: otherwise a
+    // fresh database that was briefly unreachable at boot stays unmigrated until some route happens to call getDb().
+    console.error(`[db] migration at boot failed, retrying every ${MIGRATION_RETRY_MS / 1000} s`, err);
+    retryMigration(getDb);
   }
+}
+
+function retryMigration(getDb: () => Promise<unknown>): void {
+  setTimeout(async () => {
+    try {
+      await getDb();
+      console.info("[db] migration succeeded on retry");
+    } catch (err) {
+      console.error(`[db] migration retry failed, next attempt in ${MIGRATION_RETRY_MS / 1000} s`, err);
+      retryMigration(getDb);
+    }
+  }, MIGRATION_RETRY_MS);
 }

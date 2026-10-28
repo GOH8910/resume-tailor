@@ -966,7 +966,7 @@ primary_region = "lhr"
 
 - [ ] **Step 4: `scripts/smoke-image.sh`**
 
-Builds the image, runs it with `-e BETTER_AUTH_SECRET=<32 chars> -p 3999:3000` and no `DATABASE_URL` (PGlite inside the container) and `NODE_ENV=development` for this run so the magic link goes to a file, waits for `/api/health?deep=1` to return `ok: true`, signs in through the magic-link file (`docker exec cat /app/data/magic-links/...`), `PUT`s `data/example/bank.json`, creates a manual application and `POST`s `/api/compile`, asserting `X-Page-Count: 1`. Exits non-zero on any failure. Run it once; fix the TeX package list until it passes.
+Builds the image, runs it in production mode next to a Postgres sidecar container (`DATABASE_URL` points at it), with `EMAIL_TRANSPORT=file` and an http:// `BETTER_AUTH_URL` so the magic link goes to a file, waits for `/api/health?deep=1` to return `ok: true`, signs in through the magic-link file (`docker exec cat /app/data/magic-links/...`), `PUT`s `data/example/bank.json`, creates a manual application and `POST`s `/api/compile`, asserting `X-Page-Count: 1`. Exits non-zero on any failure. Run it once; fix the TeX package list until it passes.
 
 - [ ] **Step 5: Commit**
 
@@ -1020,7 +1020,7 @@ README: Setup now says `cp .env.example .env.local`, set `BETTER_AUTH_SECRET` (`
 4. Resend: verify the domain, create an API key.
 5. `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=$(openssl rand -base64 32) BETTER_AUTH_URL=https://<domain> GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... RESEND_API_KEY=... EMAIL_FROM="Resume Tailor <signin@<domain>>" ANTHROPIC_API_KEY=... SIGNUP_EMAILS=<comma-separated>`
 6. `fly deploy`, then `curl 'https://<domain>/api/health?deep=1'`.
-7. Sign in on the live site once (creates the user), then from the laptop: `DATABASE_URL=<neon> npx tsx --tsconfig tsconfig.json scripts/import-local.ts --email <you> --from data/edward`.
+7. Sign in on the live site once (creates the user), then from the laptop: `DATABASE_URL=<Neon direct (unpooled) URL with sslmode=verify-full> npm run import:local -- --email <you> --from /absolute/path/to/data/<slug>`.
 8. Roll back: `fly releases` and `fly deploy --image <previous>`.
 
 - [ ] **Step 4: Commit and push**

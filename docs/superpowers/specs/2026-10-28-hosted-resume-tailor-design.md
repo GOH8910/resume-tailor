@@ -76,8 +76,8 @@ fast.
 ### Authentication and request guarding
 
 - Better Auth 1.x with its Drizzle adapter (Auth.js v5 is still a beta on npm). Providers: Google,
-  Resend magic link. Without a Resend key (dev, tests) the magic link is written to
-  `data/magic-links/<email>.txt` and printed, so local work and Playwright need no mail service.
+  Resend magic link. With `EMAIL_TRANSPORT=file` (the default outside production) the magic link is
+  written to `data/magic-links/<email>.txt` and printed, so local work and Playwright need no mail service.
 - First sign-in creates the user's empty bank.
 - `src/proxy.ts` is rewritten: keep the same-origin check on `/api/*` mutations (CSRF), drop the
   loopback hostname check, and require a session for every page and API route except `/`,
@@ -107,8 +107,10 @@ fast.
   after a successful result. A `429` with `{ error, limit, used, resetsAt, upgrade: true }` is shown
   on the tailor form and in the chat drawer with an Upgrade button.
 - Burst limits are an in-memory token bucket per user id (`src/lib/rate-limit.ts`). The app runs as
-  one container, so no shared store is needed; if it ever scales out this moves to Redis.
-  Sign-in requests are limited per IP and per email (5 per hour) to stop magic-link spam.
+  one machine, so no shared store is needed; if it ever scales out this moves to Redis. One machine is
+  not Fly's default for a new app: it must be enforced by deploying with `fly deploy --ha=false`.
+  Magic-link requests are limited per IP by Better Auth's own limiter (5 per minute, on in production
+  only) and per email by ours (5 links per hour, `src/lib/magic-link-limit.ts`), to stop spam.
 - Compiles are queued with concurrency 2 (`src/latex/queue.ts`) so a burst cannot starve the
   container; the existing 60 s timeout stays. TeX runs with `openout_any=p` in its environment,
   which confines writes to its own temp folder. TeX Live 2026 ignores `openin_any`, so reads are
@@ -164,10 +166,11 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
   `perl`, a minimal TeX Live (`install-tl` with `scheme-infraonly`) and
   `tlmgr install latexmk latex-bin latex geometry titlesec enumitem hyperref fontawesome5 crimson
   fontenc inputenc` plus whatever the build's compile smoke test proves missing. Target image ≤ 700 MB.
-- `fly.toml`: region `lhr`, one `shared-cpu-1x` machine with 1 GB RAM, `min_machines_running = 1`
-  (no cold starts; TeX startup is slow), HTTP health check on `/api/health` (shallow by default: the
-  process and latexmk; `?deep=1` adds the database), migrations run when the server boots (before the
-  first query), so there is no release command.
+- `fly.toml`: region `lhr`, one `shared-cpu-1x` machine with 1 GB RAM that never stops
+  (`auto_stop_machines = "off"`; no cold starts, TeX startup is slow). Fly gives a new app two machines,
+  so the first deploy must be `fly deploy --ha=false`. HTTP health check on `/api/health` (shallow by
+  default: the process and latexmk; `?deep=1` adds the database). Migrations run when the server boots
+  (before the first query), so there is no release command.
 - Secrets (`fly secrets set`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`,
   `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ANTHROPIC_API_KEY`, `LEMONSQUEEZY_API_KEY`,
   `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`, `LEMONSQUEEZY_VARIANT_MONTHLY`,

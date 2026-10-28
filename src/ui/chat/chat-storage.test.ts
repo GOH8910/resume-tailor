@@ -37,25 +37,21 @@ describe("chat storage", () => {
   describe("forgetChats", () => {
     afterEach(() => vi.unstubAllGlobals());
 
-    it("clears chats from both session and local storage", () => {
-      const session = fakeStorage({ [chatStorageKey("a")]: "[]", "other:key": "keep" });
-      const local = fakeStorage({ [chatStorageKey(undefined)]: "[]" });
-      vi.stubGlobal("window", { sessionStorage: session, localStorage: local });
+    it("clears this tab's chats from sessionStorage", () => {
+      const session = fakeStorage({ [chatStorageKey("a")]: "[]", [chatStorageKey(undefined)]: "[]", "other:key": "keep" });
+      vi.stubGlobal("window", { sessionStorage: session });
       forgetChats();
       expect(session.length).toBe(1);
-      expect(local.length).toBe(0);
+      expect(session.getItem("other:key")).toBe("keep");
     });
 
-    it("still clears one storage when the browser blocks the other", () => {
-      const local = fakeStorage({ [chatStorageKey("a")]: "[]" });
+    it("does nothing when the browser blocks storage", () => {
       vi.stubGlobal("window", {
         get sessionStorage(): Storage {
           throw new DOMException("blocked", "SecurityError");
         },
-        localStorage: local,
       });
       expect(() => forgetChats()).not.toThrow();
-      expect(local.length).toBe(0);
     });
   });
 });

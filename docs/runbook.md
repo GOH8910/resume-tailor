@@ -1,7 +1,8 @@
 # Runbook: phase 1
 
 Placeholders: `<domain>` is the public host name (e.g. `resume.example.com`), `<you>` your email address,
-`<app>` the Fly app name (`resume-tailor` in `fly.toml`).
+`<app>` the Fly app name (`resume-tailor` in `fly.toml`), `<slug>` the name of your old local data folder
+(e.g. `edward` for `data/edward`).
 
 ## 1. One-time accounts
 
@@ -57,8 +58,12 @@ fly secrets set GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...'
 - `EMAIL_FROM` must be on the domain verified in Resend.
 - `fly.toml` already sets `PORT`, `HOSTNAME`, `COMPILE_CONCURRENCY`, `EMAIL_TRANSPORT=resend`,
   `LATEX_RUN_AS` and `COMPILE_ROOT`. Do not set them as secrets.
-- A missing or invalid required value stops the server at boot (`[env] invalid configuration` in
-  `fly logs`), so the deploy fails rather than serving errors.
+- A missing or invalid required value makes the new machine exit at boot (`[env] invalid configuration` in
+  `fly logs`). With Fly's default rolling strategy and one machine, the site would then be down until the
+  value is fixed or the release rolled back. `fly.toml` sets `strategy = "bluegreen"` for that reason: on
+  `fly deploy`, Fly keeps the old machine serving until the new one passes its health check.
+  `fly secrets set` also restarts the machine, so check `fly status` and `fly logs` right after changing a
+  secret.
 - Values typed on the command line end up in shell history. `fly secrets import < file` reads `NAME=value`
   lines instead; keep that file outside the repo and delete it afterwards.
 
@@ -75,10 +80,14 @@ under emulation, but it is the only proof of the x86_64 TeX Live path before Fly
 ## 5. Deploy and sign in
 
 ```bash
-fly deploy
+fly deploy --ha=false
+fly status                    # must show one machine; if two exist: fly scale count 1
 curl -sS 'https://<domain>/api/health?deep=1'
 # must print {"ok":true,"db":"ok","latexmk":"ok"}
 ```
+
+`--ha=false` matters on the first deploy: a new Fly app otherwise gets two machines, which doubles the cost
+and splits the in-memory sign-in throttles between two processes. Later deploys keep the machine count.
 
 Fly's own check calls the shallow `/api/health`, which does not touch the database on purpose so Neon can
 scale to zero.
@@ -125,7 +134,8 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   `drizzle/meta/_journal.json`) so the boot run skips it. Then deploy.
 - **Slow compiles**: the shared CPU is throttled under sustained load. If compiles approach 60 s, move to a
   dedicated CPU with `fly scale vm performance-1x` (check Fly's pricing first).
-- **Cost**: about $6/month for the always-on machine, plus Neon's free tier, Resend's free tier and the
+- **Cost**: about $6/month for the one always-on machine (twice that if the first deploy ran without
+  `--ha=false` and two machines exist), plus Neon's free tier, Resend's free tier and the
   domain. Anthropic usage is on top, capped by the spend limit.
 
 ## 8. Image notes

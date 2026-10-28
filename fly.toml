@@ -6,6 +6,11 @@ kill_timeout = 65
 
 [build]
 
+# Fly starts the new machine next to the old one and moves traffic only once it passes the health check below, so a
+# release that cannot boot (e.g. a bad config value) fails its deploy while the old machine keeps serving.
+[deploy]
+  strategy = "bluegreen"
+
 [env]
   PORT = "3000"
   # Also set in the image; repeated so the server listens on all interfaces whatever the platform sets.

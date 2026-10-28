@@ -13,6 +13,7 @@ describe("register", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/env");
@@ -28,14 +29,44 @@ describe("register", () => {
     expect(getDb).toHaveBeenCalledOnce();
   });
 
-  it("resolves and logs when the migration fails, so the server keeps serving", async () => {
+  it("keeps serving when the boot migration fails, and retries it every 30 s until it succeeds", async () => {
+    vi.useFakeTimers();
     const failure = new Error("connection refused");
-    getDb.mockRejectedValue(failure);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    getDb.mockRejectedValueOnce(failure).mockRejectedValueOnce(failure).mockResolvedValue({});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const infos = vi.spyOn(console, "info").mockImplementation(() => {});
 
     await expect(register()).resolves.toBeUndefined();
+    expect(getDb).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("[db]"), failure);
 
-    expect(logged).toHaveBeenCalledWith(expect.stringContaining("[db]"), failure);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(getDb).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getDb).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveBeenCalledTimes(2);
+    expect(infos).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(getDb).toHaveBeenCalledTimes(3);
+    expect(errors).toHaveBeenCalledTimes(2);
+    expect(infos).toHaveBeenCalledOnce();
+    expect(infos).toHaveBeenCalledWith(expect.stringContaining("[db]"));
+
+    // Once it has succeeded, nothing is scheduled any more.
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(getDb).toHaveBeenCalledTimes(3);
+  });
+
+  it("schedules no retry when the boot migration succeeds", async () => {
+    vi.useFakeTimers();
+    getDb.mockResolvedValue({});
+
+    await register();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("exits when the configuration is invalid, so a bad release fails its deploy", async () => {

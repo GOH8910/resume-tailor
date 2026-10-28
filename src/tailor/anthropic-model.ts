@@ -1,9 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createStructured, hasApiKey } from "@/lib/anthropic";
+import { createStructured } from "@/lib/anthropic";
 import type { ModelId, TailorModel, TailorRequest } from "./model";
 import { type TailorResult, TailorResultSchema } from "./schema";
-
-export { hasApiKey };
 
 export class AnthropicTailorModel implements TailorModel {
   private readonly client: Anthropic;

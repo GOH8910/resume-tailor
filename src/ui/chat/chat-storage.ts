@@ -13,14 +13,11 @@ export function clearChatHistory(storage: Storage): void {
   }
 }
 
-/** Forgets every chat conversation in this tab's sessionStorage and in localStorage. */
+/** Forgets every chat conversation in this tab (they live only in sessionStorage). */
 export function forgetChats(): void {
-  // Reading either property throws when the browser blocks storage; then nothing was stored there either.
-  for (const storage of [() => window.sessionStorage, () => window.localStorage]) {
-    try {
-      clearChatHistory(storage());
-    } catch {
-      // Unavailable storage holds no chats.
-    }
+  try {
+    clearChatHistory(window.sessionStorage);
+  } catch {
+    // Reading sessionStorage throws when the browser blocks storage; then no chats were stored either.
   }
 }

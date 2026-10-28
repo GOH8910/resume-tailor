@@ -94,13 +94,13 @@ writes the whole bank back.
 
 ## Importing a bank from the local app
 
-The local app kept each profile in `data/<profile>/` (`bank.json` plus
+The local app kept each profile in `data/<slug>/` (`bank.json` plus
 `applications/`). To move one into an account, sign in once, stop `npm run dev`,
 and run:
 
 ```bash
-npm run import:local -- --email you@example.com --from data/<profile> --dry-run
-npm run import:local -- --email you@example.com --from data/<profile>
+npm run import:local -- --email you@example.com --from data/<slug> --dry-run
+npm run import:local -- --email you@example.com --from data/<slug>
 ```
 
 `--dry-run` validates, counts and says what would happen to the bank, without
