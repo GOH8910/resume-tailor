@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTex } from "./build";
 import { compileTex, latexEnv } from "./compile";
 import { exampleDocument } from "./fixture";
@@ -103,6 +103,37 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.log).toMatch(/runsystem\(kpsewhich --version\)\.\.\.disabled/);
+  }, 90_000);
+});
+
+describe.skipIf(!hasLatexmk())("compileTex file writes (integration, needs latexmk)", () => {
+  // compileTex works in a fresh folder under the temp dir, so "../<name>" from there lands in the temp dir too.
+  const name = `resume-written-${process.pid}-${Date.now()}.txt`;
+  const target = path.join(os.tmpdir(), name);
+  const write = (file: string) =>
+    `\\documentclass{article}\\begin{document}x\\newwrite\\out\\immediate\\openout\\out=${file} \\immediate\\write\\out{x}\\immediate\\closeout\\out\\end{document}`;
+  const previous = process.env.openout_any;
+
+  // A permissive parent environment proves that compileTex's own setting is what blocks the write.
+  beforeAll(() => {
+    process.env.openout_any = "a";
+  });
+  afterAll(async () => {
+    if (previous === undefined) delete process.env.openout_any;
+    else process.env.openout_any = previous;
+    await rm(target, { force: true });
+  });
+
+  it("refuses to write a file by absolute path", async () => {
+    const result = await compileTex(write(target));
+    expect(result.ok).toBe(false);
+    await expect(access(target)).rejects.toThrow();
+  }, 90_000);
+
+  it("refuses to write a file into a parent directory", async () => {
+    const result = await compileTex(write(`../${name}`));
+    expect(result.ok).toBe(false);
+    await expect(access(target)).rejects.toThrow();
   }, 90_000);
 });
 

@@ -25,10 +25,15 @@ const MAX_OUTPUT_CHARS = 1024 * 1024;
 const PREAMBLE_PREFIX =
   "\\pdfobjcompresslevel=0\\makeatletter\\def\\UTFviii@undefined@err#1{?}\\makeatother";
 
-/** PATH with the usual MacTeX and Homebrew locations appended, for servers launched from an IDE. */
+/**
+ * PATH with the usual MacTeX and Homebrew locations appended, for servers launched from an IDE.
+ * openout_any=p (kpathsea reads it from the environment, ahead of texmf.cnf) stops a document writing to
+ * dotfiles, absolute paths or parent directories, so it can only write inside its temp folder.
+ * There is no read equivalent: TeX Live 2026 made openin_any a no-op, so reads rely on escapeLatex alone.
+ */
 export function latexEnv(): NodeJS.ProcessEnv {
   const extra = ["/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin"];
-  return { ...process.env, PATH: [process.env.PATH, ...extra].filter(Boolean).join(":") };
+  return { ...process.env, PATH: [process.env.PATH, ...extra].filter(Boolean).join(":"), openout_any: "p" };
 }
 
 /** Runs latexmk in its own process group so a timeout can kill latexmk AND its pdflatex child. */
