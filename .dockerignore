@@ -1,0 +1,12 @@
+node_modules
+.next
+data
+.e2e-data
+*.pdf
+.env*
+docs
+e2e
+test-results
+playwright-report
+.git
+scratch*

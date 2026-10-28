@@ -1,0 +1,10 @@
+# The app (user node) may run commands as the unprivileged user tex, and only through GNU timeout, which the app
+# uses to stop TeX: node cannot signal tex's processes itself. @TEXBIN@ is replaced at build time with the
+# TeX Live binary folder for the image's architecture.
+# !use_pty: SIGTERM from the app reaches sudo, which relays it to timeout. umask: tex's files come out group-readable
+# (the compile folder is setgid texrun, a group node is in) and nothing is world-readable.
+Defaults:node !use_pty, !pam_session, !lecture, !log_allowed
+Defaults:node secure_path="@TEXBIN@:/usr/bin:/bin"
+Defaults:node env_keep += "openout_any TEXMF* TEXINPUTS LANG LC_ALL"
+Defaults:node umask=0027
+node ALL=(tex) NOPASSWD: /usr/bin/timeout
