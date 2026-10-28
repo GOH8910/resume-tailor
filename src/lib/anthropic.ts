@@ -57,7 +57,8 @@ export async function createStructured<S extends z.ZodType>(client: Anthropic, s
 }
 
 export function toAppError(err: unknown): AppError {
-  if (err instanceof Anthropic.AuthenticationError) return new AppError("Anthropic rejected the API key. Check ANTHROPIC_API_KEY in .env.local.", 401);
+  // Not a 401: the browser reads that as its own session expiring and sends the user to sign in.
+  if (err instanceof Anthropic.AuthenticationError) return new AppError("The AI service rejected the request; check the server's API key", 502);
   if (err instanceof Anthropic.RateLimitError) return new AppError("Anthropic rate limit hit. Wait a moment and retry.", 429);
   if (err instanceof Anthropic.APIConnectionTimeoutError) return new AppError("The Anthropic API did not answer in time. Try again.", 504);
   if (err instanceof Anthropic.APIConnectionError) return new AppError("Could not reach the Anthropic API. Check your network.", 502);

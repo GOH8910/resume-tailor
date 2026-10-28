@@ -1,111 +1,80 @@
-import { readdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { assertProfileSlug } from "@/bank/repository";
+import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { applications } from "@/db/schema";
+import type { Db } from "@/db/types";
 import { AppError } from "@/lib/errors";
-import { exists, isEnoent, writeFileAtomic, writeJsonAtomic } from "@/lib/fs";
-import { APPLICATION_ID, assertApplicationId } from "./ids";
+import { assertApplicationId } from "./ids";
 import { type Application, ApplicationSchema, type ApplicationSummary } from "./schema";
 
 export class ApplicationRepository {
-  constructor(readonly root: string) {}
+  constructor(private readonly db: () => Promise<Db>) {}
 
-  dir(slug: string): string {
-    return path.join(this.root, assertProfileSlug(slug), "applications");
+  /** The tenant filter: every single-application query goes through here. */
+  private byKey(userId: string, id: string): SQL | undefined {
+    return and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id)));
   }
 
-  jsonPath(slug: string, id: string): string {
-    return path.join(this.dir(slug), `${assertApplicationId(id)}.json`);
+  async list(userId: string): Promise<ApplicationSummary[]> {
+    const db = await this.db();
+    const rows = await db
+      .select({
+        id: applications.id,
+        createdAt: sql<string>`${applications.data}->>'createdAt'`,
+        company: sql<string>`${applications.data}->>'company'`,
+        roleTitle: sql<string>`coalesce(${applications.data}->>'roleTitle', '')`,
+        model: sql<string>`${applications.data}->>'model'`,
+        hasPdf: isNotNull(applications.pdf),
+      })
+      .from(applications)
+      .where(eq(applications.userId, userId))
+      .orderBy(desc(sql`${applications.data}->>'createdAt' collate "C"`), desc(applications.id));
+    return rows.map((r) => ({ ...r, hasPdf: Boolean(r.hasPdf) }));
   }
 
-  pdfPath(slug: string, id: string): string {
-    return path.join(this.dir(slug), `${assertApplicationId(id)}.pdf`);
-  }
-
-  async list(slug: string): Promise<ApplicationSummary[]> {
-    let names: string[];
-    try {
-      names = await readdir(this.dir(slug));
-    } catch (err) {
-      if (isEnoent(err)) return [];
-      throw err;
-    }
-    const ids = names
-      .filter((n) => n.endsWith(".json"))
-      .map((n) => n.slice(0, -".json".length))
-      .filter((stem) => APPLICATION_ID.test(stem));
-    // One unreadable file must not break the whole listing, so skip it with a warning.
-    const summaries = await Promise.all(
-      ids.map(async (id): Promise<ApplicationSummary | null> => {
-        try {
-          const app = await this.get(slug, id);
-          return {
-            id: app.id,
-            createdAt: app.createdAt,
-            company: app.company,
-            roleTitle: app.roleTitle,
-            model: app.model,
-            hasPdf: await exists(this.pdfPath(slug, id)),
-          };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`Skipping unreadable application ${this.jsonPath(slug, id)}: ${message}`);
-          return null;
-        }
-      }),
-    );
-    return summaries
-      .filter((s): s is ApplicationSummary => s !== null)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-  }
-
-  async get(slug: string, id: string): Promise<Application> {
-    const file = this.jsonPath(slug, id);
-    let raw: string;
-    try {
-      raw = await readFile(file, "utf8");
-    } catch (err) {
-      if (isEnoent(err)) throw new AppError(`Application "${id}" not found`, 404);
-      throw err;
-    }
-    let json: unknown;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      throw new AppError(`${file} is not valid JSON`, 500);
-    }
-    const parsed = ApplicationSchema.safeParse(json);
-    if (!parsed.success) throw new AppError(`${file} does not match the application schema`, 500, parsed.error.issues);
-    if (parsed.data.id !== id) {
-      throw new AppError(`${file} contains id "${parsed.data.id}", expected "${id}"`, 500);
-    }
+  async get(userId: string, id: string): Promise<Application> {
+    const db = await this.db();
+    const [row] = await db
+      .select({ data: applications.data })
+      .from(applications)
+      .where(this.byKey(userId, id));
+    if (!row) throw new AppError(`Application "${id}" not found`, 404);
+    const parsed = ApplicationSchema.safeParse(row.data);
+    if (!parsed.success) throw new AppError("Stored application does not match the schema", 500, parsed.error.issues);
     return parsed.data;
   }
 
-  async save(slug: string, application: unknown): Promise<Application> {
+  async save(userId: string, application: unknown): Promise<Application> {
     const parsed = ApplicationSchema.safeParse(application);
     if (!parsed.success) throw new AppError("Application does not match the schema", 400, parsed.error.issues);
-    await writeJsonAtomic(this.jsonPath(slug, parsed.data.id), parsed.data);
+    const db = await this.db();
+    await db
+      .insert(applications)
+      .values({ userId, id: parsed.data.id, data: parsed.data })
+      .onConflictDoUpdate({ target: [applications.userId, applications.id], set: { data: parsed.data } });
     return parsed.data;
   }
 
-  async delete(slug: string, id: string): Promise<void> {
-    // PDF first: if the second removal fails, the application stays listed and can be retried.
-    await rm(this.pdfPath(slug, id), { force: true });
-    await rm(this.jsonPath(slug, id), { force: true });
+  async delete(userId: string, id: string): Promise<void> {
+    const db = await this.db();
+    await db.delete(applications).where(this.byKey(userId, id));
   }
 
-  async savePdf(slug: string, id: string, pdf: Buffer): Promise<void> {
-    const file = this.pdfPath(slug, id);
-    if (!(await exists(this.jsonPath(slug, id)))) throw new AppError(`Application "${id}" not found`, 404);
-    await writeFileAtomic(file, pdf);
+  async savePdf(userId: string, id: string, pdf: Buffer, pages: number): Promise<void> {
+    const db = await this.db();
+    const updated = await db
+      .update(applications)
+      .set({ pdf, pdfPages: pages })
+      .where(this.byKey(userId, id))
+      .returning({ id: applications.id });
+    if (updated.length === 0) throw new AppError(`Application "${id}" not found`, 404);
   }
 
-  async readPdf(slug: string, id: string): Promise<Buffer | null> {
-    try {
-      return await readFile(this.pdfPath(slug, id));
-    } catch (err) {
-      if (isEnoent(err)) return null;
-      throw err;
-    }
+  async readPdf(userId: string, id: string): Promise<{ pdf: Buffer; pages: number } | null> {
+    const db = await this.db();
+    const [row] = await db
+      .select({ pdf: applications.pdf, pages: applications.pdfPages })
+      .from(applications)
+      .where(this.byKey(userId, id));
+    if (!row?.pdf) return null;
+    return { pdf: row.pdf, pages: row.pages ?? 0 };
   }
 }

@@ -1,7 +1,10 @@
 /**
- * Seed or enrich a profile's bank from resume PDFs.
- *   npm run seed -- --profile edward "/path/to/CV one.pdf" "/path/to/CV two.pdf"
- * Needs: pdftotext (brew install poppler) and ANTHROPIC_API_KEY (read from .env.local if not set).
+ * Seed or enrich an account's bank from resume PDFs.
+ *   npm run seed -- --email you@example.com "/path/to/CV one.pdf" "/path/to/CV two.pdf"
+ * Needs: an account (sign in on the site once first), pdftotext (brew install poppler)
+ * and ANTHROPIC_API_KEY (read from .env.local if not set).
+ * Targets DATABASE_URL when set, else the local PGlite (single-process: stop `npm run dev` first).
+ * Do not edit the bank in the browser while this runs: it reads the bank, calls Claude, then writes the whole bank.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -11,8 +14,10 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { type ExtractedBank, mergeBank } from "@/bank/merge";
 import { BankRepository } from "@/bank/repository";
-import { type Bank, emptyBank } from "@/bank/schema";
-import { AppError } from "@/lib/errors";
+import type { Bank } from "@/bank/schema";
+import { getDb } from "@/db/client";
+import { findUserIdByEmail } from "@/db/users";
+import { latexEnv } from "@/latex/compile";
 
 const ExtractedEntrySchema = z.object({
   title: z.string(),
@@ -49,7 +54,7 @@ const SYSTEM = `You extract resume content into structured JSON.
 - "summary": the opening profile paragraph if there is one, else empty.`;
 
 function usage(): never {
-  console.error('Usage: npm run seed -- --profile <slug> "<file.pdf>" ["<more.pdf>" ...]');
+  console.error('Usage: npm run seed -- --email <email> "<file.pdf>" ["<more.pdf>" ...]');
   process.exit(1);
 }
 
@@ -99,9 +104,9 @@ function countBullets(bank: Bank): number {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const flag = args.indexOf("--profile");
+  const flag = args.indexOf("--email");
   if (flag === -1 || !args[flag + 1]) usage();
-  const slug = args[flag + 1];
+  const email = args[flag + 1];
   const pdfs = args.filter((_, i) => i !== flag && i !== flag + 1);
   if (pdfs.length === 0) usage();
 
@@ -111,16 +116,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const repo = new BankRepository(path.join(process.cwd(), "data"));
-  let bank = await repo.read(slug).catch((err: unknown) => {
-    if (err instanceof AppError && err.status === 404) return emptyBank();
-    throw err;
-  });
+  // After loading .env.local, which may set DATABASE_URL.
+  const userId = await findUserIdByEmail(email);
+  if (!userId) {
+    console.error(`No account for ${email}: sign in on the site first, then re-run`);
+    process.exit(1);
+  }
+
+  const repo = new BankRepository(getDb);
+  // read() creates an empty bank when the account has none.
+  let bank = await repo.read(userId);
   const client = new Anthropic();
 
   for (const pdf of pdfs) {
     console.log(`Extracting ${pdf} ...`);
-    const text = execFileSync("pdftotext", ["-layout", pdf, "-"], { encoding: "utf8" });
+    const text = execFileSync("pdftotext", ["-layout", pdf, "-"], { encoding: "utf8", env: latexEnv() });
     const response = await client.messages.parse({
       model: "claude-opus-5-5",
       max_tokens: 16000,
@@ -136,11 +146,14 @@ async function main(): Promise<void> {
     console.log(`  +${countBullets(bank) - before} new bullets`);
   }
 
-  await repo.write(slug, bank);
-  console.log(`Wrote data/${slug}/bank.json with ${countBullets(bank)} bullets.`);
+  await repo.write(userId, bank);
+  console.log(`Saved the bank for ${email} with ${countBullets(bank)} bullets.`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// Exit explicitly: an open pg pool would otherwise keep the process alive.
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });

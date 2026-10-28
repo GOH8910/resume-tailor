@@ -1,4 +1,5 @@
 import type { Profile, SkillCategory } from "@/bank/schema";
+import type { Layout } from "./layout";
 
 /** One entry with its header fields and the final bullet texts, ready to render. */
 export type DocEntry = {
@@ -19,4 +20,5 @@ export type ResumeDocument = {
   experience: DocEntry[];
   projects: DocEntry[];
   skills: SkillCategory[];
+  layout: Layout;
 };

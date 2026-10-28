@@ -4,11 +4,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Application } from "@/applications/schema";
 import { DEFAULT_MODEL_ID, MODEL_IDS, MODEL_LABELS, type ModelId } from "@/tailor/model";
-import { api, errorMessage, withProfile } from "@/ui/api";
+import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { Field, Select, TextArea, TextInput } from "@/ui/Field";
-import { useProfile } from "@/ui/ProfileProvider";
 
 type Mode = "ai" | "manual";
 
@@ -18,7 +17,6 @@ function formatElapsed(totalSeconds: number): string {
 
 export function TailorForm() {
   const router = useRouter();
-  const { profile, loading, error: profileError } = useProfile();
   const [company, setCompany] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
@@ -54,7 +52,7 @@ export function TailorForm() {
 
   async function start(mode: Mode) {
     // The ref catches a second click in the same tick, before `busy` has re-rendered.
-    if (!profile || inFlight.current || busy !== null) return;
+    if (inFlight.current || busy !== null) return;
     inFlight.current = true;
     setBusy(mode);
     setElapsed(0);
@@ -62,8 +60,8 @@ export function TailorForm() {
     try {
       const { application } =
         mode === "ai"
-          ? await api.send<{ application: Application }>("/api/tailor", "POST", { profile, company, roleTitle, jobDescription, model })
-          : await api.send<{ application: Application }>(withProfile("/api/applications", profile), "POST", { company, roleTitle, jobDescription });
+          ? await api.send<{ application: Application }>("/api/tailor", "POST", { company, roleTitle, jobDescription, model })
+          : await api.send<{ application: Application }>("/api/applications", "POST", { company, roleTitle, jobDescription });
       // The AI call can take a minute; don't pull the user back if they left the page meanwhile.
       if (mounted.current) router.push(`/tailor/${application.id}`);
     } catch (err) {
@@ -76,26 +74,9 @@ export function TailorForm() {
     }
   }
 
-  if (loading) return <p className="text-ink-soft">Loading…</p>;
-  if (profileError) {
-    return (
-      <Banner tone="error" title="Profiles failed to load">
-        {profileError}
-      </Banner>
-    );
-  }
-  if (!profile) {
-    return (
-      <Banner tone="info" title="No profile yet">
-        Create one with the “New profile” button in the top bar, then fill in your bank.
-      </Banner>
-    );
-  }
-
   return (
     <section aria-labelledby="tailor-heading">
-      <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">{profile}</p>
-      <h1 id="tailor-heading" className="mt-1 text-4xl tracking-tight">
+      <h1 id="tailor-heading" className="text-4xl tracking-tight">
         Tailor to a job
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-ink-soft">

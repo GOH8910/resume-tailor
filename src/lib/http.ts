@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import { getAuth } from "./auth";
 import { AppError } from "./errors";
 
 /** Run a handler and turn thrown errors into JSON responses. */
@@ -13,9 +14,9 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     if (err instanceof ZodError) {
       return Response.json({ error: "Invalid request body", details: err.issues }, { status: 400 });
     }
-    console.error(err);
-    const message = err instanceof Error ? err.message : "Unexpected error";
-    return Response.json({ error: message }, { status: 500 });
+    // Driver errors carry SQL, bound params and hostnames in their message: log the cause, tell the client nothing.
+    console.error(err instanceof Error && err.cause ? err.cause : err);
+    return Response.json({ error: "Something went wrong" }, { status: 500 });
   }
 }
 
@@ -28,10 +29,13 @@ export async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-export function requireProfile(request: Request): string {
-  const slug = new URL(request.url).searchParams.get("profile");
-  if (!slug) throw new AppError("Missing ?profile= query parameter", 400);
-  return slug;
+export type CurrentUser = { id: string; email: string; name: string };
+
+/** The signed-in user for an API request, or a 401. */
+export async function requireUser(request: Request): Promise<CurrentUser> {
+  const session = await getAuth().api.getSession({ headers: request.headers });
+  if (!session) throw new AppError("Sign in to continue", 401);
+  return { id: session.user.id, email: session.user.email, name: session.user.name };
 }
 
 export function pdfResponse(pdf: Buffer, pages: number, filename: string): Response {

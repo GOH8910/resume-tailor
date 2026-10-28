@@ -7,7 +7,6 @@ import { errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, FOCUS_RING } from "@/ui/Button";
 import { useChatContext } from "@/ui/chat/ChatProvider";
-import { useProfile } from "@/ui/ProfileProvider";
 import { loadBank, saveBank, saveBankOnExit } from "./bank-saver";
 import { EntryEditor } from "./EntryEditor";
 import { ProfileForm } from "./ProfileForm";
@@ -22,27 +21,6 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 const SAVE_DELAY_MS = 800;
 
 export function BankEditor({ section }: { section: BankSection }) {
-  const { profile, loading, error: profileError } = useProfile();
-  if (loading) return <p className="text-ink-soft">Loading…</p>;
-  if (profileError) {
-    return (
-      <Banner tone="error" title="Profiles failed to load">
-        {profileError}
-      </Banner>
-    );
-  }
-  if (!profile) {
-    return (
-      <Banner tone="info" title="No profile yet">
-        Create one with the “+ New” button in the top bar.
-      </Banner>
-    );
-  }
-  // Keyed by profile so switching profiles remounts with fresh state (no setState inside an effect).
-  return <ProfileBankEditor key={profile} profile={profile} section={section} />;
-}
-
-function ProfileBankEditor({ profile, section }: { profile: string; section: BankSection }) {
   const [bank, setBank] = useState<Bank | null>(null);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -59,7 +37,7 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
 
   useEffect(() => {
     let cancelled = false;
-    loadBank(profile)
+    loadBank()
       .then((loaded) => {
         if (cancelled) return;
         latest.current = loaded;
@@ -71,14 +49,14 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
     return () => {
       cancelled = true;
     };
-  }, [profile]);
+  }, []);
 
   const save = useCallback(async () => {
     const bank = latest.current;
     if (!bank) return;
     setStatus("saving");
     try {
-      await saveBank(profile, bank);
+      await saveBank(bank);
       if (latest.current !== bank) return; // a newer edit supersedes this save; it reports its own status
       setStatus("saved");
       setSaveError(null);
@@ -87,7 +65,7 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
       setStatus("error");
       setSaveError(errorMessage(err));
     }
-  }, [profile]);
+  }, []);
 
   const update = useCallback(
     (fn: (bank: Bank) => Bank) => {
@@ -112,11 +90,11 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
     await save();
   }, [save]);
   const reloadBank = useCallback(async () => {
-    const loaded = await loadBank(profile);
+    const loaded = await loadBank();
     latest.current = loaded;
     setBank(loaded);
     setStatus("saved");
-  }, [profile]);
+  }, []);
   useEffect(() => registerChat({ label: `Bank · ${LABELS[section]}`, flush, reloadBank }), [registerChat, section, flush, reloadBank]);
 
   useEffect(() => {
@@ -124,25 +102,25 @@ function ProfileBankEditor({ profile, section }: { profile: string; section: Ban
       if (!timer.current || !latest.current) return;
       clearTimeout(timer.current);
       timer.current = null;
-      saveBankOnExit(profile, latest.current);
+      saveBankOnExit(latest.current);
     };
     window.addEventListener("pagehide", onPageHide);
     return () => {
       window.removeEventListener("pagehide", onPageHide);
-      // Unmount (section tab, leaving /bank, profile switch): save now rather than drop the edit.
+      // Unmount (section tab, leaving /bank): save now rather than drop the edit.
       if (timer.current) {
         clearTimeout(timer.current);
         timer.current = null;
         void save();
       }
     };
-  }, [profile, save]);
+  }, [save]);
 
   return (
     <section aria-labelledby="bank-heading">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">{profile} · bank</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Your bank</p>
           <h1 id="bank-heading" className="mt-1 text-4xl tracking-tight">
             {LABELS[section]}
           </h1>

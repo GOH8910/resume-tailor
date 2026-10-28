@@ -11,6 +11,14 @@ export class ApiError extends Error {
   }
 }
 
+/** An expired or revoked session: send the browser to sign in, then back to this page. */
+function redirectToSignIn(): void {
+  if (typeof window === "undefined") return;
+  const here = window.location.pathname + window.location.search;
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load drops the signed-out state
+  window.location.assign(`/signin?next=${encodeURIComponent(here)}`);
+}
+
 async function parseResponse<T>(res: Response): Promise<T> {
   if (res.ok) {
     if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
@@ -25,6 +33,8 @@ async function parseResponse<T>(res: Response): Promise<T> {
   } catch {
     // Non-JSON error body: keep the status text.
   }
+  // Only the data routes' session check answers 401, so it always means "signed out".
+  if (res.status === 401) redirectToSignIn();
   throw new ApiError(message, res.status, details);
 }
 
@@ -41,13 +51,6 @@ export const api = {
   },
 };
 
-/** Appends ?profile=<slug> to an API path, encoding the slug and keeping any existing query. */
-export function withProfile(path: string, profile: string): string {
-  const url = new URL(path, "http://localhost");
-  url.searchParams.set("profile", profile);
-  return `${url.pathname}${url.search}`;
-}
-
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
@@ -55,11 +58,11 @@ export function errorMessage(err: unknown): string {
 export type CompiledPdf = { blob: Blob; pages: number };
 
 /** Compiles the resume state to a PDF. Throws ApiError (details = LaTeX log) on failure. */
-export async function compilePdf(profile: string, resume: ResumeState, applicationId?: string): Promise<CompiledPdf> {
+export async function compilePdf(resume: ResumeState, applicationId?: string): Promise<CompiledPdf> {
   const res = await fetch("/api/compile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile, resume, applicationId }),
+    body: JSON.stringify({ resume, applicationId }),
   });
   if (!res.ok) await parseResponse<never>(res);
   const pages = Number.parseInt(res.headers.get("X-Page-Count") ?? "", 10);

@@ -1,5 +1,6 @@
 import type { Bank, Bullet, Entry, SectionKey } from "@/bank/schema";
 import type { DocEntry, ResumeDocument } from "@/latex/document";
+import { resolveLayout } from "@/latex/layout";
 import type { SelectedEntry, TailorResult } from "@/tailor/schema";
 import type { ResumeBullet, ResumeEntry, ResumeState } from "./schema";
 
@@ -88,5 +89,6 @@ export function resolveResume(bank: Bank, state: ResumeState): ResumeDocument {
     experience: section("experience"),
     projects: section("projects"),
     skills: state.skills,
+    layout: resolveLayout(state.layout, bank.layout),
   };
 }

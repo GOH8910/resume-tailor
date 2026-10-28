@@ -9,7 +9,7 @@ import { buildChatSystemPrompt } from "./prompt";
 import type { ChatMessage, ResumeChange } from "./schema";
 
 export type ChatInput = {
-  profile: string;
+  userId: string;
   applicationId?: string;
   resume?: ResumeState;
   messages: ChatMessage[];
@@ -34,16 +34,16 @@ export async function runChat(input: ChatInput, deps: ChatDeps): Promise<ChatOut
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user" || !last.content.trim()) throw new AppError("The last message must be from the user", 400);
 
-  const bank = await deps.banks.read(input.profile);
+  const bank = await deps.banks.read(input.userId);
   let application: Application | undefined;
-  if (input.applicationId) application = await deps.applications.get(input.profile, input.applicationId);
+  if (input.applicationId) application = await deps.applications.get(input.userId, input.applicationId);
 
   const system = buildChatSystemPrompt({ bank, application, resume: application ? input.resume : undefined });
   const result = await deps.model.chat(system, messages);
 
   const { bank: nextBank, applied, warnings } = applyBankChanges(bank, result.bankChanges);
   const bankChanged = applied.length > 0;
-  if (bankChanged) await deps.banks.write(input.profile, nextBank);
+  if (bankChanged) await deps.banks.write(input.userId, nextBank);
 
   const resumeChanges = application ? result.resumeChanges : [];
   if (!application && result.resumeChanges.length > 0) warnings.push("Resume changes were ignored because no resume is open");

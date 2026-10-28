@@ -1,66 +1,56 @@
-import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppError } from "@/lib/errors";
+import { eq } from "drizzle-orm";
+import { banks, user } from "@/db/schema";
+import { createTestDb } from "@/db/test-db";
+import type { Db } from "@/db/types";
 import { BankRepository } from "./repository";
 import { emptyBank } from "./schema";
 
-let root: string;
+let close: () => Promise<void>;
 let repo: BankRepository;
+let db: Db;
+const USER = "user_1";
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "bank-repo-"));
-  repo = new BankRepository(root);
+  const t = await createTestDb();
+  close = t.close;
+  db = t.db;
+  await t.db.insert(user).values({ id: USER, name: "Ed", email: "ed@example.com" });
+  repo = new BankRepository(async () => t.db);
 });
-afterEach(() => rm(root, { recursive: true, force: true }));
+afterEach(() => close());
 
 describe("BankRepository", () => {
-  it("lists no profiles when the data dir does not exist", async () => {
-    expect(await new BankRepository(path.join(root, "missing")).listProfiles()).toEqual([]);
+  it("returns an empty bank for a user without one, and persists it", async () => {
+    expect(await repo.read(USER)).toEqual(emptyBank(""));
+    expect(await db.select().from(banks).where(eq(banks.userId, USER))).toHaveLength(1);
+    expect(await repo.read(USER)).toEqual(emptyBank(""));
   });
-
-  it("creates a profile, then reads it back and lists it", async () => {
-    const created = await repo.createProfile("sam", "Sam Smith");
-    expect(created.profile.name).toBe("Sam Smith");
-    expect(await repo.listProfiles()).toEqual(["sam"]);
-    const read = await repo.read("sam");
-    expect(read).toEqual(created);
+  it("creates an empty bank once", async () => {
+    await repo.createEmpty(USER, "Ed");
+    await repo.createEmpty(USER, "Ed"); // idempotent: the sign-in hook may fire twice
+    expect((await repo.read(USER)).profile.name).toBe("Ed");
   });
-
-  it("refuses to create a profile twice", async () => {
-    await repo.createProfile("sam", "");
-    await expect(repo.createProfile("sam", "")).rejects.toMatchObject({ status: 409 });
+  it("validates on write and round-trips", async () => {
+    await expect(repo.write(USER, { nope: true })).rejects.toMatchObject({ status: 400 });
+    const bank = { ...emptyBank("Ed"), summary: "Hello" };
+    await repo.write(USER, bank);
+    expect(await repo.read(USER)).toEqual(bank);
   });
-
-  it("rejects invalid slugs", async () => {
-    await expect(repo.read("../etc")).rejects.toBeInstanceOf(AppError);
-    await expect(repo.read("Bad Slug")).rejects.toMatchObject({ status: 400 });
+  it("finds nothing for a user without a bank, without creating one", async () => {
+    expect(await repo.find(USER)).toBeNull();
+    expect(await db.select().from(banks).where(eq(banks.userId, USER))).toEqual([]);
   });
-
-  it("404s on an unknown profile", async () => {
-    await expect(repo.read("nobody")).rejects.toMatchObject({ status: 404 });
+  it("finds a stored bank and validates it", async () => {
+    const bank = { ...emptyBank("Ed"), summary: "Hello" };
+    await repo.write(USER, bank);
+    expect(await repo.find(USER)).toEqual(bank);
+    await db.update(banks).set({ data: { nope: true } as never }).where(eq(banks.userId, USER));
+    await expect(repo.find(USER)).rejects.toMatchObject({ status: 500 });
   });
-
-  it("writes atomically and validates", async () => {
-    await repo.createProfile("sam", "");
-    const bank = { ...emptyBank("Sam"), summary: "hello" };
-    await repo.write("sam", bank);
-    expect((await repo.read("sam")).summary).toBe("hello");
-    await expect(repo.write("sam", { nope: true })).rejects.toMatchObject({ status: 400 });
-    expect((await readFile(path.join(root, "sam", "bank.json"), "utf8")).endsWith("\n")).toBe(true);
-  });
-
-  it("refuses to read a corrupt bank file", async () => {
-    await mkdir(path.join(root, "sam"), { recursive: true });
-    await writeFile(path.join(root, "sam", "bank.json"), "{ not json", "utf8");
-    await expect(repo.read("sam")).rejects.toMatchObject({ status: 500 });
-  });
-
-  it("leaves no temp file behind when the write fails", async () => {
-    await mkdir(path.join(root, "sam", "bank.json"), { recursive: true }); // a directory where the file should be
-    await expect(repo.write("sam", emptyBank("Sam"))).rejects.toThrow();
-    const names = await readdir(path.join(root, "sam"));
-    expect(names).toEqual(["bank.json"]);
+  it("never overwrites an existing bank when asked to create an empty one", async () => {
+    await repo.write(USER, { ...emptyBank("Ed"), summary: "Hello" });
+    await repo.createEmpty(USER, "Other");
+    expect((await repo.read(USER)).summary).toBe("Hello");
   });
 });

@@ -1,9 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { ChatDrawer } from "@/ui/chat/ChatDrawer";
-import { ChatProvider } from "@/ui/chat/ChatProvider";
-import { ProfileProvider } from "@/ui/ProfileProvider";
-import { TopBar } from "@/ui/TopBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,15 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen">
-        <ProfileProvider>
-          <ChatProvider>
-            <TopBar />
-            <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
-            <ChatDrawer />
-          </ChatProvider>
-        </ProfileProvider>
-      </body>
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }
