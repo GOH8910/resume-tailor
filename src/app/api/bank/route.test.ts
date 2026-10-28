@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.hoisted(() => vi.fn());
-const banks = vi.hoisted(() => ({ createEmpty: vi.fn(), read: vi.fn(), write: vi.fn() }));
+const banks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
 vi.mock("@/lib/deps", () => ({ banks }));
 
@@ -16,11 +16,10 @@ describe("GET /api/bank", () => {
   it("answers 401 without a session and touches no bank", async () => {
     getSession.mockResolvedValueOnce(null);
     expect((await get()).status).toBe(401);
-    expect(banks.createEmpty).not.toHaveBeenCalled();
     expect(banks.read).not.toHaveBeenCalled();
   });
 
-  it("creates the signed-in user's bank if it is missing, then reads it", async () => {
+  it("reads the signed-in user's bank", async () => {
     getSession.mockResolvedValueOnce(ADA);
     banks.read.mockResolvedValueOnce({ profile: { name: "Ada" } });
 
@@ -28,9 +27,7 @@ describe("GET /api/bank", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ profile: { name: "Ada" } });
-    expect(banks.createEmpty).toHaveBeenCalledWith("u1", "Ada");
     expect(banks.read).toHaveBeenCalledWith("u1");
-    expect(banks.createEmpty.mock.invocationCallOrder[0]).toBeLessThan(banks.read.mock.invocationCallOrder[0]);
   });
 });
 

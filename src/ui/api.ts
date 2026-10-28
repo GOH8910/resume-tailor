@@ -11,6 +11,14 @@ export class ApiError extends Error {
   }
 }
 
+/** An expired or revoked session: send the browser to sign in, then back to this page. */
+function redirectToSignIn(): void {
+  if (typeof window === "undefined") return;
+  const here = window.location.pathname + window.location.search;
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load drops the signed-out state
+  window.location.assign(`/signin?next=${encodeURIComponent(here)}`);
+}
+
 async function parseResponse<T>(res: Response): Promise<T> {
   if (res.ok) {
     if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
@@ -25,6 +33,8 @@ async function parseResponse<T>(res: Response): Promise<T> {
   } catch {
     // Non-JSON error body: keep the status text.
   }
+  // Only the data routes' session check answers 401, so it always means "signed out".
+  if (res.status === 401) redirectToSignIn();
   throw new ApiError(message, res.status, details);
 }
 

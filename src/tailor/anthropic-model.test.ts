@@ -70,8 +70,12 @@ describe("AnthropicTailorModel", () => {
     await expect(model.tailor(request)).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/schema/) });
   });
 
-  it("maps an authentication failure to a 401", async () => {
+  // A 401 would tell the browser its own session had expired and send the user to sign in.
+  it("maps a rejected API key to a 502 that names no secret", async () => {
     const { model } = stubbedModel(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
-    await expect(model.tailor(request)).rejects.toMatchObject({ status: 401 });
+    await expect(model.tailor(request)).rejects.toMatchObject({
+      status: 502,
+      message: "The AI service rejected the request; check the server's API key",
+    });
   });
 });

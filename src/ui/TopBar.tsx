@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { errorMessage } from "./api";
 import { authClient } from "./auth-client";
 import { Button, FOCUS_RING } from "./Button";
+import { clearChatHistory } from "./chat/chat-storage";
+import { useChatContext } from "./chat/ChatProvider";
 
 const LINKS = [
   { href: "/", label: "Dashboard", isActive: (p: string) => p === "/" },
@@ -11,17 +15,39 @@ const LINKS = [
   { href: "/tailor", label: "Tailor", isActive: (p: string) => p.startsWith("/tailor") },
 ];
 
+function forgetChats(): void {
+  for (const storage of [window.sessionStorage, window.localStorage]) {
+    try {
+      clearChatHistory(storage);
+    } catch {
+      // Storage can be unavailable (private mode); then nothing was stored either.
+    }
+  }
+}
+
 export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
-  const router = useRouter();
-  // The value is unused: subscribing keeps the session cookie refreshed while the user is active, which the
-  // server-side getSession cannot do (it extends the database row but cannot rewrite the cookie).
+  const { handlers } = useChatContext();
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  // The value is unused. The (app) layout reads the session without refreshing it (a server component cannot set
+  // cookies), so this client call to the get-session route is what renews the session and its cookie.
   authClient.useSession();
 
   async function signOut() {
-    await authClient.signOut();
-    router.push("/signin");
-    router.refresh();
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await handlers?.flush?.(); // an autosave still waiting on its timer
+      const { error } = await authClient.signOut();
+      if (error) throw new Error(error.message ?? "the server refused");
+      forgetChats();
+      // A full load drops the router cache and every in-memory copy of this user's data.
+      window.location.replace("/signin");
+    } catch (err) {
+      setSignOutError(`Could not sign out: ${errorMessage(err)}`);
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -47,13 +73,18 @@ export function TopBar({ user }: { user: { email: string } }) {
             );
           })}
         </nav>
-        <div className="ml-auto flex min-w-0 items-center gap-2">
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           <span title={user.email} className="max-w-[14rem] truncate text-sm text-ink-soft">
             {user.email}
           </span>
-          <Button size="sm" variant="ghost" onClick={() => void signOut()}>
-            Sign out
+          <Button size="sm" variant="ghost" disabled={signingOut} onClick={() => void signOut()}>
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
+          {signOutError && (
+            <span role="alert" className="basis-full text-right text-xs text-danger">
+              {signOutError}
+            </span>
+          )}
         </div>
       </div>
     </header>

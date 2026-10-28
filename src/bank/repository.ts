@@ -13,13 +13,23 @@ export class BankRepository {
     await db.insert(banks).values({ userId, data: emptyBank(name) }).onConflictDoNothing();
   }
 
+  /** The user's bank. A missing one is created empty, which heals an account whose sign-up hook failed. */
   async read(userId: string): Promise<Bank> {
     const db = await this.db();
-    const [row] = await db.select({ data: banks.data }).from(banks).where(eq(banks.userId, userId));
-    if (!row) throw new AppError("No bank for this account yet", 404);
+    let row = await this.select(db, userId);
+    if (!row) {
+      await db.insert(banks).values({ userId, data: emptyBank("") }).onConflictDoNothing();
+      row = await this.select(db, userId);
+    }
+    if (!row) throw new AppError("Could not create a bank for this account", 500);
     const parsed = BankSchema.safeParse(row.data);
     if (!parsed.success) throw new AppError("Stored bank does not match the schema", 500, parsed.error.issues);
     return parsed.data;
+  }
+
+  private async select(db: Db, userId: string): Promise<{ data: unknown } | undefined> {
+    const [row] = await db.select({ data: banks.data }).from(banks).where(eq(banks.userId, userId));
+    return row;
   }
 
   async write(userId: string, bank: unknown): Promise<Bank> {

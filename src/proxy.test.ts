@@ -50,6 +50,19 @@ describe("proxy", () => {
     expect(proxy(request("/api/bank", { origin: "null", cookie: SESSION })).status).toBe(403);
   });
 
+  // OAuth and magic-link callbacks are top-level GET navigations from another site, which carry no Origin.
+  it.each(["/api/auth/callback/google?code=x&state=y", "/api/auth/magic-link/verify?token=x&callbackURL=%2F"])(
+    "lets the cross-site navigation to %s through",
+    (path) => {
+      expect(passesThrough(proxy(request(path)))).toBe(true);
+    },
+  );
+
+  it("lets a request without Origin (curl, server-to-server) through the CSRF check", () => {
+    const put = new NextRequest("http://localhost:3000/api/bank", { method: "PUT", headers: { host: "localhost:3000", cookie: SESSION } });
+    expect(passesThrough(proxy(put))).toBe(true);
+  });
+
   it("lets a same-origin API request with a session cookie through", () => {
     expect(passesThrough(proxy(request("/api/bank", { origin: "http://localhost:3000", cookie: SESSION })))).toBe(true);
   });

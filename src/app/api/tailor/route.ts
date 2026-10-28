@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   return handle(async () => {
     const user = await requireUser(request);
     if (!hasApiKey()) {
-      throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart npm run dev.", 400);
+      throw new AppError("The AI service is not configured on this server", 503);
     }
     const body = TailorRequestSchema.parse(await readJson(request));
     const application = await runTailor({ ...body, userId: user.id }, { banks, applications, model: new AnthropicTailorModel(body.model) });

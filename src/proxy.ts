@@ -17,6 +17,7 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApi = pathname.startsWith("/api/");
   // CSRF: a browser request from another site carries its Origin, and is refused.
+  // OAuth callbacks are GET navigations (no Origin); a provider using response_mode=form_post (e.g. Apple) would need an exemption.
   if (isApi && !sameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 });
   }

@@ -43,7 +43,7 @@ export const BankSchema = z.object({
   experience: z.array(EntrySchema),
   projects: z.array(EntrySchema),
   skills: z.array(SkillCategorySchema),
-  /** Default PDF layout for new resumes of this profile. */
+  /** Default PDF layout for new resumes of this bank. */
   layout: LayoutSchema.optional(),
 });
 

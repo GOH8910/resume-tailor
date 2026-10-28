@@ -6,6 +6,7 @@ import type { ChatMessage, ResumeChange } from "@/chat/schema";
 import { api, errorMessage } from "@/ui/api";
 import { Button } from "@/ui/Button";
 import { FOCUS_RING } from "@/ui/Button";
+import { chatStorageKey } from "./chat-storage";
 import { useChatContext } from "./ChatProvider";
 
 type Turn = ChatMessage & { applied?: string[]; warnings?: string[] };
@@ -22,7 +23,7 @@ type ChatResponse = {
 export function ChatDrawer() {
   const { handlers } = useChatContext();
   const [open, setOpen] = useState(false);
-  const storageKey = `resume-tailor:chat:${handlers?.applicationId ?? "bank"}`;
+  const storageKey = chatStorageKey(handlers?.applicationId);
   return (
     <>
       {!open && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { authClient } from "@/ui/auth-client";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -25,6 +25,14 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
   const [pending, setPending] = useState<"link" | "google" | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(errorCode ? messageFor(errorCode) : null);
+  const sentRef = useRef<HTMLDivElement>(null);
+  // A failed link or Google sign-in comes back to this page with ?error=, still headed for `next`.
+  const errorCallbackURL = `/signin?next=${encodeURIComponent(next)}`;
+
+  // The form is replaced by the confirmation, so move focus there rather than let it fall to the page.
+  useEffect(() => {
+    if (sentTo) sentRef.current?.focus();
+  }, [sentTo]);
 
   /** Runs an auth client call; true when it succeeded. HTTP errors come back as `error`, network failures throw. */
   async function attempt(kind: "link" | "google", call: AuthCall): Promise<boolean> {
@@ -46,18 +54,18 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
     event.preventDefault();
     const address = email.trim();
     if (!address || pending) return;
-    const sent = await attempt("link", () => authClient.signIn.magicLink({ email: address, callbackURL: next, errorCallbackURL: "/signin" }));
+    const sent = await attempt("link", () => authClient.signIn.magicLink({ email: address, callbackURL: next, errorCallbackURL }));
     if (sent) setSentTo(address);
   }
 
   function signInWithGoogle() {
     // On success the auth client navigates to Google, so only a failure needs handling here.
-    void attempt("google", () => authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL: "/signin" }));
+    void attempt("google", () => authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL }));
   }
 
   if (sentTo) {
     return (
-      <Banner tone="ok" title="Check your email for a sign-in link (valid for 5 minutes)">
+      <Banner ref={sentRef} tabIndex={-1} tone="ok" title="Check your email for a sign-in link (valid for 5 minutes)">
         Sent to {sentTo}.
       </Banner>
     );
