@@ -94,7 +94,7 @@ export function LayoutControls({ layout, customised, onChange, onReset, onSaveDe
         </div>
       </div>
       <p className="mt-2 text-xs text-ink-faint">
-        Auto picks the largest font size (8.5–12pt) that fits one page; a fixed size can spill onto a second page. Compile PDF to see the change.
+        Auto picks the largest font size (8.5–12pt) that fits one page; a fixed size can spill onto a second page. The preview updates on its own.
       </p>
     </fieldset>
   );

@@ -25,12 +25,12 @@ test("bank editor adds a bullet and persists it", async ({ page }) => {
     .toContain("Shipped the smoke test bullet");
 });
 
-test("manual application compiles to a one-page PDF", async ({ page }) => {
+test("manual application compiles to a one-page PDF on its own", async ({ page }) => {
   await page.goto("/tailor");
   await page.getByLabel("Company").fill("Acme");
   await page.getByLabel("Job description").fill("We need Go engineers.");
   await page.getByRole("button", { name: "Start from full bank" }).click();
   await expect(page).toHaveURL(/\/tailor\/.+/);
-  await page.getByRole("button", { name: "Compile PDF" }).click();
+  // No click: the review screen compiles as soon as it loads.
   await expect(page.getByText("1 page", { exact: true })).toBeVisible({ timeout: 60_000 });
 });

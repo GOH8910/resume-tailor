@@ -9,7 +9,7 @@ import { type Bank, SECTION_KEYS } from "@/bank/schema";
 import { applyResumeChanges } from "@/chat/apply-resume";
 import type { ResumeChange } from "@/chat/schema";
 import { resolveLayout } from "@/latex/layout";
-import { ApiError, api, compilePdf, errorMessage, withProfile } from "@/ui/api";
+import { api, errorMessage, withProfile } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
@@ -20,10 +20,9 @@ import { LayoutControls } from "./LayoutControls";
 import { PdfPreview } from "./PdfPreview";
 import { SectionReview } from "./SectionReview";
 import { SkillsReview } from "./SkillsReview";
+import { usePdfCompiler } from "./use-pdf-compiler";
 
 type Props = { applicationId: string };
-type Preview = { url: string; pages: number };
-type Problem = { message: string; log?: string };
 
 const SAVE_DELAY_MS = 800;
 
@@ -49,11 +48,9 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
   // The snapshot last written to disk. Edit helpers return new objects, so reference inequality means unsaved changes.
   const [saved, setSaved] = useState<ResumeState | null>(null);
   const [pendingSaves, setPendingSaves] = useState(0);
-  const [compiling, setCompiling] = useState(false);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [problem, setProblem] = useState<Problem | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const previewUrl = useRef<string | null>(null);
+  const { preview, compiling, problem, compile } = usePdfCompiler(profile, applicationId);
   const latest = useRef<ResumeState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = resume !== saved;
@@ -74,19 +71,17 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
         setSaved(pruned);
       })
       .catch((err) => {
-        if (!cancelled) setProblem({ message: errorMessage(err) });
+        if (!cancelled) setLoadError(errorMessage(err));
       });
     return () => {
       cancelled = true;
     };
   }, [profile, applicationId]);
 
-  useEffect(
-    () => () => {
-      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
-    },
-    [],
-  );
+  // The PDF follows what is on disk: the first load and every autosave compile that snapshot.
+  useEffect(() => {
+    if (saved) compile(saved);
+  }, [saved, compile]);
 
   const save = useCallback(
     async (state: ResumeState): Promise<void> => {
@@ -168,24 +163,10 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     return registerChat({ label: `Resume · ${company}`, applicationId, getResume: () => latest.current, applyResumeChanges: applyChat, flush });
   }, [registerChat, company, applicationId, applyChat, flush]);
 
-  async function onCompile() {
-    if (!resume) return;
-    setCompiling(true);
-    setProblem(null);
-    try {
-      cancelTimer();
-      if (dirty) await save(resume);
-      const { blob, pages } = await compilePdf(profile, resume, applicationId);
-      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
-      const url = URL.createObjectURL(blob);
-      previewUrl.current = url;
-      setPreview({ url, pages });
-    } catch (err) {
-      const log = err instanceof ApiError && typeof err.details === "string" ? err.details : undefined;
-      setProblem({ message: errorMessage(err), log });
-    } finally {
-      setCompiling(false);
-    }
+  /** Manual retry: unsaved edits are saved first, and that save's snapshot triggers the compile. */
+  function recompile() {
+    if (dirty) saveLatest();
+    else if (saved) compile(saved);
   }
 
   /** The current layout becomes the profile default; this resume then follows the default instead of its own copy. */
@@ -202,10 +183,10 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     }
   }
 
-  if (problem && !application) {
+  if (loadError) {
     return (
       <Banner tone="error" title="Could not load this application">
-        {problem.message}
+        {loadError}
       </Banner>
     );
   }
@@ -248,18 +229,20 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
 
       <div className="grid grid-cols-1 content-start gap-6">
         <div className="-mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-rule bg-paper/95 px-3 py-2 shadow-card backdrop-blur lg:sticky lg:top-16 lg:z-[5]">
-          <Button variant="primary" onClick={() => void onCompile()} disabled={compiling || saving}>
-            {compiling ? "Compiling…" : "Compile PDF"}
-          </Button>
-          <Button onClick={saveLatest} disabled={!dirty || saving || compiling}>
-            {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
-          </Button>
           {preview && (
-            <a href={preview.url} download={filename} className={buttonClass({ variant: "secondary" })}>
+            <a href={preview.url} download={filename} className={buttonClass({ variant: "primary" })}>
               Download PDF
             </a>
           )}
-          <span className="ml-auto text-xs text-ink-faint">{dirty ? "Unsaved changes" : ""}</span>
+          <Button onClick={recompile} disabled={compiling || saving}>
+            Recompile
+          </Button>
+          <Button onClick={saveLatest} disabled={!dirty || saving}>
+            {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
+          </Button>
+          <span className="ml-auto text-xs text-ink-faint" role="status">
+            {compiling ? "Compiling…" : dirty ? "Unsaved changes" : ""}
+          </span>
         </div>
 
         {saveError && (
@@ -283,7 +266,15 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
           onSaveDefault={saveDefaultLayout}
         />
 
-        {preview && <PdfPreview url={preview.url} pages={preview.pages} />}
+        {preview ? (
+          <PdfPreview url={preview.url} pages={preview.pages} compiling={compiling} />
+        ) : (
+          !problem && (
+            <p className="text-sm text-ink-faint" role="status">
+              Compiling the PDF…
+            </p>
+          )
+        )}
 
         <section aria-labelledby="review-summary">
           <h2 id="review-summary" className="mb-3 border-b border-ink pb-1 text-2xl">
