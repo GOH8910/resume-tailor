@@ -140,6 +140,16 @@ describe("checkLatexmk as another user (stand-in sudo)", () => {
     expect(await checkLatexmk({ latexmkPath: path.join(dir, "nope"), runAs: "tex" })).toBe("missing");
   });
 
+  it("reports GNU timeout stopping latexmk as a timeout", async () => {
+    const latexmkPath = await fakeLatexmk("inner-timeout", "exit 124");
+    expect(await checkLatexmk({ latexmkPath, runAs: "tex" })).toBe("error: timeout");
+  });
+
+  it("reports exit 124 as an exit code when latexmk runs directly", async () => {
+    const latexmkPath = await fakeLatexmk("plain-124", "exit 124");
+    expect(await checkLatexmk({ latexmkPath })).toBe("error: exit 124");
+  });
+
   it("reports a sudo that refuses to run the command", async () => {
     const refusing = await mkdtemp(path.join(os.tmpdir(), "latexmk-check-refusing-"));
     try {

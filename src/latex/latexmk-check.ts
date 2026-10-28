@@ -7,7 +7,8 @@ export type LatexmkCheckOptions = { latexmkPath?: string; timeoutMs?: number; ru
 const OK_TTL_MS = 5 * 60_000;
 // Fly gives the whole health check 5 s, so the probe has to answer well inside that.
 const DEFAULT_TIMEOUT_MS = 4_000;
-// GNU timeout (and a shell) exit 127 when the command was not found.
+// GNU timeout exits 124 when it stopped the command, and 127 (like a shell) when the command was not found.
+const TIMEOUT_EXIT_CODE = 124;
 const NOT_FOUND_EXIT_CODE = 127;
 
 let lastOk: number | undefined;
@@ -68,6 +69,7 @@ function probe(command: LatexCommand, viaSudo: boolean, timeoutMs: number): Prom
     child.once("exit", (code, signal) => {
       clearTimeout(timer);
       if (code === 0) resolve("ok");
+      else if (viaSudo && code === TIMEOUT_EXIT_CODE) resolve("error: timeout");
       else if (viaSudo && code === NOT_FOUND_EXIT_CODE) resolve("missing");
       else resolve(`error: exit ${code ?? signal}`);
     });

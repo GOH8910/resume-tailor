@@ -234,6 +234,10 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
 
 - The TeX image may exceed the small machine's memory under concurrent compiles; the queue of 2 and a
   1 GB machine are the mitigation, and the next size up is a config change.
+- TeX runs as a separate user, which keeps documents away from the server's environment and files but
+  not from each other: both queue slots run as the same uid, so if LaTeX escaping ever failed, a
+  document could read a concurrent compile's folder (and so another user's resume) through
+  /proc/<pid>/cwd. Planned fix: one uid and group per queue slot.
 - Lemon Squeezy store approval can take days and can be refused; Paddle is the fallback with the
   same merchant-of-record model and a similar webhook shape.
 - Legal pages are template grade until reviewed.

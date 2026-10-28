@@ -58,7 +58,9 @@ const BLOCKED = new Set(["TEXMFOUTPUT"]);
  * openout_any=p (kpathsea reads it from the environment, ahead of texmf.cnf) stops a document writing to
  * dotfiles, absolute paths or parent directories, so it can only write inside its temp folder.
  * Reads are not confined by TeX (TeX Live 2026 made openin_any a no-op): they rely on escapeLatex and, in the
- * container, on running TeX as a separate unprivileged user.
+ * container, on running TeX as a separate unprivileged user. That user isolates TeX from the server (its
+ * environment, /app, /app/data), not one compile from another: every compile runs as the same user, so if escaping
+ * ever failed a document could reach a concurrent compile's folder through /proc/<pid>/cwd.
  */
 export function latexEnv(): NodeJS.ProcessEnv {
   const kept = Object.entries(process.env).filter(

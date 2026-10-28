@@ -13,6 +13,8 @@ const Schema = z.object({
   EMAIL_FROM: z.string().default("Resume Tailor <signin@localhost>"),
   SIGNUP_EMAILS: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  LATEX_RUN_AS: z.string().optional(),
+  COMPILE_ROOT: z.string().optional(),
 });
 
 type Source = Record<string, string | undefined>;
@@ -34,6 +36,12 @@ export function parseEnv(source: Source): Env {
   };
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together");
+  }
+  // Without it, compiles happen in the system temp folder, where TeX's output files would not be readable by the server.
+  if (env.LATEX_RUN_AS && !env.COMPILE_ROOT) {
+    throw new Error(
+      "COMPILE_ROOT must be set when LATEX_RUN_AS is set: a folder the server owns, setgid to a group the TeX user is in",
+    );
   }
   if (isProduction && env.NEXT_PHASE !== "phase-production-build") checkProduction(source, env);
   return env;

@@ -88,6 +88,26 @@ describe("parseEnv", () => {
     );
   });
 
+  it("requires COMPILE_ROOT when LATEX_RUN_AS is set", () => {
+    expect(() => parseEnv(production({ LATEX_RUN_AS: "tex" }))).toThrow(
+      "COMPILE_ROOT must be set when LATEX_RUN_AS is set",
+    );
+  });
+
+  it("checks the LATEX_RUN_AS and COMPILE_ROOT pairing outside production too", () => {
+    expect(() => parseEnv({ LATEX_RUN_AS: "tex" })).toThrow("COMPILE_ROOT must be set when LATEX_RUN_AS is set");
+  });
+
+  it("accepts LATEX_RUN_AS together with COMPILE_ROOT", () => {
+    const env = parseEnv(production({ LATEX_RUN_AS: "tex", COMPILE_ROOT: "/var/lib/compile" }));
+    expect(env.LATEX_RUN_AS).toBe("tex");
+    expect(env.COMPILE_ROOT).toBe("/var/lib/compile");
+  });
+
+  it("accepts COMPILE_ROOT on its own", () => {
+    expect(() => parseEnv(production({ COMPILE_ROOT: "/var/lib/compile" }))).not.toThrow();
+  });
+
   it("parses SIGNUP_EMAILS into a lowercased, trimmed set", () => {
     const env = parseEnv({ SIGNUP_EMAILS: " Ada@Example.com, bob@example.com ,," });
     expect(env.signupEmails).toEqual(new Set(["ada@example.com", "bob@example.com"]));

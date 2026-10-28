@@ -15,7 +15,8 @@ RUN npm run build
 # Minimal TeX Live: only what templates/resume.tex needs. tlmgr pulls in dependencies.
 FROM base AS texlive
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends perl wget ca-certificates xz-utils \
+# gnupg lets install-tl verify the signature of the TeX Live package database.
+RUN apt-get update && apt-get install -y --no-install-recommends perl wget ca-certificates xz-utils gnupg \
  && rm -rf /var/lib/apt/lists/*
 COPY docker/texlive.profile /tmp/texlive.profile
 RUN mkdir /tmp/install-tl && cd /tmp/install-tl \
@@ -51,17 +52,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends perl sudo \
 COPY --from=texlive /usr/local/texlive /usr/local/texlive
 ENV PATH=/usr/local/texlive/bin/current:$PATH
 
-# TeX runs as "tex" (see docker/sudoers-latex), so a document cannot read the app's files or its environment under
-# /proc. Compile folders live under /var/lib/compile: node owns it, and its setgid group texrun (node and tex are
-# both in it) is handed to each compile folder. Group members may enter it but not list it.
+# TeX runs as "tex" (see docker/sudoers-latex), which isolates it from the server: a document cannot read the app's
+# environment under /proc, /app or /app/data. It does not isolate one compile from another: every compile runs as
+# tex, so if escaping ever failed a document could reach a concurrent compile's folder through /proc/<pid>/cwd.
+# Compile folders live under /var/lib/compile: node owns it, and its setgid group texrun (node and tex are both in
+# it) is handed to each compile folder. Group members may enter it but not list it.
 COPY docker/sudoers-latex /tmp/sudoers-latex
-RUN useradd --create-home --shell /usr/sbin/nologin tex \
+RUN useradd --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin tex \
  && groupadd texrun \
  && usermod -aG texrun tex \
  && usermod -aG texrun node \
  && install -d -o node -g texrun -m 2710 /var/lib/compile \
- && sed "s|@TEXBIN@|$(readlink -f /usr/local/texlive/bin/current)|" /tmp/sudoers-latex > /etc/sudoers.d/latex \
+ && sed "/^Defaults:node secure_path=/s|@TEXBIN@|$(readlink -f /usr/local/texlive/bin/current)|" /tmp/sudoers-latex \
+    > /etc/sudoers.d/latex \
  && rm /tmp/sudoers-latex \
+ && ! grep -q '@TEXBIN@\|secure_path=":' /etc/sudoers.d/latex \
  && chmod 0440 /etc/sudoers.d/latex \
  && visudo -c -f /etc/sudoers.d/latex
 

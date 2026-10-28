@@ -2,16 +2,17 @@
 # Builds the production image and checks it end to end against a throwaway Postgres: health, sign-in, a real
 # compile, and that TeX runs as a separate user who cannot read the server's secrets or data.
 # Usage: scripts/smoke-image.sh   (needs Docker, curl and Node; builds for this machine's architecture)
-# SMOKE_SKIP_BUILD=1 reuses an existing resume-tailor:smoke image.
+# SMOKE_SKIP_BUILD=1 reuses an existing resume-tailor:smoke image. SMOKE_PORT picks the host port.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 IMAGE=resume-tailor:smoke
-NET=resume-smoke
-DB=resume-smoke-db
-APP=resume-smoke-app
-PORT=3999
+# Suffixed with this shell's PID so two runs cannot collide.
+NET=resume-smoke-$$
+DB=resume-smoke-db-$$
+APP=resume-smoke-app-$$
+PORT=${SMOKE_PORT:-$((20000 + $$ % 10000))}
 BASE="http://localhost:$PORT"
 EMAIL=smoke@example.com
 WORK=$(mktemp -d)
@@ -51,7 +52,8 @@ if [ "${SMOKE_SKIP_BUILD:-}" != 1 ]; then
   docker build -t "$IMAGE" .
   echo "Build took $(($(date +%s) - started)) s"
 fi
-echo "Image size: $(docker run --rm --entrypoint du "$IMAGE" -sxm / 2>/dev/null | cut -f1) MB unpacked"
+# Docker Desktop's containerd image store reports the compressed size here; the classic store, the unpacked size.
+echo "Image size: $(docker image inspect --format '{{.Size}}' "$IMAGE" | awk '{ printf "%.0f MB", $1 / 1000 / 1000 }')"
 
 # --- Start Postgres and the app ---
 remove_containers
@@ -64,7 +66,7 @@ for _ in $(seq 60); do
 done
 docker exec "$DB" pg_isready -h 127.0.0.1 -U postgres >/dev/null || { echo "Postgres did not start"; exit 1; }
 
-docker run -d --name "$APP" --network "$NET" --init -p "$PORT:3000" \
+docker run -d --name "$APP" --network "$NET" --init -p "127.0.0.1:$PORT:3000" \
   -e DATABASE_URL="postgres://postgres:postgres@$DB:5432/postgres" \
   -e BETTER_AUTH_SECRET=smoke-test-secret-never-used-in-production-0123456789 \
   -e BETTER_AUTH_URL="$BASE" \
@@ -112,9 +114,14 @@ node -e 'const { application } = JSON.parse(require("fs").readFileSync(process.a
 
 code=$(api -D "$WORK/compile.headers" -o "$WORK/compiled" -w '%{http_code}' -H 'Content-Type: application/json' \
   --data-binary @"$WORK/compile.json" "$BASE/api/compile" || true)
-pages=$(tr -d '\r' < "$WORK/compile.headers" | awk -F': ' 'tolower($1) == "x-page-count" { print $2 }')
+pages=$(tr -d '\r' 2>/dev/null < "$WORK/compile.headers" | awk -F': ' 'tolower($1) == "x-page-count" { print $2 }' || true)
 check "compile returned a PDF (HTTP $code)" test "$code" = 200
-if [ "$code" != 200 ]; then json "$WORK/compiled" error; echo; json "$WORK/compiled" log | tail -c 2000; echo; fi
+if [ "$code" != 200 ]; then
+  json "$WORK/compiled" error 2>/dev/null || true
+  echo
+  { json "$WORK/compiled" log 2>/dev/null || true; } | tail -c 2000
+  echo
+fi
 check "compiled resume is one page (X-Page-Count: ${pages:-none})" test "${pages:-}" = 1
 type=$(api -o /dev/null -w '%{content_type}' "$BASE/api/applications/$id/pdf" || true)
 check "saved PDF is served ($type)" test "$type" = application/pdf
@@ -122,7 +129,7 @@ check "compile folders were cleaned up" test -z "$(in_app 'ls -A /var/lib/compil
 
 # --- TeX runs as a separate user ---
 # Next renames its process to "next-server (v...)".
-server_pid=$(in_app 'for p in /proc/[0-9]*; do case "$(tr "\0" " " < "$p/cmdline" 2>/dev/null)" in next-server*|"node server.js"*) basename "$p";; esac; done' | head -1)
+server_pid=$(in_app 'for p in /proc/[0-9]*; do case "$(tr "\0" " " < "$p/cmdline" 2>/dev/null)" in next-server*|"node server.js"*) basename "$p";; esac; done' | head -1 || true)
 check "found the server process (pid ${server_pid:-none})" test -n "$server_pid"
 check "control: node can read the server's environment" in_app "grep -qz '^BETTER_AUTH_SECRET=' /proc/$server_pid/environ"
 refused "tex cannot read the server's environment" as_tex "cat /proc/$server_pid/environ"

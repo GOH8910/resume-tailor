@@ -5,6 +5,7 @@ import { user } from "./schema";
 import { createTestDb } from "./test-db";
 
 describe("database", () => {
+  // Starting PGlite and migrating takes about 1.5 s alone, but has taken over 6 s in a loaded full run.
   it("applies the migrations to an empty PGlite", async () => {
     const { db, close } = await createTestDb();
     try {
@@ -12,7 +13,7 @@ describe("database", () => {
     } finally {
       await close();
     }
-  });
+  }, 15_000);
 });
 
 describe("getDb", () => {
