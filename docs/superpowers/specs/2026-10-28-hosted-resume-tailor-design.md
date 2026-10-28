@@ -196,8 +196,8 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
 - E2E (Playwright, dev sign-in): sign in → add bullet → manual tailor → auto compile shows "1 page" →
   download; free user hits the tailor limit and sees Upgrade; account export downloads JSON; delete
   account signs out and `/bank` redirects to sign-in.
-- Docker: a `scripts/smoke-image.sh` builds the image, runs it with PGlite, and curls `/api/health`
-  and a compile of `data/example`.
+- Docker: a `scripts/smoke-image.sh` builds the image, runs it with a Postgres sidecar and waits for
+  `/api/health?deep=1`, then checks a compile of `data/example`.
 
 ## Phases
 

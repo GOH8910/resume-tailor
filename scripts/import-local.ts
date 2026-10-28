@@ -19,7 +19,7 @@ Safe to re-run: applications and PDFs are upserted.
 Targets the local PGlite under data/pglite, which is single-process: stop \`npm run dev\` first.
 
 Production: sign in on the production site first so the account exists there, then set
-DATABASE_URL to Neon's direct (unpooled) connection string with ?sslmode=verify-full.
+DATABASE_URL to Neon's direct (unpooled) connection string; change sslmode=require to sslmode=verify-full in it.
 Migrations run on every invocation, --dry-run included, so run this from the commit that is deployed.
 Use an absolute --from path when the data lives in another checkout.`;
 

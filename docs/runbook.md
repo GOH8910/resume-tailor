@@ -31,8 +31,8 @@ fly certs add <domain>        # create the A and AAAA records it prints
 fly certs show <domain>       # repeat until the certificate is issued
 ```
 
-Fly app names are global. If `resume-tailor` is taken, use another name and keep `app` in `fly.toml` the
-same.
+Fly app names are global. If `resume-tailor` is taken, pick another name, set `app` in `fly.toml` to it
+and commit that change. Never keep a name that belongs to someone else's app.
 
 ## 3. Secrets
 
@@ -72,7 +72,7 @@ docker build --platform linux/amd64 -t resume-tailor:amd64 .    # once: Fly's re
 The smoke script prints PASS or FAIL per check and exits non-zero on any failure. The amd64 build is slow
 under emulation, but it is the only proof of the x86_64 TeX Live path before Fly builds it.
 
-## 5. Deploy
+## 5. Deploy and sign in
 
 ```bash
 fly deploy
@@ -81,14 +81,14 @@ curl -sS 'https://<domain>/api/health?deep=1'
 ```
 
 Fly's own check calls the shallow `/api/health`, which does not touch the database on purpose so Neon can
-scale to zero. Then sign in once for real (this proves Resend delivers) and compile once: add an
-Experience entry with one bullet to the bank, then Tailor, "Start from full bank", and wait for the "1 page"
-badge.
+scale to zero.
 
-## 6. Import the local bank
+Then sign in on the live site once. This proves Resend delivers, and creates your account with an empty
+bank. Do not edit the bank yet: the import in step 6 only fills a bank that is still empty.
 
-1. Sign in on the live site first. That creates your account, with an empty bank.
-2. On the laptop, check out the commit that is deployed (migrations run on every invocation, `--dry-run`
+## 6. Import the local bank, then compile
+
+1. On the laptop, check out the commit that is deployed (migrations run on every invocation, `--dry-run`
    included), then:
 
    ```bash
@@ -99,7 +99,12 @@ badge.
    unset DATABASE_URL
    ```
 
-3. Reload the dashboard. It should list the imported applications with their PDFs.
+   The dry run should print `Bank: would-import`. If it prints `Bank: would-keep`, the bank was edited
+   after sign-up; pass `--replace` to overwrite it with the imported one.
+2. Reload the dashboard. It should list the imported applications with their PDFs.
+3. Compile once on the live site: open an imported application, or go to Tailor, fill in Company and Job
+   description, and choose "Start from full bank". The review screen compiles on its own; wait for the
+   "1 page" badge.
 
 ## 7. Operations
 

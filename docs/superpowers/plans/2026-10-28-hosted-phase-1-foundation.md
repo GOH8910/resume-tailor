@@ -1015,7 +1015,7 @@ README: Setup now says `cp .env.example .env.local`, set `BETTER_AUTH_SECRET` (`
 
 `docs/runbook.md` phase 1 section, the exact commands in order:
 1. `fly launch --no-deploy` (accept `fly.toml`), `fly ips allocate-v4 --shared`, `fly certs add <domain>` and the DNS records it prints.
-2. Neon: create a project in London, copy the pooled connection string.
+2. Neon: create a project in London, copy the direct (unpooled) connection string and change `sslmode=require` to `sslmode=verify-full` in it.
 3. Google Cloud: OAuth client, redirect URI `https://<domain>/api/auth/callback/google`.
 4. Resend: verify the domain, create an API key.
 5. `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=$(openssl rand -base64 32) BETTER_AUTH_URL=https://<domain> GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... RESEND_API_KEY=... EMAIL_FROM="Resume Tailor <signin@<domain>>" ANTHROPIC_API_KEY=... SIGNUP_EMAILS=<comma-separated>`
