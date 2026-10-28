@@ -13,7 +13,7 @@ type Compile = (state: ResumeState) => void;
  * run one at a time and a burst collapses into the latest state. The previous preview stays on screen
  * until the new one is ready, and a failed compile keeps it while showing the LaTeX error.
  */
-export function usePdfCompiler(profile: string, applicationId: string) {
+export function usePdfCompiler(applicationId: string) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -26,7 +26,7 @@ export function usePdfCompiler(profile: string, applicationId: string) {
     runner.current = createLatestRunner<ResumeState>(async (state) => {
       setCompiling(true);
       try {
-        const { blob, pages } = await compilePdf(profile, state, applicationId);
+        const { blob, pages } = await compilePdf(state, applicationId);
         if (!active) return;
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         previewUrl = URL.createObjectURL(blob);
@@ -45,7 +45,7 @@ export function usePdfCompiler(profile: string, applicationId: string) {
       runner.current = null;
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
-  }, [profile, applicationId]);
+  }, [applicationId]);
 
   const compile = useCallback<Compile>((state) => runner.current?.(state), []);
 

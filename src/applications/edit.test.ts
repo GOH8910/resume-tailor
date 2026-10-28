@@ -138,7 +138,7 @@ describe("setLayout", () => {
     expect(setLayout(next, { ...layout, margins: { ...layout.margins } })).toBe(next);
     expect(setLayout(state, undefined)).toBe(state);
   });
-  it("drops the key entirely when reset, so the profile default applies again", () => {
+  it("drops the key entirely when reset, so the bank default applies again", () => {
     const reset = setLayout(setLayout(state, layout), undefined);
     expect("layout" in reset).toBe(false);
   });

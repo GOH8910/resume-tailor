@@ -9,12 +9,11 @@ import { type Bank, SECTION_KEYS } from "@/bank/schema";
 import { applyResumeChanges } from "@/chat/apply-resume";
 import type { ResumeChange } from "@/chat/schema";
 import { resolveLayout } from "@/latex/layout";
-import { api, errorMessage, withProfile } from "@/ui/api";
+import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
 import { useChatContext } from "@/ui/chat/ChatProvider";
-import { useProfile } from "@/ui/ProfileProvider";
 import { loadApplication, saveApplication, saveApplicationOnExit } from "./application-saver";
 import { LayoutControls } from "./LayoutControls";
 import { PdfPreview } from "./PdfPreview";
@@ -27,21 +26,11 @@ type Props = { applicationId: string };
 const SAVE_DELAY_MS = 800;
 
 export function ReviewScreen({ applicationId }: Props) {
-  const { profile, loading, error: profileError } = useProfile();
-  if (loading) return <p className="text-ink-soft">Loading…</p>;
-  if (profileError) {
-    return (
-      <Banner tone="error" title="Profiles failed to load">
-        {profileError}
-      </Banner>
-    );
-  }
-  if (!profile) return <Banner tone="info" title="No profile selected" />;
-  // Keyed so switching profile (or application) remounts with fresh state, without setState inside an effect.
-  return <ProfileReview key={`${profile}/${applicationId}`} profile={profile} applicationId={applicationId} />;
+  // Keyed so switching application remounts with fresh state, without setState inside an effect.
+  return <ApplicationReview key={applicationId} applicationId={applicationId} />;
 }
 
-function ProfileReview({ profile, applicationId }: { profile: string; applicationId: string }) {
+function ApplicationReview({ applicationId }: Props) {
   const [application, setApplication] = useState<Application | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
   const [resume, setResume] = useState<ResumeState | null>(null);
@@ -50,7 +39,7 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
   const [pendingSaves, setPendingSaves] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { preview, compiling, problem, compile } = usePdfCompiler(profile, applicationId);
+  const { preview, compiling, problem, compile } = usePdfCompiler(applicationId);
   const latest = useRef<ResumeState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = resume !== saved;
@@ -59,7 +48,7 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadApplication(profile, applicationId), api.get<Bank>(withProfile("/api/bank", profile))])
+    Promise.all([loadApplication(applicationId), api.get<Bank>("/api/bank")])
       .then(([loaded, loadedBank]) => {
         if (cancelled) return;
         // Entries deleted from the bank since tailoring are dropped so reordering stays predictable.
@@ -76,7 +65,7 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     return () => {
       cancelled = true;
     };
-  }, [profile, applicationId]);
+  }, [applicationId]);
 
   // The PDF follows what is on disk: the first load and every autosave compile that snapshot.
   useEffect(() => {
@@ -87,14 +76,14 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     async (state: ResumeState): Promise<void> => {
       setPendingSaves((n) => n + 1);
       try {
-        setApplication(await saveApplication(profile, applicationId, state));
+        setApplication(await saveApplication(applicationId, state));
         setSaved(state); // the snapshot that was written, so edits made while saving stay dirty
         setSaveError(null);
       } finally {
         setPendingSaves((n) => n - 1);
       }
     },
-    [profile, applicationId],
+    [applicationId],
   );
 
   const cancelTimer = useCallback(() => {
@@ -126,19 +115,19 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     const onPageHide = () => {
       if (!timer.current || !latest.current) return;
       cancelTimer();
-      saveApplicationOnExit(profile, applicationId, latest.current);
+      saveApplicationOnExit(applicationId, latest.current);
     };
     window.addEventListener("pagehide", onPageHide);
     return () => {
       window.removeEventListener("pagehide", onPageHide);
-      // Unmount (dashboard link, profile switch): save now rather than drop the edit.
+      // Unmount (dashboard link, another application): save now rather than drop the edit.
       if (timer.current && latest.current) {
         const state = latest.current;
         cancelTimer();
-        void saveApplication(profile, applicationId, state).catch(() => undefined);
+        void saveApplication(applicationId, state).catch(() => undefined);
       }
     };
-  }, [profile, applicationId, cancelTimer]);
+  }, [applicationId, cancelTimer]);
 
   // Chat drawer hooks: flush pending edits before Claude reads the resume; apply its changes through `change`.
   const flush = useCallback(async () => {
@@ -169,14 +158,14 @@ function ProfileReview({ profile, applicationId }: { profile: string; applicatio
     else if (saved) compile(saved);
   }
 
-  /** The current layout becomes the profile default; this resume then follows the default instead of its own copy. */
+  /** The current layout becomes the bank default; this resume then follows the default instead of its own copy. */
   async function saveDefaultLayout() {
     if (!bank || !resume) return;
     try {
       // Re-read the bank first so a stale copy here cannot overwrite edits made elsewhere.
-      const fresh = await api.get<Bank>(withProfile("/api/bank", profile));
+      const fresh = await api.get<Bank>("/api/bank");
       const layout = resolveLayout(resume.layout, bank.layout);
-      setBank(await api.send<Bank>(withProfile("/api/bank", profile), "PUT", { ...fresh, layout }));
+      setBank(await api.send<Bank>("/api/bank", "PUT", { ...fresh, layout }));
       change((s) => edit.setLayout(s, undefined));
     } catch (err) {
       setSaveError(errorMessage(err));

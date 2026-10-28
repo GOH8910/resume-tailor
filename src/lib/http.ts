@@ -38,12 +38,6 @@ export async function requireUser(request: Request): Promise<CurrentUser> {
   return { id: session.user.id, email: session.user.email, name: session.user.name };
 }
 
-export function requireProfile(request: Request): string {
-  const slug = new URL(request.url).searchParams.get("profile");
-  if (!slug) throw new AppError("Missing ?profile= query parameter", 400);
-  return slug;
-}
-
 export function pdfResponse(pdf: Buffer, pages: number, filename: string): Response {
   return new Response(new Uint8Array(pdf), {
     headers: {

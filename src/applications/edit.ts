@@ -94,7 +94,7 @@ export function setSummary(state: ResumeState, summary: string): ResumeState {
   return summary === state.summary ? state : { ...state, summary };
 }
 
-/** `undefined` drops the resume's own layout so it follows the profile default again. */
+/** `undefined` drops the resume's own layout so it follows the bank default again. */
 export function setLayout(state: ResumeState, layout: Layout | undefined): ResumeState {
   if (sameLayout(state.layout, layout)) return state;
   if (layout === undefined) {

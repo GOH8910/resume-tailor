@@ -6,7 +6,6 @@ import type { ChatMessage, ResumeChange } from "@/chat/schema";
 import { api, errorMessage } from "@/ui/api";
 import { Button } from "@/ui/Button";
 import { FOCUS_RING } from "@/ui/Button";
-import { useProfile } from "@/ui/ProfileProvider";
 import { useChatContext } from "./ChatProvider";
 
 type Turn = ChatMessage & { applied?: string[]; warnings?: string[] };
@@ -21,11 +20,9 @@ type ChatResponse = {
 };
 
 export function ChatDrawer() {
-  const { profile } = useProfile();
   const { handlers } = useChatContext();
   const [open, setOpen] = useState(false);
-  if (!profile) return null;
-  const storageKey = `resume-tailor:chat:${profile}:${handlers?.applicationId ?? "bank"}`;
+  const storageKey = `resume-tailor:chat:${handlers?.applicationId ?? "bank"}`;
   return (
     <>
       {!open && (
@@ -38,7 +35,7 @@ export function ChatDrawer() {
           Chat with Claude
         </button>
       )}
-      {open && <ChatPanel key={storageKey} storageKey={storageKey} profile={profile} onClose={() => setOpen(false)} />}
+      {open && <ChatPanel key={storageKey} storageKey={storageKey} onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -52,7 +49,7 @@ function readTurns(key: string): Turn[] {
   }
 }
 
-function ChatPanel({ storageKey, profile, onClose }: { storageKey: string; profile: string; onClose: () => void }) {
+function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () => void }) {
   const { handlers } = useChatContext();
   const [turns, setTurns] = useState<Turn[]>(() => readTurns(storageKey));
   const [input, setInput] = useState("");
@@ -81,7 +78,6 @@ function ChatPanel({ storageKey, profile, onClose }: { storageKey: string; profi
     try {
       await handlers?.flush?.();
       const res = await api.send<ChatResponse>("/api/chat", "POST", {
-        profile,
         applicationId: handlers?.applicationId,
         resume: handlers?.getResume?.() ?? undefined,
         messages: history.map(({ role, content: text }) => ({ role, content: text })),

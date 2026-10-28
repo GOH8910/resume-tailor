@@ -26,9 +26,9 @@ export const DEFAULT_LAYOUT: Layout = {
 export const MARGIN_RANGE = { min: 0.2, max: 2, step: 0.05 } as const;
 export const FONT_SIZE_OPTIONS = [8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13] as const;
 
-/** A resume's own layout wins over the profile default, which wins over the built-in one. */
-export function resolveLayout(resume: Layout | undefined, profileDefault: Layout | undefined): Layout {
-  return resume ?? profileDefault ?? DEFAULT_LAYOUT;
+/** A resume's own layout wins over the bank default, which wins over the built-in one. */
+export function resolveLayout(resume: Layout | undefined, bankDefault: Layout | undefined): Layout {
+  return resume ?? bankDefault ?? DEFAULT_LAYOUT;
 }
 
 export function sameLayout(a: Layout | undefined, b: Layout | undefined): boolean {

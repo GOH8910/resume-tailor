@@ -8,11 +8,11 @@ import { Field, Select, TextInput } from "@/ui/Field";
 type Props = {
   /** The layout the next compile will use. */
   layout: Layout;
-  /** True when this resume has its own layout rather than the profile default. */
+  /** True when this resume has its own layout rather than the bank default. */
   customised: boolean;
   onChange: (layout: Layout) => void;
   onReset: () => void;
-  /** Makes the current layout the profile default. Rejections are reported by the caller. */
+  /** Makes the current layout the bank default. Rejections are reported by the caller. */
   onSaveDefault: () => Promise<void>;
 };
 

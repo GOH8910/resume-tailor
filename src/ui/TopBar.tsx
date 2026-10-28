@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { errorMessage } from "./api";
+import { usePathname, useRouter } from "next/navigation";
+import { authClient } from "./auth-client";
 import { Button, FOCUS_RING } from "./Button";
-import { useProfile } from "./ProfileProvider";
 
 const LINKS = [
   { href: "/", label: "Dashboard", isActive: (p: string) => p === "/" },
@@ -13,42 +11,17 @@ const LINKS = [
   { href: "/tailor", label: "Tailor", isActive: (p: string) => p.startsWith("/tailor") },
 ];
 
-export function TopBar() {
+export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
-  const { profile, profiles, loading, error: profilesError, setProfile, createProfile } = useProfile();
-  const [creating, setCreating] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [slug, setSlug] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const newButtonRef = useRef<HTMLButtonElement>(null);
-  const restoreFocus = useRef(false);
+  const router = useRouter();
+  // The value is unused: subscribing keeps the session cookie refreshed while the user is active, which the
+  // server-side getSession cannot do (it extends the database row but cannot rewrite the cookie).
+  authClient.useSession();
 
-  // The "New profile" button only exists once the form has closed, so focus moves after that render.
-  useEffect(() => {
-    if (creating || !restoreFocus.current) return;
-    restoreFocus.current = false;
-    newButtonRef.current?.focus();
-  }, [creating]);
-
-  function closeForm() {
-    setCreating(false);
-    setSlug("");
-    setError(null);
-    restoreFocus.current = true;
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!slug.trim() || pending) return;
-    setPending(true);
-    try {
-      await createProfile(slug.trim(), "");
-      closeForm();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setPending(false);
-    }
+  async function signOut() {
+    await authClient.signOut();
+    router.push("/signin");
+    router.refresh();
   }
 
   return (
@@ -74,72 +47,13 @@ export function TopBar() {
             );
           })}
         </nav>
-        <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-          {creating ? (
-            <form onSubmit={(e) => void submit(e)} className="flex items-center gap-2">
-              <input
-                autoFocus
-                value={slug}
-                onChange={(e) => {
-                  setSlug(e.target.value);
-                  setError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") closeForm();
-                }}
-                placeholder="slug, e.g. edward"
-                aria-label="New profile slug"
-                autoCapitalize="off"
-                maxLength={40}
-                spellCheck={false}
-                pattern="[a-z0-9][a-z0-9\-]*"
-                title="lowercase letters, digits and dashes"
-                className="w-44 rounded-md border border-rule bg-card px-2 py-1 text-sm focus:border-ink focus:outline-none"
-              />
-              <Button type="submit" size="sm" variant="primary" disabled={!slug.trim() || pending}>
-                Create
-              </Button>
-              <Button size="sm" variant="ghost" onClick={closeForm}>
-                Cancel
-              </Button>
-            </form>
-          ) : (
-            <>
-              {profilesError ? (
-                <span role="alert" className="text-xs text-danger">
-                  Profiles failed to load: {profilesError}
-                </span>
-              ) : (
-                <>
-                  <label htmlFor="profile-select" className="text-xs uppercase tracking-wide text-ink-faint">
-                    Profile
-                  </label>
-                  <select
-                    id="profile-select"
-                    value={profile ?? ""}
-                    disabled={loading}
-                    onChange={(e) => setProfile(e.target.value)}
-                    className="rounded-md border border-rule bg-card px-2 py-1 text-sm focus:border-ink focus:outline-none"
-                  >
-                    {!loading && profiles.length === 0 && <option value="">none</option>}
-                    {profiles.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-              <Button ref={newButtonRef} size="sm" variant="ghost" onClick={() => setCreating(true)}>
-                New profile
-              </Button>
-            </>
-          )}
-          {error && (
-            <span role="alert" className="basis-full text-xs text-danger">
-              {error}
-            </span>
-          )}
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          <span title={user.email} className="max-w-[14rem] truncate text-sm text-ink-soft">
+            {user.email}
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => void signOut()}>
+            Sign out
+          </Button>
         </div>
       </div>
     </header>

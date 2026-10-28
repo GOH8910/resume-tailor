@@ -22,7 +22,7 @@ export const ResumeStateSchema = z.object({
   experience: z.array(ResumeEntrySchema),
   projects: z.array(ResumeEntrySchema),
   skills: z.array(SkillCategorySchema),
-  /** Page margins and font size for this resume; absent means the profile default. */
+  /** Page margins and font size for this resume; absent means the bank default. */
   layout: LayoutSchema.optional(),
 });
 

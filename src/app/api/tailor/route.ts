@@ -1,13 +1,12 @@
 import { z } from "zod";
 import { AppError } from "@/lib/errors";
 import { applications, banks } from "@/lib/deps";
-import { handle, readJson } from "@/lib/http";
+import { handle, readJson, requireUser } from "@/lib/http";
 import { AnthropicTailorModel, hasApiKey } from "@/tailor/anthropic-model";
 import { DEFAULT_MODEL_ID, MODEL_IDS } from "@/tailor/model";
 import { runTailor } from "@/tailor/tailor";
 
 const TailorRequestSchema = z.object({
-  profile: z.string(),
   jobDescription: z.string(),
   company: z.string(),
   roleTitle: z.string().optional(),
@@ -16,11 +15,12 @@ const TailorRequestSchema = z.object({
 
 export async function POST(request: Request) {
   return handle(async () => {
+    const user = await requireUser(request);
     if (!hasApiKey()) {
       throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart npm run dev.", 400);
     }
     const body = TailorRequestSchema.parse(await readJson(request));
-    const application = await runTailor({ ...body, userId: body.profile }, { banks, applications, model: new AnthropicTailorModel(body.model) });
+    const application = await runTailor({ ...body, userId: user.id }, { banks, applications, model: new AnthropicTailorModel(body.model) });
     return Response.json({ application }, { status: 201 });
   });
 }

@@ -4,7 +4,7 @@ import { DEFAULT_LAYOUT, LayoutSchema, layoutPreamble, resolveLayout, sameLayout
 const custom = { fontSize: 11, margins: { top: 0.5, bottom: 0.5, left: 0.6, right: 0.6 } };
 
 describe("resolveLayout", () => {
-  it("prefers the resume, then the profile default, then the built-in default", () => {
+  it("prefers the resume, then the bank default, then the built-in default", () => {
     expect(resolveLayout(custom, DEFAULT_LAYOUT)).toBe(custom);
     expect(resolveLayout(undefined, custom)).toBe(custom);
     expect(resolveLayout(undefined, undefined)).toBe(DEFAULT_LAYOUT);

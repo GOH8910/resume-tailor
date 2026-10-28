@@ -41,13 +41,6 @@ export const api = {
   },
 };
 
-/** Appends ?profile=<slug> to an API path, encoding the slug and keeping any existing query. */
-export function withProfile(path: string, profile: string): string {
-  const url = new URL(path, "http://localhost");
-  url.searchParams.set("profile", profile);
-  return `${url.pathname}${url.search}`;
-}
-
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
@@ -55,11 +48,11 @@ export function errorMessage(err: unknown): string {
 export type CompiledPdf = { blob: Blob; pages: number };
 
 /** Compiles the resume state to a PDF. Throws ApiError (details = LaTeX log) on failure. */
-export async function compilePdf(profile: string, resume: ResumeState, applicationId?: string): Promise<CompiledPdf> {
+export async function compilePdf(resume: ResumeState, applicationId?: string): Promise<CompiledPdf> {
   const res = await fetch("/api/compile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile, resume, applicationId }),
+    body: JSON.stringify({ resume, applicationId }),
   });
   if (!res.ok) await parseResponse<never>(res);
   const pages = Number.parseInt(res.headers.get("X-Page-Count") ?? "", 10);
