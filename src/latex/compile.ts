@@ -30,17 +30,21 @@ const TEX_BIN_DIRS = ["/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bi
 const PASSED_THROUGH = new Set(["HOME", "TMPDIR", "LANG", "LC_ALL"]);
 // kpathsea search settings, so a custom TeX setup keeps working.
 const TEX_SETTING = /^(TEXMF[A-Z0-9_]*|TEXINPUTS)$/;
+// kpathsea allows absolute writes under TEXMFOUTPUT even with openout_any=p.
+const BLOCKED = new Set(["TEXMFOUTPUT"]);
 
 /**
- * The whole environment TeX runs with. It is built from an allowlist rather than copied from process.env,
- * so secrets (database URL, auth secret, API keys) never reach pdflatex, which can read its own environment.
+ * The whole environment TeX runs with, built from an allowlist rather than copied from process.env so that
+ * secrets (database URL, auth secret, API keys) stay out of TeX's own environment.
  * openout_any=p (kpathsea reads it from the environment, ahead of texmf.cnf) stops a document writing to
  * dotfiles, absolute paths or parent directories, so it can only write inside its temp folder.
- * There is no read equivalent: TeX Live 2026 made openin_any a no-op, so reads rely on escapeLatex alone.
+ * Reads are not confined by TeX (TeX Live 2026 made openin_any a no-op): they rely on escapeLatex and, in the
+ * container, on running TeX as a separate unprivileged user.
  */
 export function latexEnv(): NodeJS.ProcessEnv {
   const kept = Object.entries(process.env).filter(
-    ([key, value]) => value !== undefined && (PASSED_THROUGH.has(key) || TEX_SETTING.test(key)),
+    ([key, value]) =>
+      value !== undefined && !BLOCKED.has(key) && (PASSED_THROUGH.has(key) || TEX_SETTING.test(key)),
   );
   const env: NodeJS.Dict<string> = {
     ...Object.fromEntries(kept),
@@ -87,10 +91,15 @@ function runLatexmk(latexmk: string, args: string[], dir: string, timeoutMs: num
   });
 }
 
+/** The folder each compile gets its own fresh subfolder in. */
+export function compileRoot(): string {
+  return os.tmpdir();
+}
+
 export async function compileTex(tex: string, options: CompileOptions = {}): Promise<CompileResult> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
   const timeout = options.timeoutMs ?? 60_000;
-  const dir = await mkdtemp(path.join(os.tmpdir(), "resume-tailor-"));
+  const dir = await mkdtemp(path.join(compileRoot(), "resume-tailor-"));
   try {
     await writeFile(path.join(dir, "resume.tex"), PREAMBLE_PREFIX + tex, "utf8");
     // -norc ignores any ~/.latexmkrc (it could move the aux dir or enable shell escape); -no-shell-escape blocks \write18.

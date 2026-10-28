@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { checkLatexmk } from "@/latex/latexmk-check";
+import { checkLatexmk, type LatexmkStatus } from "@/latex/latexmk-check";
 
-// A GET handler that never reads the request could otherwise be prerendered once at build time.
+// GET handlers are not cached by default in this Next config; this states the intent explicitly.
 export const dynamic = "force-dynamic";
 
 // Fly's check times out at 5 s; answering within 4 s leaves room for the response itself.
@@ -12,11 +12,30 @@ class TimeoutError extends Error {
   name = "TimeoutError";
 }
 
-/** Public liveness check for Fly: 200 when the database answers and latexmk runs, 503 otherwise. */
-export async function GET() {
-  const [db, latexmk] = await Promise.all([checkDb(), checkLatexmk()]);
-  const ok = db === "ok" && latexmk === "ok";
-  return Response.json({ ok, db, latexmk }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
+let lastLatexmk: LatexmkStatus = "ok";
+
+/**
+ * Public health check: 200 when everything checked is fine, 503 otherwise.
+ * By default it is shallow (the process answers and latexmk runs): Fly probes every 30 s, and a query each
+ * time would keep a scale-to-zero database awake around the clock. `?deep=1` also queries the database.
+ */
+export async function GET(request: Request) {
+  const deep = new URL(request.url).searchParams.get("deep") === "1";
+  const [db, latexmk] = await Promise.all([deep ? checkDb() : undefined, checkLatexmkLogged()]);
+  const ok = (db === undefined || db === "ok") && latexmk === "ok";
+  const body = db === undefined ? { ok, latexmk } : { ok, db, latexmk };
+  return Response.json(body, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
+}
+
+/** Logs only when latexmk's status changes, so a failing check shows up once instead of every 30 s. */
+async function checkLatexmkLogged(): Promise<LatexmkStatus> {
+  const status = await checkLatexmk();
+  if (status !== lastLatexmk) {
+    if (status === "ok") console.info("[health] latexmk check is ok again");
+    else console.error(`[health] latexmk check failing: ${status}`);
+    lastLatexmk = status;
+  }
+  return status;
 }
 
 async function checkDb(): Promise<string> {

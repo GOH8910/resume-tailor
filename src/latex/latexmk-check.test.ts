@@ -72,6 +72,26 @@ describe("checkLatexmk", () => {
     expect(await runCount()).toBe(2);
   });
 
+  it("shares one probe between checks that arrive while it is running", async () => {
+    const latexmkPath = await fakeLatexmk("slow-ok", "sleep 0.2\nexit 0");
+
+    const statuses = await Promise.all(Array.from({ length: 5 }, () => checkLatexmk({ latexmkPath })));
+
+    expect(statuses).toEqual(["ok", "ok", "ok", "ok", "ok"]);
+    expect(await runCount()).toBe(1);
+  });
+
+  it("shares a failing probe too, then probes afresh on the next check", async () => {
+    const latexmkPath = await fakeLatexmk("slow-fail", "sleep 0.2\nexit 2");
+
+    const statuses = await Promise.all([checkLatexmk({ latexmkPath }), checkLatexmk({ latexmkPath })]);
+    expect(statuses).toEqual(["error: exit 2", "error: exit 2"]);
+    expect(await runCount()).toBe(1);
+
+    await checkLatexmk({ latexmkPath });
+    expect(await runCount()).toBe(2);
+  });
+
   it("probes again on the next check after a failure", async () => {
     const latexmkPath = await fakeLatexmk("flaky", "exit 1");
     await checkLatexmk({ latexmkPath });

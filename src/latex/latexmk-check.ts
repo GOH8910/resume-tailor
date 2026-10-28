@@ -9,18 +9,31 @@ const OK_TTL_MS = 5 * 60_000;
 const DEFAULT_TIMEOUT_MS = 4_000;
 
 let lastOk: number | undefined;
+let inFlight: Promise<LatexmkStatus> | undefined;
 
 export function resetLatexmkCache(): void {
   lastOk = undefined;
+  inFlight = undefined;
 }
 
 /**
  * Whether `latexmk -version` runs. Only an ok answer is cached: a failure is re-probed on the next check,
  * so a one-off timeout under load does not keep the machine marked unhealthy for five minutes.
+ * Checks that arrive while a probe is running share it, so a burst on the public endpoint spawns one process.
  * Never rejects.
  */
-export async function checkLatexmk(options: LatexmkCheckOptions = {}): Promise<LatexmkStatus> {
-  if (lastOk !== undefined && Date.now() - lastOk < OK_TTL_MS) return "ok";
+export function checkLatexmk(options: LatexmkCheckOptions = {}): Promise<LatexmkStatus> {
+  if (lastOk !== undefined && Date.now() - lastOk < OK_TTL_MS) return Promise.resolve("ok");
+  if (!inFlight) {
+    const probing = runProbe(options).finally(() => {
+      if (inFlight === probing) inFlight = undefined;
+    });
+    inFlight = probing;
+  }
+  return inFlight;
+}
+
+async function runProbe(options: LatexmkCheckOptions): Promise<LatexmkStatus> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
   const status = await probe(latexmk, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   if (status === "ok") lastOk = Date.now();

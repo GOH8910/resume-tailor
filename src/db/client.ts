@@ -14,7 +14,8 @@ type Entry = { connection: Connection; ready?: Promise<void> };
 const cache = globalThis as unknown as { __resumeDb?: Entry };
 
 function connectPg(url: string): Connection {
-  const pool = new Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 10_000 });
+  // query_timeout: a hung query would otherwise hold its pool client forever, even after a caller gives up on it.
+  const pool = new Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 10_000, query_timeout: 10_000 });
   // Without a listener, an error on an idle client crashes the process.
   pool.on("error", (err) => console.error("[db] idle client error", err));
   return { kind: "pg", db: drizzlePg({ client: pool, schema }) };

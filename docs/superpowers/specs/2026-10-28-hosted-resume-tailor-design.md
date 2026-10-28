@@ -110,8 +110,10 @@ fast.
   one container, so no shared store is needed; if it ever scales out this moves to Redis.
   Sign-in requests are limited per IP and per email (5 per hour) to stop magic-link spam.
 - Compiles are queued with concurrency 2 (`src/latex/queue.ts`) so a burst cannot starve the
-  container; the existing 60 s timeout stays. TeX runs with `openin_any=p openout_any=p` in its
-  environment so a document can only read and write inside its own temp folder.
+  container; the existing 60 s timeout stays. TeX runs with `openout_any=p` in its environment,
+  which confines writes to its own temp folder. TeX Live 2026 ignores `openin_any`, so reads are
+  confined by escaping every user field and by running TeX as a separate unprivileged user in the
+  container.
 - Claude calls get a 90 s timeout and one retry on a 5xx/overloaded response (the SDK's default
   retries cover this). A monthly spend cap is set by hand in the Anthropic console (runbook item).
 

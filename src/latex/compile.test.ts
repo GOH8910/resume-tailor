@@ -50,6 +50,16 @@ describe("latexEnv", () => {
     });
   });
 
+  it("leaves out TEXMFOUTPUT, under which openout_any=p would still allow absolute writes", () => {
+    vi.stubEnv("TEXMFOUTPUT", "/");
+    vi.stubEnv("TEXMFHOME", "/home/ada/texmf");
+
+    const env = latexEnv();
+
+    expect(env).not.toHaveProperty("TEXMFOUTPUT");
+    expect(env.TEXMFHOME).toBe("/home/ada/texmf");
+  });
+
   it("leaves out variables that are not set", () => {
     vi.stubEnv("LC_ALL", undefined);
     expect(latexEnv()).not.toHaveProperty("LC_ALL");

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildTex } from "./build";
-import { compileTex, latexEnv } from "./compile";
+import { compileRoot, compileTex, latexEnv } from "./compile";
 import { exampleDocument } from "./fixture";
 import { loadTemplate } from "./template";
 
@@ -107,9 +107,9 @@ describe.skipIf(!hasLatexmk())("compileTex (integration, needs latexmk)", () => 
 });
 
 describe.skipIf(!hasLatexmk())("compileTex file writes (integration, needs latexmk)", () => {
-  // compileTex works in a fresh folder under the temp dir, so "../<name>" from there lands in the temp dir too.
+  // compileTex works in a fresh subfolder of compileRoot(), so "../<name>" from there names this same file.
   const name = `resume-written-${process.pid}-${Date.now()}.txt`;
-  const target = path.join(os.tmpdir(), name);
+  const target = path.join(compileRoot(), name);
   const write = (file: string) =>
     `\\documentclass{article}\\begin{document}x\\newwrite\\out\\immediate\\openout\\out=${file} \\immediate\\write\\out{x}\\immediate\\closeout\\out\\end{document}`;
   const previous = process.env.openout_any;
@@ -127,12 +127,14 @@ describe.skipIf(!hasLatexmk())("compileTex file writes (integration, needs latex
   it("refuses to write a file by absolute path", async () => {
     const result = await compileTex(write(target));
     expect(result.ok).toBe(false);
+    expect(result.log).toContain("I can't write on file");
     await expect(access(target)).rejects.toThrow();
   }, 90_000);
 
   it("refuses to write a file into a parent directory", async () => {
     const result = await compileTex(write(`../${name}`));
     expect(result.ok).toBe(false);
+    expect(result.log).toContain("I can't write on file");
     await expect(access(target)).rejects.toThrow();
   }, 90_000);
 });
