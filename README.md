@@ -52,11 +52,29 @@ changes land on that resume. Claude only ever uses facts you give it.
 
 ## Seeding a bank from old resumes
 
+Sign in on the site once so your account exists, stop `npm run dev` (the local
+database is single-process), then:
+
 ```bash
-npm run seed -- --profile edward "/path/to/CV one.pdf" "/path/to/CV two.pdf"
+npm run seed -- --email you@example.com "/path/to/CV one.pdf" "/path/to/CV two.pdf"
 ```
 Each PDF is extracted with `pdftotext`, structured by Claude, and merged into
-`data/<profile>/bank.json` without duplicating bullets you already have.
+your account's bank without duplicating bullets you already have.
+
+## Importing a bank from the local app
+
+The local app kept each profile in `data/<profile>/` (`bank.json` plus
+`applications/`). To move one into an account, sign in once, stop `npm run dev`,
+and run:
+
+```bash
+npm run import:local -- --email you@example.com --from data/<profile> --dry-run
+npm run import:local -- --email you@example.com --from data/<profile>
+```
+`--dry-run` validates and counts without writing. Applications and their PDFs
+are added or updated; an application file that fails validation is skipped and
+listed. A bank that already has content is kept unless you pass `--replace`.
+Prefix with `DATABASE_URL=<neon url>` to import into production.
 
 ## Where your data lives
 

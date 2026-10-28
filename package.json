@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "seed": "tsx scripts/seed-from-pdfs.ts",
+    "import:local": "tsx scripts/import-local.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "auth:generate": "npx auth@1.7.14 generate --config src/lib/auth.cli.ts --output src/db/auth-schema.ts --yes"
