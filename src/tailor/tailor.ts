@@ -10,7 +10,7 @@ import { buildSystemPrompt, buildUserMessage } from "./prompt";
 import { validateTailorResult } from "./validate";
 
 export type TailorInput = {
-  profile: string;
+  userId: string;
   jobDescription: string;
   company: string;
   roleTitle?: string;
@@ -40,7 +40,7 @@ function newApplication(fields: Omit<Application, "id" | "createdAt">, now: Date
 export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<Application> {
   const { jobDescription, company, roleTitle } = cleanInput(input);
   const limits = deps.limits ?? DEFAULT_LIMITS;
-  const bank = await deps.banks.read(input.profile);
+  const bank = await deps.banks.read(input.userId);
   const raw = await deps.model.tailor({
     system: buildSystemPrompt(limits),
     user: buildUserMessage(bank, jobDescription, company, roleTitle),
@@ -51,7 +51,7 @@ export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<A
     { company, roleTitle, jobDescription, model: deps.model.id, warnings, notes: result.notes, resume: fromTailorResult(bank, result) },
     now,
   );
-  return deps.applications.save(input.profile, application);
+  return deps.applications.save(input.userId, application);
 }
 
 /** No-AI path: start from the whole bank and let the user prune. */
@@ -60,11 +60,11 @@ export async function createManualApplication(
   deps: Pick<TailorDeps, "banks" | "applications" | "now">,
 ): Promise<Application> {
   const { jobDescription, company, roleTitle } = cleanInput(input);
-  const bank = await deps.banks.read(input.profile);
+  const bank = await deps.banks.read(input.userId);
   const now = (deps.now ?? (() => new Date()))();
   const application = newApplication(
     { company, roleTitle, jobDescription, model: "manual", warnings: [], notes: "", resume: fullStateFromBank(bank) },
     now,
   );
-  return deps.applications.save(input.profile, application);
+  return deps.applications.save(input.userId, application);
 }

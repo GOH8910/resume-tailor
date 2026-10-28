@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart npm run dev.", 400);
     }
     const body = TailorRequestSchema.parse(await readJson(request));
-    const application = await runTailor(body, { banks, applications, model: new AnthropicTailorModel(body.model) });
+    const application = await runTailor({ ...body, userId: body.profile }, { banks, applications, model: new AnthropicTailorModel(body.model) });
     return Response.json({ application }, { status: 201 });
   });
 }

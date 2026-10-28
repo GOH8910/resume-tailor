@@ -12,6 +12,7 @@ import { z } from "zod";
 import { type ExtractedBank, mergeBank } from "@/bank/merge";
 import { BankRepository } from "@/bank/repository";
 import { type Bank, emptyBank } from "@/bank/schema";
+import { getDb } from "@/db/client";
 import { AppError } from "@/lib/errors";
 
 const ExtractedEntrySchema = z.object({
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const repo = new BankRepository(path.join(process.cwd(), "data"));
+  const repo = new BankRepository(getDb);
   let bank = await repo.read(slug).catch((err: unknown) => {
     if (err instanceof AppError && err.status === 404) return emptyBank();
     throw err;
@@ -137,7 +138,7 @@ async function main(): Promise<void> {
   }
 
   await repo.write(slug, bank);
-  console.log(`Wrote data/${slug}/bank.json with ${countBullets(bank)} bullets.`);
+  console.log(`Saved the bank for ${slug} with ${countBullets(bank)} bullets.`);
 }
 
 main().catch((err) => {

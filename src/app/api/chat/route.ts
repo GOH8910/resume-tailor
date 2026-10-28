@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       throw new AppError("No Anthropic API key found. Put ANTHROPIC_API_KEY=... in .env.local and restart npm run dev.", 400);
     }
     const body = ChatRequestSchema.parse(await readJson(request));
-    const outcome = await runChat(body, { banks, applications, model: new AnthropicChatModel(body.model) });
+    const outcome = await runChat({ ...body, userId: body.profile }, { banks, applications, model: new AnthropicChatModel(body.model) });
     return Response.json(outcome);
   });
 }

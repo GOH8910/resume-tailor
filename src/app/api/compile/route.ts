@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       return Response.json({ error: result.message, log: result.log }, { status: 422 });
     }
     if (body.applicationId) {
-      await applications.savePdf(body.profile, body.applicationId, result.pdf);
+      await applications.savePdf(body.profile, body.applicationId, result.pdf, result.pages);
     }
     return pdfResponse(result.pdf, result.pages, "resume.pdf");
   });
