@@ -4,6 +4,7 @@
  * Needs: an account (sign in on the site once first), pdftotext (brew install poppler)
  * and ANTHROPIC_API_KEY (read from .env.local if not set).
  * Targets DATABASE_URL when set, else the local PGlite (single-process: stop `npm run dev` first).
+ * Do not edit the bank in the browser while this runs: it reads the bank, calls Claude, then writes the whole bank.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";

@@ -1,7 +1,7 @@
 /**
  * Import a bank and applications saved by the local app (data/<profile>/) into an account.
  *   npm run import:local -- --email you@example.com --from data/<profile> [--replace] [--dry-run]
- * See usage() for the flags and targets.
+ * See USAGE for the flags, targets and production notes.
  */
 import { parseArgs } from "node:util";
 import { findUserIdByEmail } from "@/db/users";
@@ -13,31 +13,42 @@ const USAGE = `Usage: npm run import:local -- --email <email> --from <dir> [--re
   --email     the account to import into; sign in on the site once first
   --from      a profile folder of the local app, e.g. data/edward (bank.json + applications/)
   --replace   overwrite a bank that already has content (by default it is kept)
-  --dry-run   validate and count, write nothing
+  --dry-run   validate, count and report what would happen to the bank; write nothing
 
+Safe to re-run: applications and PDFs are upserted.
 Targets the local PGlite under data/pglite, which is single-process: stop \`npm run dev\` first.
-Set DATABASE_URL=<neon url> to target production instead.`;
+
+Production: sign in on the production site first so the account exists there, then set
+DATABASE_URL to Neon's direct (unpooled) connection string with ?sslmode=verify-full.
+Migrations run on every invocation, --dry-run included, so run this from the commit that is deployed.
+Use an absolute --from path when the data lives in another checkout.`;
 
 function usage(): never {
   console.error(USAGE);
   process.exit(1);
 }
 
-function parse(): { email: string; from: string; replace: boolean; dryRun: boolean } {
+function readFlags() {
   try {
-    const { values } = parseArgs({
+    return parseArgs({
       options: {
         email: { type: "string" },
         from: { type: "string" },
         replace: { type: "boolean", default: false },
         "dry-run": { type: "boolean", default: false },
       },
-    });
-    if (!values.email || !values.from) usage();
-    return { email: values.email, from: values.from, replace: values.replace, dryRun: values["dry-run"] };
-  } catch {
+    }).values;
+  } catch (err) {
+    // e.g. "Unknown option '--dryrun'"
+    console.error(`${err instanceof Error ? err.message : err}\n`);
     usage();
   }
+}
+
+function parse(): { email: string; from: string; replace: boolean; dryRun: boolean } {
+  const flags = readFlags();
+  if (!flags.email || !flags.from) usage();
+  return { email: flags.email, from: flags.from, replace: flags.replace, dryRun: flags["dry-run"] };
 }
 
 /** Counts only: never print bank or application contents. */

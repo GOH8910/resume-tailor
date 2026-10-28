@@ -59,7 +59,9 @@ database is single-process), then:
 npm run seed -- --email you@example.com "/path/to/CV one.pdf" "/path/to/CV two.pdf"
 ```
 Each PDF is extracted with `pdftotext`, structured by Claude, and merged into
-your account's bank without duplicating bullets you already have.
+your account's bank without duplicating bullets you already have. Don't edit the
+bank in the browser while it runs: the script reads the bank, calls Claude, then
+writes the whole bank back.
 
 ## Importing a bank from the local app
 
@@ -71,10 +73,16 @@ and run:
 npm run import:local -- --email you@example.com --from data/<profile> --dry-run
 npm run import:local -- --email you@example.com --from data/<profile>
 ```
-`--dry-run` validates and counts without writing. Applications and their PDFs
-are added or updated; an application file that fails validation is skipped and
+`--dry-run` validates, counts and says what would happen to the bank, without
+writing. Applications and their PDFs are upserted, so a re-run is safe; a file
+that fails validation, or whose id does not match its file name, is skipped and
 listed. A bank that already has content is kept unless you pass `--replace`.
-Prefix with `DATABASE_URL=<neon url>` to import into production.
+Use an absolute `--from` path when the data lives in another checkout.
+
+To import into production, sign in on the production site first, then prefix the
+command with `DATABASE_URL=<Neon direct (unpooled) connection string>?sslmode=verify-full`.
+Migrations run on every invocation, `--dry-run` included, so run it from the
+same commit as the deployed app.
 
 ## Where your data lives
 

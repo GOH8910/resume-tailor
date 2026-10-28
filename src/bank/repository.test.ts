@@ -37,6 +37,17 @@ describe("BankRepository", () => {
     await repo.write(USER, bank);
     expect(await repo.read(USER)).toEqual(bank);
   });
+  it("finds nothing for a user without a bank, without creating one", async () => {
+    expect(await repo.find(USER)).toBeNull();
+    expect(await db.select().from(banks).where(eq(banks.userId, USER))).toEqual([]);
+  });
+  it("finds a stored bank and validates it", async () => {
+    const bank = { ...emptyBank("Ed"), summary: "Hello" };
+    await repo.write(USER, bank);
+    expect(await repo.find(USER)).toEqual(bank);
+    await db.update(banks).set({ data: { nope: true } as never }).where(eq(banks.userId, USER));
+    await expect(repo.find(USER)).rejects.toMatchObject({ status: 500 });
+  });
   it("never overwrites an existing bank when asked to create an empty one", async () => {
     await repo.write(USER, { ...emptyBank("Ed"), summary: "Hello" });
     await repo.createEmpty(USER, "Other");

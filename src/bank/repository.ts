@@ -22,7 +22,18 @@ export class BankRepository {
       row = await this.select(db, userId);
     }
     if (!row) throw new AppError("Could not create a bank for this account", 500);
-    const parsed = BankSchema.safeParse(row.data);
+    return this.parseStored(row.data);
+  }
+
+  /** The user's bank, or null. Unlike read(), never creates one: for callers that must not write. */
+  async find(userId: string): Promise<Bank | null> {
+    const db = await this.db();
+    const row = await this.select(db, userId);
+    return row ? this.parseStored(row.data) : null;
+  }
+
+  private parseStored(data: unknown): Bank {
+    const parsed = BankSchema.safeParse(data);
     if (!parsed.success) throw new AppError("Stored bank does not match the schema", 500, parsed.error.issues);
     return parsed.data;
   }

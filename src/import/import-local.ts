@@ -1,10 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { z } from "zod";
 import type { ApplicationRepository } from "@/applications/repository";
 import { type Application, ApplicationSchema } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
-import { type Bank, BankSchema } from "@/bank/schema";
+import { type Bank, BankSchema, emptyBank } from "@/bank/schema";
 import { countPdfPages } from "@/latex/page-count";
 import { isEnoent } from "@/lib/fs";
 
@@ -14,57 +15,56 @@ export type ImportOptions = {
   userId: string;
   /** Overwrite a bank that already has content. */
   replace: boolean;
-  /** Validate and count only. */
+  /** Validate, count and decide only: nothing is written. */
   dryRun: boolean;
-  banks: Pick<BankRepository, "read" | "write">;
+  banks: Pick<BankRepository, "find" | "write">;
   applications: Pick<ApplicationRepository, "save" | "savePdf">;
 };
 
+type BankDecision = "import" | "keep" | "replace";
+
 export type ImportResult = {
-  bank: "imported" | "kept" | "replaced" | "would-import";
+  bank: "imported" | "kept" | "replaced" | "would-import" | "would-keep" | "would-replace";
   applications: number;
   pdfs: number;
-  /** `applications/<file>: <reason>` for each application file that was not imported. */
+  /** `applications/<file>: <reason>` for each application or PDF file that was not imported. */
   skipped: string[];
 };
 
 type LocalApplication = { application: Application; pdf: Buffer | null };
+
+const DONE: Record<BankDecision, ImportResult["bank"]> = { import: "imported", keep: "kept", replace: "replaced" };
+const PLANNED: Record<BankDecision, ImportResult["bank"]> = {
+  import: "would-import",
+  keep: "would-keep",
+  replace: "would-replace",
+};
 
 /** Reads and validates everything first, so a bad bank.json fails before anything is written. */
 export async function importLocalData(options: ImportOptions): Promise<ImportResult> {
   const bank = await readBank(options.from);
   const { found, skipped } = await readApplications(options.from);
   const pdfs = found.filter((a) => a.pdf).length;
+  // find(), not read(): read() creates a missing bank, which a dry run must not do.
+  const decision = decideBank(await options.banks.find(options.userId), options.replace);
 
-  if (options.dryRun) return { bank: "would-import", applications: found.length, pdfs, skipped };
+  if (options.dryRun) return { bank: PLANNED[decision], applications: found.length, pdfs, skipped };
 
-  const bankOutcome = await writeBank(options, bank);
+  if (decision !== "keep") await options.banks.write(options.userId, bank);
   for (const { application, pdf } of found) {
     await options.applications.save(options.userId, application);
     if (pdf) await options.applications.savePdf(options.userId, application.id, pdf, countPdfPages(pdf));
   }
-  return { bank: bankOutcome, applications: found.length, pdfs, skipped };
+  return { bank: DONE[decision], applications: found.length, pdfs, skipped };
 }
 
-async function writeBank(options: ImportOptions, bank: Bank): Promise<ImportResult["bank"]> {
-  const current = await options.banks.read(options.userId);
-  if (isEmptyBank(current)) {
-    await options.banks.write(options.userId, bank);
-    return "imported";
-  }
-  if (!options.replace) return "kept";
-  await options.banks.write(options.userId, bank);
-  return "replaced";
-}
-
-/** The sign-up hook creates a bank with only a name, so the profile and skills do not count as content. */
-function isEmptyBank(bank: Bank): boolean {
-  return (
-    bank.experience.length === 0 &&
-    bank.projects.length === 0 &&
-    bank.education.length === 0 &&
-    bank.summary.trim() === ""
-  );
+/**
+ * A missing bank, or one still exactly as the sign-up hook created it (only the name filled in), is imported over.
+ * Any edit, even to skills or contact details alone, makes it content that is kept unless `replace` is set.
+ */
+function decideBank(current: Bank | null, replace: boolean): BankDecision {
+  if (current === null || isDeepStrictEqual(current, emptyBank(current.profile.name))) return "import";
+  return replace ? "replace" : "keep";
 }
 
 async function readBank(from: string): Promise<Bank> {
@@ -107,9 +107,24 @@ async function readApplications(from: string): Promise<{ found: LocalApplication
       skipped.push(`${label}: ${describeIssues(parsed.error)}`);
       continue;
     }
-    found.push({ application: parsed.data, pdf: await readOptional(path.join(dir, `${parsed.data.id}.pdf`)) });
+    // A renamed copy ("<id> copy.json") would otherwise overwrite the original's row.
+    if (parsed.data.id !== path.basename(name, ".json")) {
+      skipped.push(`${label}: id does not match the file name`);
+      continue;
+    }
+    const pdfName = `${parsed.data.id}.pdf`;
+    let pdf = await readOptional(path.join(dir, pdfName));
+    if (pdf && !isPdf(pdf)) {
+      skipped.push(`applications/${pdfName}: not a PDF`);
+      pdf = null;
+    }
+    found.push({ application: parsed.data, pdf });
   }
   return { found, skipped };
+}
+
+function isPdf(bytes: Buffer): boolean {
+  return bytes.subarray(0, 5).toString("latin1") === "%PDF-";
 }
 
 const INVALID_JSON = Symbol("invalid JSON");

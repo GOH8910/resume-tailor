@@ -102,6 +102,13 @@ describe("importLocalData", () => {
     expect(await banks.read(USER)).toEqual(bank());
   });
 
+  it("counts a bank where only the skills were edited as non-empty", async () => {
+    await banks.write(USER, { ...emptyBank("Ada"), skills: [{ id: "s_1", name: "Languages", items: ["Go"] }] });
+    await standardFixture();
+
+    expect((await run()).bank).toBe("kept");
+  });
+
   it("keeps a non-empty bank unless replace is set", async () => {
     const existing = { ...emptyBank("Existing"), summary: "Already here." };
     await banks.write(USER, existing);
@@ -128,6 +135,33 @@ describe("importLocalData", () => {
     expect(result.skipped[0]).toMatch(/^applications\/2026-10-03-bad-cccccccc\.json: createdAt: /);
     expect(result.skipped[1]).toMatch(/^applications\/broken\.json: not valid JSON/);
     expect(await applications.list(USER)).toHaveLength(2);
+  });
+
+  it("skips an application whose id does not match its file name", async () => {
+    await standardFixture();
+    await writeFixture({ [`applications/${WITH_PDF} copy.json`]: JSON.stringify(app(WITH_PDF, "Copied")) });
+
+    const result = await run();
+
+    expect(result.applications).toBe(2);
+    expect(result.skipped).toEqual([`applications/${WITH_PDF} copy.json: id does not match the file name`]);
+    expect((await applications.get(USER, WITH_PDF)).company).toBe("Acme");
+  });
+
+  it("saves the application but skips a sibling pdf that is not a PDF", async () => {
+    await standardFixture();
+    await writeFixture({ [`applications/${WITH_PDF}.pdf`]: "<html>not a pdf</html>" });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      bank: "imported",
+      applications: 2,
+      pdfs: 0,
+      skipped: [`applications/${WITH_PDF}.pdf: not a PDF`],
+    });
+    expect(await applications.get(USER, WITH_PDF)).toEqual(app(WITH_PDF, "Acme"));
+    expect(await applications.readPdf(USER, WITH_PDF)).toBeNull();
   });
 
   it("treats a missing applications directory as zero applications", async () => {
@@ -157,5 +191,16 @@ describe("importLocalData", () => {
     expect(await applications.list(USER)).toEqual([]);
     // Not banks.read(): it creates an empty bank on a miss.
     expect(await db.select().from(banksTable)).toEqual([]);
+  });
+
+  it("reports on a dry run whether a non-empty bank would be kept or replaced", async () => {
+    const existing = { ...emptyBank("Existing"), summary: "Already here." };
+    await banks.write(USER, existing);
+    await standardFixture();
+
+    expect((await run({ dryRun: true })).bank).toBe("would-keep");
+    expect((await run({ dryRun: true, replace: true })).bank).toBe("would-replace");
+    expect(await banks.read(USER)).toEqual(existing);
+    expect(await applications.list(USER)).toEqual([]);
   });
 });
