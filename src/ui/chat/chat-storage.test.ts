@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { chatStorageKey, clearChatHistory } from "./chat-storage";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { chatStorageKey, clearChatHistory, forgetChats } from "./chat-storage";
 
 /** A minimal in-memory Storage. */
 function fakeStorage(entries: Record<string, string>): Storage {
@@ -32,5 +32,30 @@ describe("chat storage", () => {
     clearChatHistory(storage);
     expect(storage.length).toBe(1);
     expect(storage.getItem("other:key")).toBe("keep");
+  });
+
+  describe("forgetChats", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("clears chats from both session and local storage", () => {
+      const session = fakeStorage({ [chatStorageKey("a")]: "[]", "other:key": "keep" });
+      const local = fakeStorage({ [chatStorageKey(undefined)]: "[]" });
+      vi.stubGlobal("window", { sessionStorage: session, localStorage: local });
+      forgetChats();
+      expect(session.length).toBe(1);
+      expect(local.length).toBe(0);
+    });
+
+    it("still clears one storage when the browser blocks the other", () => {
+      const local = fakeStorage({ [chatStorageKey("a")]: "[]" });
+      vi.stubGlobal("window", {
+        get sessionStorage(): Storage {
+          throw new DOMException("blocked", "SecurityError");
+        },
+        localStorage: local,
+      });
+      expect(() => forgetChats()).not.toThrow();
+      expect(local.length).toBe(0);
+    });
   });
 });

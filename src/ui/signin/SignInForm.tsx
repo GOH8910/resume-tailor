@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { authClient } from "@/ui/auth-client";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
+import { forgetChats } from "@/ui/chat/chat-storage";
 import { Field, TextInput } from "@/ui/Field";
 
 const MESSAGES = new Map([
@@ -28,6 +29,11 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
   const sentRef = useRef<HTMLDivElement>(null);
   // A failed link or Google sign-in comes back to this page with ?error=, still headed for `next`.
   const errorCallbackURL = `/signin?next=${encodeURIComponent(next)}`;
+
+  // A session can expire without a sign-out, which would leave the last account's chats in this tab for the next one.
+  useEffect(() => {
+    forgetChats();
+  }, []);
 
   // The form is replaced by the confirmation, so move focus there rather than let it fall to the page.
   useEffect(() => {

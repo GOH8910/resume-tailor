@@ -165,8 +165,9 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
   `tlmgr install latexmk latex-bin latex geometry titlesec enumitem hyperref fontawesome5 crimson
   fontenc inputenc` plus whatever the build's compile smoke test proves missing. Target image ≤ 700 MB.
 - `fly.toml`: region `lhr`, one `shared-cpu-1x` machine with 1 GB RAM, `min_machines_running = 1`
-  (no cold starts; TeX startup is slow), HTTP health check on `/api/health` (returns db and latexmk
-  status), migrations run when the server boots (before the first query), so there is no release command.
+  (no cold starts; TeX startup is slow), HTTP health check on `/api/health` (shallow by default: the
+  process and latexmk; `?deep=1` adds the database), migrations run when the server boots (before the
+  first query), so there is no release command.
 - Secrets (`fly secrets set`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`,
   `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ANTHROPIC_API_KEY`, `LEMONSQUEEZY_API_KEY`,
   `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`, `LEMONSQUEEZY_VARIANT_MONTHLY`,

@@ -12,3 +12,15 @@ export function clearChatHistory(storage: Storage): void {
     if (key?.startsWith(PREFIX)) storage.removeItem(key);
   }
 }
+
+/** Forgets every chat conversation in this tab's sessionStorage and in localStorage. */
+export function forgetChats(): void {
+  // Reading either property throws when the browser blocks storage; then nothing was stored there either.
+  for (const storage of [() => window.sessionStorage, () => window.localStorage]) {
+    try {
+      clearChatHistory(storage());
+    } catch {
+      // Unavailable storage holds no chats.
+    }
+  }
+}

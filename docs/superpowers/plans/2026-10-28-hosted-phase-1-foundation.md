@@ -575,7 +575,7 @@ export const auth = betterAuth({
 });
 ```
 
-The adapter's first query happens on the first request, after `getDb()`'s migration promise has resolved; API routes still `await getDb()` through the repositories.
+Migrations run at boot, before the first request, via `src/instrumentation-node.ts`: the adapter uses `getDbSync()`, which does not migrate. Code reaches `auth` through `getAuth()`, which builds it on first use. API routes still `await getDb()` through the repositories.
 
 - [ ] **Step 2: Generate the auth schema**
 
@@ -966,7 +966,7 @@ primary_region = "lhr"
 
 - [ ] **Step 4: `scripts/smoke-image.sh`**
 
-Builds the image, runs it with `-e BETTER_AUTH_SECRET=<32 chars> -p 3999:3000` and no `DATABASE_URL` (PGlite inside the container) and `NODE_ENV=development` for this run so the magic link goes to a file, waits for `/api/health` to return `ok: true`, signs in through the magic-link file (`docker exec cat /app/data/magic-links/...`), `PUT`s `data/example/bank.json`, creates a manual application and `POST`s `/api/compile`, asserting `X-Page-Count: 1`. Exits non-zero on any failure. Run it once; fix the TeX package list until it passes.
+Builds the image, runs it with `-e BETTER_AUTH_SECRET=<32 chars> -p 3999:3000` and no `DATABASE_URL` (PGlite inside the container) and `NODE_ENV=development` for this run so the magic link goes to a file, waits for `/api/health?deep=1` to return `ok: true`, signs in through the magic-link file (`docker exec cat /app/data/magic-links/...`), `PUT`s `data/example/bank.json`, creates a manual application and `POST`s `/api/compile`, asserting `X-Page-Count: 1`. Exits non-zero on any failure. Run it once; fix the TeX package list until it passes.
 
 - [ ] **Step 5: Commit**
 
@@ -1018,8 +1018,8 @@ README: Setup now says `cp .env.example .env.local`, set `BETTER_AUTH_SECRET` (`
 2. Neon: create a project in London, copy the pooled connection string.
 3. Google Cloud: OAuth client, redirect URI `https://<domain>/api/auth/callback/google`.
 4. Resend: verify the domain, create an API key.
-5. `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=$(openssl rand -base64 32) BETTER_AUTH_URL=https://<domain> GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... RESEND_API_KEY=... EMAIL_FROM="Resume Tailor <signin@<domain>>" ANTHROPIC_API_KEY=...`
-6. `fly deploy`, then `curl https://<domain>/api/health`.
+5. `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=$(openssl rand -base64 32) BETTER_AUTH_URL=https://<domain> GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... RESEND_API_KEY=... EMAIL_FROM="Resume Tailor <signin@<domain>>" ANTHROPIC_API_KEY=... SIGNUP_EMAILS=<comma-separated>`
+6. `fly deploy`, then `curl 'https://<domain>/api/health?deep=1'`.
 7. Sign in on the live site once (creates the user), then from the laptop: `DATABASE_URL=<neon> npx tsx --tsconfig tsconfig.json scripts/import-local.ts --email <you> --from data/edward`.
 8. Roll back: `fly releases` and `fly deploy --image <previous>`.
 

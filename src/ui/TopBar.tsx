@@ -6,7 +6,7 @@ import { useState } from "react";
 import { errorMessage } from "./api";
 import { authClient } from "./auth-client";
 import { Button, FOCUS_RING } from "./Button";
-import { clearChatHistory } from "./chat/chat-storage";
+import { forgetChats } from "./chat/chat-storage";
 import { useChatContext } from "./chat/ChatProvider";
 
 const LINKS = [
@@ -14,16 +14,6 @@ const LINKS = [
   { href: "/bank/experience", label: "Bank", isActive: (p: string) => p.startsWith("/bank") },
   { href: "/tailor", label: "Tailor", isActive: (p: string) => p.startsWith("/tailor") },
 ];
-
-function forgetChats(): void {
-  for (const storage of [window.sessionStorage, window.localStorage]) {
-    try {
-      clearChatHistory(storage);
-    } catch {
-      // Storage can be unavailable (private mode); then nothing was stored either.
-    }
-  }
-}
 
 export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
