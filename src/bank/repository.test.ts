@@ -31,4 +31,9 @@ describe("BankRepository", () => {
     await repo.write(USER, bank);
     expect(await repo.read(USER)).toEqual(bank);
   });
+  it("never overwrites an existing bank when asked to create an empty one", async () => {
+    await repo.write(USER, { ...emptyBank("Ed"), summary: "Hello" });
+    await repo.createEmpty(USER, "Other");
+    expect((await repo.read(USER)).summary).toBe("Hello");
+  });
 });

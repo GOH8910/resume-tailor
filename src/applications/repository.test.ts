@@ -82,6 +82,18 @@ describe("ApplicationRepository", () => {
     expect(stored?.pages).toBe(2);
   });
 
+  it("keeps the pdf when the application is saved again", async () => {
+    await repo.save(USER, app(OLDER, "2026-10-01T00:00:00.000Z"));
+    const pdf = Buffer.from("%PDF-kept");
+    await repo.savePdf(USER, OLDER, pdf, 3);
+    await repo.save(USER, { ...app(OLDER, "2026-10-01T00:00:00.000Z"), notes: "edited" });
+    const stored = await repo.readPdf(USER, OLDER);
+    expect(stored?.pdf.equals(pdf)).toBe(true);
+    expect(stored?.pages).toBe(3);
+    expect((await repo.list(USER))[0].hasPdf).toBe(true);
+    expect((await repo.get(USER, OLDER)).notes).toBe("edited");
+  });
+
   it("404s when saving a pdf for a missing application", async () => {
     await expect(repo.savePdf(USER, OLDER, Buffer.from("x"), 1)).rejects.toMatchObject({ status: 404 });
   });

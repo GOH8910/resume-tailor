@@ -13,9 +13,9 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     if (err instanceof ZodError) {
       return Response.json({ error: "Invalid request body", details: err.issues }, { status: 400 });
     }
-    console.error(err);
-    const message = err instanceof Error ? err.message : "Unexpected error";
-    return Response.json({ error: message }, { status: 500 });
+    // Driver errors carry SQL, bound params and hostnames in their message: log the cause, tell the client nothing.
+    console.error(err instanceof Error && err.cause ? err.cause : err);
+    return Response.json({ error: "Something went wrong" }, { status: 500 });
   }
 }
 

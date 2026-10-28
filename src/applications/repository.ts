@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
 import { applications } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { AppError } from "@/lib/errors";
@@ -7,6 +7,11 @@ import { type Application, ApplicationSchema, type ApplicationSummary } from "./
 
 export class ApplicationRepository {
   constructor(private readonly db: () => Promise<Db>) {}
+
+  /** The tenant filter: every single-application query goes through here. */
+  private byKey(userId: string, id: string): SQL | undefined {
+    return and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id)));
+  }
 
   async list(userId: string): Promise<ApplicationSummary[]> {
     const db = await this.db();
@@ -21,7 +26,7 @@ export class ApplicationRepository {
       })
       .from(applications)
       .where(eq(applications.userId, userId))
-      .orderBy(desc(sql`${applications.data}->>'createdAt'`), desc(applications.id));
+      .orderBy(desc(sql`${applications.data}->>'createdAt' collate "C"`), desc(applications.id));
     return rows.map((r) => ({ ...r, hasPdf: Boolean(r.hasPdf) }));
   }
 
@@ -30,7 +35,7 @@ export class ApplicationRepository {
     const [row] = await db
       .select({ data: applications.data })
       .from(applications)
-      .where(and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id))));
+      .where(this.byKey(userId, id));
     if (!row) throw new AppError(`Application "${id}" not found`, 404);
     const parsed = ApplicationSchema.safeParse(row.data);
     if (!parsed.success) throw new AppError("Stored application does not match the schema", 500, parsed.error.issues);
@@ -50,7 +55,7 @@ export class ApplicationRepository {
 
   async delete(userId: string, id: string): Promise<void> {
     const db = await this.db();
-    await db.delete(applications).where(and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id))));
+    await db.delete(applications).where(this.byKey(userId, id));
   }
 
   async savePdf(userId: string, id: string, pdf: Buffer, pages: number): Promise<void> {
@@ -58,7 +63,7 @@ export class ApplicationRepository {
     const updated = await db
       .update(applications)
       .set({ pdf, pdfPages: pages })
-      .where(and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id))))
+      .where(this.byKey(userId, id))
       .returning({ id: applications.id });
     if (updated.length === 0) throw new AppError(`Application "${id}" not found`, 404);
   }
@@ -68,7 +73,7 @@ export class ApplicationRepository {
     const [row] = await db
       .select({ pdf: applications.pdf, pages: applications.pdfPages })
       .from(applications)
-      .where(and(eq(applications.userId, userId), eq(applications.id, assertApplicationId(id))));
+      .where(this.byKey(userId, id));
     if (!row?.pdf) return null;
     return { pdf: row.pdf, pages: row.pages ?? 0 };
   }
