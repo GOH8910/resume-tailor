@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import { getAuth } from "./auth";
 import { AppError } from "./errors";
 
 /** Run a handler and turn thrown errors into JSON responses. */
@@ -26,6 +27,15 @@ export async function readJson(request: Request): Promise<unknown> {
   } catch {
     throw new AppError("Request body must be valid JSON", 400);
   }
+}
+
+export type CurrentUser = { id: string; email: string; name: string };
+
+/** The signed-in user for an API request, or a 401. */
+export async function requireUser(request: Request): Promise<CurrentUser> {
+  const session = await getAuth().api.getSession({ headers: request.headers });
+  if (!session) throw new AppError("Sign in to continue", 401);
+  return { id: session.user.id, email: session.user.email, name: session.user.name };
 }
 
 export function requireProfile(request: Request): string {

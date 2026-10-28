@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "./errors";
-import { handle } from "./http";
+import { handle, requireUser } from "./http";
+
+// The real instance opens the database; these tests only need getSession.
+const getSession = vi.hoisted(() => vi.fn());
+vi.mock("./auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -33,5 +37,24 @@ describe("handle", () => {
     });
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe("Application not found");
+  });
+});
+
+describe("requireUser", () => {
+  const request = () => new Request("http://localhost/api/bank", { headers: { cookie: "session=abc" } });
+
+  it("rejects a request without a session with a 401", async () => {
+    getSession.mockResolvedValueOnce(null);
+    await expect(requireUser(request())).rejects.toMatchObject({ status: 401, message: "Sign in to continue" });
+  });
+
+  it("returns the signed-in user, passing the request headers to Better Auth", async () => {
+    getSession.mockResolvedValueOnce({
+      user: { id: "u1", email: "ada@example.com", name: "Ada", image: null },
+      session: { id: "s1" },
+    });
+    const req = request();
+    await expect(requireUser(req)).resolves.toEqual({ id: "u1", email: "ada@example.com", name: "Ada" });
+    expect(getSession).toHaveBeenLastCalledWith({ headers: req.headers });
   });
 });
