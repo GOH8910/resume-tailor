@@ -44,7 +44,7 @@ Today every API call carries `?profile=<slug>` and the repositories are keyed by
 app the key is the signed-in user's id, taken from the session on the server. Concretely:
 
 - `requireProfile(request)` in `src/lib/http.ts` becomes `requireUser(request)`, which reads the
-  Auth.js session and returns `{ id, email, plan }` or throws a 401 `AppError`.
+  Better Auth session and returns `{ id, email, plan }` or throws a 401 `AppError`.
 - `withProfile()` and `ProfileProvider` in `src/ui` are deleted. `TopBar` shows the user's email,
   an Account link and Sign out instead of the profile picker.
 - `/api/profiles` is deleted. `scripts/seed-from-pdfs.ts` takes `--email` instead of `--profile`.
@@ -61,8 +61,8 @@ Tables (Drizzle schema in `src/db/schema.ts`, migrations in `drizzle/`):
 
 | Table | Columns | Notes |
 | --- | --- | --- |
-| `users` | id (uuid), email (unique), name, image, created_at, plan (`free`/`pro`), plan_until (timestamp, null), ls_customer_id | Auth.js user table plus billing columns. `plan` is derived from subscriptions by the webhook handler; `plan_until` lets a cancelled Pro run to period end. |
-| `accounts`, `verification_tokens`, `sessions` | Auth.js standard | Database sessions so deleting an account signs it out everywhere. |
+| `user` | id (text), email (unique), name, image, created_at, plan (`free`/`pro`), plan_until (timestamp, null), ls_customer_id | Better Auth user table plus billing columns. `plan` is derived from subscriptions by the webhook handler; `plan_until` lets a cancelled Pro run to period end. |
+| `session`, `account`, `verification` | Better Auth standard | Database sessions so deleting an account signs it out everywhere. |
 | `banks` | user_id (pk, fk cascade), data (jsonb, `Bank`), updated_at | One bank per user, created empty on first sign-in. |
 | `applications` | user_id (fk cascade), id (text), data (jsonb, `Application`), pdf (bytea, null), pdf_pages (int, null), created_at, updated_at | pk (user_id, id). The dashboard list reads only id/company/role/created_at/`pdf is not null`. |
 | `usage` | user_id (fk cascade), month (`YYYY-MM`), tailors (int), chat_messages (int) | pk (user_id, month). Incremented in the same transaction that records the result. |
@@ -75,9 +75,9 @@ fast.
 
 ### Authentication and request guarding
 
-- Auth.js (next-auth v5) with the Drizzle adapter. Providers: Google, Resend magic link. In
-  non-production a third "Dev sign-in" credentials provider accepts any email, for local work and
-  Playwright. It is compiled out when `NODE_ENV=production`.
+- Better Auth 1.x with its Drizzle adapter (Auth.js v5 is still a beta on npm). Providers: Google,
+  Resend magic link. Without a Resend key (dev, tests) the magic link is written to
+  `data/magic-links/<email>.txt` and printed, so local work and Playwright need no mail service.
 - First sign-in creates the user's empty bank.
 - `src/proxy.ts` is rewritten: keep the same-origin check on `/api/*` mutations (CSRF), drop the
   loopback hostname check, and require a session for every page and API route except `/`,
@@ -164,9 +164,9 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
   fontenc inputenc` plus whatever the build's compile smoke test proves missing. Target image ≤ 700 MB.
 - `fly.toml`: region `lhr`, one `shared-cpu-1x` machine with 1 GB RAM, `min_machines_running = 1`
   (no cold starts; TeX startup is slow), HTTP health check on `/api/health` (returns db and latexmk
-  status), `[deploy] release_command = "npm run db:migrate"`.
-- Secrets (`fly secrets set`): `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_GOOGLE_ID`,
-  `AUTH_GOOGLE_SECRET`, `AUTH_RESEND_KEY`, `EMAIL_FROM`, `ANTHROPIC_API_KEY`, `LEMONSQUEEZY_API_KEY`,
+  status), migrations run when the server boots (before the first query), so there is no release command.
+- Secrets (`fly secrets set`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ANTHROPIC_API_KEY`, `LEMONSQUEEZY_API_KEY`,
   `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`, `LEMONSQUEEZY_VARIANT_MONTHLY`,
   `LEMONSQUEEZY_VARIANT_YEARLY`. `src/lib/env.ts` validates them with zod at startup and fails fast.
 - Backups: Neon point-in-time restore (7 days on the free tier). Nothing lives on the container disk.
@@ -198,7 +198,7 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
 
 ## Phases
 
-1. **Foundation (private beta for Edward).** Drizzle + PGlite/Neon, Auth.js with dev sign-in,
+1. **Foundation (private beta for Edward).** Drizzle + PGlite/Neon, Better Auth with file-based dev magic links,
    identity replaces profiles, import script, Dockerfile, Fly.io deploy on the real domain with
    Google sign-in and magic links working. Exit: Edward tailors and downloads a resume on the live
    site from his imported bank.
