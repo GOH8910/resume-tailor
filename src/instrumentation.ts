@@ -5,5 +5,10 @@ export async function register() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
   const { getDb } = await import("@/db/client");
-  await getDb();
+  try {
+    await getDb();
+  } catch (err) {
+    // If register throws, Next answers 500 forever; getDb() retries on its next call instead.
+    console.error("[db] migration at boot failed, will retry on first use", err);
+  }
 }
