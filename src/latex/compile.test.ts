@@ -1,5 +1,6 @@
+import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { latexEnv } from "./compile";
+import { compileRoot, latexCommand, latexEnv } from "./compile";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -63,5 +64,47 @@ describe("latexEnv", () => {
   it("leaves out variables that are not set", () => {
     vi.stubEnv("LC_ALL", undefined);
     expect(latexEnv()).not.toHaveProperty("LC_ALL");
+  });
+});
+
+describe("latexCommand", () => {
+  const args = ["-norc", "resume.tex"];
+
+  it("runs latexmk directly when no user is configured", () => {
+    expect(latexCommand("latexmk", args, undefined, 60_000)).toEqual({ file: "latexmk", args });
+  });
+
+  it("runs latexmk as the configured user through sudo, under GNU timeout 5 s inside the server's limit", () => {
+    expect(latexCommand("latexmk", args, "tex", 60_000)).toEqual({
+      file: "sudo",
+      args: ["-n", "-u", "tex", "--", "/usr/bin/timeout", "-k", "3", "55s", "latexmk", "-norc", "resume.tex"],
+    });
+  });
+
+  it("rounds the inner timeout up to whole seconds", () => {
+    expect(latexCommand("latexmk", args, "tex", 60_500).args).toContain("56s");
+  });
+
+  it("keeps the inner timeout at half the limit or more when the limit is short", () => {
+    expect(latexCommand("latexmk", args, "tex", 4_000).args).toContain("2s");
+    expect(latexCommand("latexmk", args, "tex", 3_000).args).toContain("2s");
+    expect(latexCommand("latexmk", args, "tex", 500).args).toContain("1s");
+  });
+});
+
+describe("compileRoot", () => {
+  it("uses COMPILE_ROOT when set", () => {
+    vi.stubEnv("COMPILE_ROOT", "/var/lib/compile");
+    expect(compileRoot()).toBe("/var/lib/compile");
+  });
+
+  it("falls back to the system temp folder", () => {
+    vi.stubEnv("COMPILE_ROOT", undefined);
+    expect(compileRoot()).toBe(os.tmpdir());
+  });
+
+  it("treats an empty COMPILE_ROOT as unset", () => {
+    vi.stubEnv("COMPILE_ROOT", "");
+    expect(compileRoot()).toBe(os.tmpdir());
   });
 });

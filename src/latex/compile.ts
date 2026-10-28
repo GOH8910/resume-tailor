@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isEnoent } from "@/lib/fs";
@@ -13,11 +13,30 @@ export type CompileResult =
   | { ok: true; pdf: Buffer<ArrayBuffer>; pages: number; log: string }
   | { ok: false; message: string; log: string };
 
-export type CompileOptions = { latexmkPath?: string; timeoutMs?: number };
+/** `runAs` (default: LATEX_RUN_AS) runs TeX as that user through sudo; see latexCommand. */
+export type CompileOptions = { latexmkPath?: string; timeoutMs?: number; runAs?: string };
+
+export type LatexCommand = { file: string; args: string[] };
 
 type RunResult = { code: number | null; timedOut: boolean; output: string; error?: NodeJS.ErrnoException };
 
 const MAX_OUTPUT_CHARS = 1024 * 1024;
+
+// -norc ignores any ~/.latexmkrc (it could move the aux dir or enable shell escape); -no-shell-escape blocks \write18.
+const LATEXMK_ARGS = ["-norc", "-no-shell-escape", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "resume.tex"];
+
+// The path the sudoers rule allows.
+const GNU_TIMEOUT = "/usr/bin/timeout";
+const INNER_TIMEOUT_MARGIN_MS = 5_000;
+const INNER_KILL_AFTER_S = 3;
+// GNU timeout exits 124 when it stopped the command, and 127 (like a shell) when the command was not found.
+const TIMEOUT_EXIT_CODE = 124;
+const NOT_FOUND_EXIT_CODE = 127;
+
+// After the server's own timeout: SIGTERM first, because sudo relays SIGTERM to TeX but dies on SIGKILL without
+// relaying it; SIGKILL if the group is still there KILL_AFTER_MS later; and stop waiting GIVE_UP_AFTER_MS after that.
+const KILL_AFTER_MS = 3_000;
+const GIVE_UP_AFTER_MS = 2_000;
 
 // Kept on the same line as the document so LaTeX log line numbers match the generated source. It works before
 // \documentclass, so it also protects a user-supplied template: page objects stay uncompressed for page counting,
@@ -55,29 +74,66 @@ export function latexEnv(): NodeJS.ProcessEnv {
   return env as NodeJS.ProcessEnv;
 }
 
-/** Runs latexmk in its own process group so a timeout can kill latexmk AND its pdflatex child. */
-function runLatexmk(latexmk: string, args: string[], dir: string, timeoutMs: number): Promise<RunResult> {
+/**
+ * How latexmk is run. With `runAs`, it runs as that user through sudo, so TeX cannot read the server's files or
+ * its environment under /proc. The server cannot signal that user's processes, so GNU timeout runs inside sudo
+ * and stops TeX (its whole process group) a little before the server's own timeout fires.
+ */
+export function latexCommand(latexmk: string, args: string[], runAs: string | undefined, timeoutMs: number): LatexCommand {
+  if (!runAs) return { file: latexmk, args };
+  // Short limits (the health probe's) would leave no time at all after a fixed margin.
+  const innerMs = Math.max(timeoutMs - INNER_TIMEOUT_MARGIN_MS, timeoutMs / 2);
+  const seconds = Math.max(1, Math.ceil(innerMs / 1000));
+  return {
+    file: "sudo",
+    args: ["-n", "-u", runAs, "--", GNU_TIMEOUT, "-k", String(INNER_KILL_AFTER_S), `${seconds}s`, latexmk, ...args],
+  };
+}
+
+/** The user TeX runs as: the option, else LATEX_RUN_AS, else the server's own user. */
+export function latexRunAs(runAs?: string): string | undefined {
+  return runAs ?? (process.env.LATEX_RUN_AS || undefined);
+}
+
+/** Runs latexmk in its own process group so a timeout can stop latexmk AND its pdflatex child. */
+function runLatexmk(command: LatexCommand, dir: string, timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
     let output = "";
-    const child = spawn(latexmk, args, { cwd: dir, env: latexEnv(), detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {
-          // The group is already gone.
-        }
+    const timers: NodeJS.Timeout[] = [];
+    const child = spawn(command.file, command.args, { cwd: dir, env: latexEnv(), detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const signalGroup = (signal: NodeJS.Signals) => {
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // The group is already gone.
       }
-    }, timeoutMs);
+    };
     const finish = (result: Omit<RunResult, "output" | "timedOut">) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      timers.forEach(clearTimeout);
+      // latexmk may have exited on SIGTERM while something else in its group ignored it.
+      if (timedOut) signalGroup("SIGKILL");
       resolve({ ...result, timedOut, output });
     };
+    timers.push(
+      setTimeout(() => {
+        timedOut = true;
+        signalGroup("SIGTERM");
+        timers.push(setTimeout(() => signalGroup("SIGKILL"), KILL_AFTER_MS));
+        // A process the server cannot signal (TeX under sudo) may keep the output open; it must not hold a queue slot.
+        timers.push(
+          setTimeout(() => {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            finish({ code: child.exitCode });
+          }, KILL_AFTER_MS + GIVE_UP_AFTER_MS),
+        );
+      }, timeoutMs),
+    );
     const collect = (chunk: string) => {
       if (output.length < MAX_OUTPUT_CHARS) output = (output + chunk).slice(0, MAX_OUTPUT_CHARS);
     };
@@ -91,34 +147,26 @@ function runLatexmk(latexmk: string, args: string[], dir: string, timeoutMs: num
   });
 }
 
-/** The folder each compile gets its own fresh subfolder in. */
+/** The folder each compile gets its own fresh subfolder in: COMPILE_ROOT, else the system temp folder. */
 export function compileRoot(): string {
-  return os.tmpdir();
+  return process.env.COMPILE_ROOT || os.tmpdir();
 }
 
 export async function compileTex(tex: string, options: CompileOptions = {}): Promise<CompileResult> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
+  const runAs = latexRunAs(options.runAs);
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(compileRoot(), "resume-tailor-"));
   try {
+    // TeX's user shares a group with the server. The setgid bit (a plain 0o770 would clear it) puts TeX's output
+    // files in that group, so the server can read the PDF; the server owns the folder, so it can remove them.
+    if (runAs) await chmod(dir, 0o2770);
     await writeFile(path.join(dir, "resume.tex"), PREAMBLE_PREFIX + tex, "utf8");
-    // -norc ignores any ~/.latexmkrc (it could move the aux dir or enable shell escape); -no-shell-escape blocks \write18.
-    const args = ["-norc", "-no-shell-escape", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "resume.tex"];
-    const run = await runLatexmk(latexmk, args, dir, timeout);
+    const run = await runLatexmk(latexCommand(latexmk, LATEXMK_ARGS, runAs, timeout), dir, timeout);
     // The captured output covers a timeout or an early latexmk failure, where no log file exists.
     const log = (await readLog(dir)) || run.output;
-    if (run.error) {
-      if (run.error.code === "ENOENT") {
-        return { ok: false, message: `latexmk not found at "${latexmk}". Install MacTeX or set LATEXMK_PATH.`, log };
-      }
-      return { ok: false, message: `Could not run latexmk: ${run.error.message}`, log };
-    }
-    if (run.timedOut) {
-      return { ok: false, message: `LaTeX compilation timed out after ${Math.round(timeout / 1000)}s and was stopped.`, log };
-    }
-    if (run.code !== 0) {
-      return { ok: false, message: "LaTeX compilation failed. See the log for details.", log };
-    }
+    const failure = runFailure(run, latexmk, runAs, timeout);
+    if (failure) return { ok: false, message: failure, log };
     let pdf: Buffer<ArrayBuffer>;
     try {
       pdf = await readFile(path.join(dir, "resume.pdf"));
@@ -135,6 +183,23 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
       console.error(`Could not remove temp dir ${dir}:`, err);
     }
   }
+}
+
+function runFailure(run: RunResult, latexmk: string, runAs: string | undefined, timeoutMs: number): string | undefined {
+  if (run.error?.code === "ENOENT") {
+    return runAs
+      ? `sudo not found, which is needed to run latexmk as "${runAs}". Install sudo or unset LATEX_RUN_AS.`
+      : `latexmk not found at "${latexmk}". Install MacTeX or set LATEXMK_PATH.`;
+  }
+  if (run.error) return `Could not run latexmk: ${run.error.message}`;
+  if (run.timedOut || (runAs && run.code === TIMEOUT_EXIT_CODE)) {
+    return `LaTeX compilation timed out after ${Math.round(timeoutMs / 1000)}s and was stopped.`;
+  }
+  if (runAs && run.code === NOT_FOUND_EXIT_CODE) {
+    return `latexmk not found at "${latexmk}" when run as "${runAs}". Check sudo's secure_path or set LATEXMK_PATH.`;
+  }
+  if (run.code !== 0) return "LaTeX compilation failed. See the log for details.";
+  return undefined;
 }
 
 async function readLog(dir: string): Promise<string> {

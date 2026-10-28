@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { latexEnv } from "./compile";
+import { writeFakeSudo } from "./fake-sudo";
 import { checkLatexmk, resetLatexmkCache } from "./latexmk-check";
 
 let dir: string;
@@ -97,6 +98,58 @@ describe("checkLatexmk", () => {
     await checkLatexmk({ latexmkPath });
     await checkLatexmk({ latexmkPath });
     expect(await runCount()).toBe(2);
+  });
+});
+
+describe("checkLatexmk as another user (stand-in sudo)", () => {
+  let bin: string;
+
+  beforeAll(async () => {
+    bin = await mkdtemp(path.join(os.tmpdir(), "latexmk-check-sudo-"));
+    await writeFakeSudo(bin);
+  });
+  afterAll(() => rm(bin, { recursive: true, force: true }));
+  beforeEach(() => {
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+    vi.stubEnv("LATEX_RUN_AS", undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // The stand-in sudo exits 99 unless it gets the sudo + GNU timeout command line, so "ok" proves the shape.
+  it("probes latexmk through sudo as that user", async () => {
+    const latexmkPath = await fakeLatexmk("as-tex", '[ "$FAKE_SUDO_RUN_AS" = tex ] || exit 5\nexit 0');
+    expect(await checkLatexmk({ latexmkPath, runAs: "tex" })).toBe("ok");
+    expect(await runCount()).toBe(1);
+  });
+
+  it("takes the user from LATEX_RUN_AS", async () => {
+    vi.stubEnv("LATEX_RUN_AS", "tex");
+    const latexmkPath = await fakeLatexmk("env-tex", '[ "$FAKE_SUDO_RUN_AS" = tex ] || exit 5\nexit 0');
+    expect(await checkLatexmk({ latexmkPath })).toBe("ok");
+  });
+
+  it("reports a missing sudo as an error, not as a missing latexmk", async () => {
+    vi.stubEnv("PATH", dir);
+    const latexmkPath = await fakeLatexmk("no-sudo", "exit 0");
+    expect(await checkLatexmk({ latexmkPath, runAs: "tex" })).toBe("error: sudo not found");
+  });
+
+  it("reports missing when latexmk cannot be found as that user", async () => {
+    expect(await checkLatexmk({ latexmkPath: path.join(dir, "nope"), runAs: "tex" })).toBe("missing");
+  });
+
+  it("reports a sudo that refuses to run the command", async () => {
+    const refusing = await mkdtemp(path.join(os.tmpdir(), "latexmk-check-refusing-"));
+    try {
+      await writeFile(path.join(refusing, "sudo"), "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n", { mode: 0o755 });
+      vi.stubEnv("PATH", refusing);
+      const latexmkPath = await fakeLatexmk("refused", "exit 0");
+      expect(await checkLatexmk({ latexmkPath, runAs: "tex" })).toBe("error: exit 1");
+    } finally {
+      await rm(refusing, { recursive: true, force: true });
+    }
   });
 });
 

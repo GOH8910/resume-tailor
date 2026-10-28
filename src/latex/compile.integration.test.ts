@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTex } from "./build";
 import { compileRoot, compileTex, latexEnv } from "./compile";
+import { writeFakeSudo } from "./fake-sudo";
 import { exampleDocument } from "./fixture";
 import { loadTemplate } from "./template";
 
@@ -181,4 +182,188 @@ describe("compileTex with a stand-in latexmk that prints its environment", () =>
       await rm(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("compileTex under COMPILE_ROOT (stand-in latexmk)", () => {
+  it("compiles in a fresh folder under COMPILE_ROOT and removes it afterwards", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "compile-root-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "pwd-latexmk-"));
+    vi.stubEnv("COMPILE_ROOT", root);
+    try {
+      const script = path.join(bin, "latexmk");
+      await writeFile(script, "#!/bin/sh\npwd >&2\nexit 1\n", { mode: 0o755 });
+      const result = await compileTex("x", { latexmkPath: script });
+      expect(result.log).toContain(path.join(await realpath(root), "resume-tailor-"));
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(root, { recursive: true, force: true });
+      await rm(bin, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("compileTex as another user (stand-in sudo)", () => {
+  let bin: string;
+  let root: string;
+
+  async function fakeLatexmk(name: string, body: string): Promise<string> {
+    const script = path.join(bin, name);
+    await writeFile(script, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return script;
+  }
+
+  beforeAll(async () => {
+    bin = await mkdtemp(path.join(os.tmpdir(), "sudo-latexmk-"));
+    root = await mkdtemp(path.join(os.tmpdir(), "sudo-root-"));
+    await writeFakeSudo(bin);
+  });
+  afterAll(async () => {
+    await rm(bin, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+  beforeEach(() => {
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+    vi.stubEnv("COMPILE_ROOT", root);
+    vi.stubEnv("LATEX_RUN_AS", undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("runs latexmk through sudo and GNU timeout as that user", async () => {
+    const latexmk = await fakeLatexmk("args", 'echo "latexmk as $FAKE_SUDO_RUN_AS: $*" >&2\nexit 1');
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", timeoutMs: 60_000 });
+    expect(result.log).toContain(`sudo -n -u tex -- /usr/bin/timeout -k 3 55s ${latexmk} -norc -no-shell-escape -pdf`);
+    expect(result.log).toContain("latexmk as tex: -norc -no-shell-escape -pdf -interaction=nonstopmode");
+  });
+
+  it("takes the user from LATEX_RUN_AS", async () => {
+    vi.stubEnv("LATEX_RUN_AS", "texuser");
+    const latexmk = await fakeLatexmk("env-user", 'echo "latexmk as $FAKE_SUDO_RUN_AS" >&2\nexit 1');
+    const result = await compileTex("x", { latexmkPath: latexmk });
+    expect(result.log).toContain("latexmk as texuser");
+  });
+
+  it("keeps the compile folder in the shared group so TeX's files stay readable to the server", async () => {
+    const latexmk = await fakeLatexmk("mode", "ls -ld . >&2\nexit 1");
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    expect(result.log).toMatch(/^drwxrws---/m);
+  });
+
+  it("returns the PDF that TeX wrote", async () => {
+    const latexmk = await fakeLatexmk("writes-pdf", "printf '%%PDF-1.4 stand-in' > resume.pdf");
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pdf.toString()).toBe("%PDF-1.4 stand-in");
+  });
+
+  it("explains that sudo is missing", async () => {
+    vi.stubEnv("PATH", await mkdtemp(path.join(os.tmpdir(), "no-sudo-")));
+    const latexmk = await fakeLatexmk("unused", "exit 0");
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/sudo not found/);
+    expect(result.message).toMatch(/LATEX_RUN_AS/);
+  });
+
+  it("explains that latexmk is missing for that user", async () => {
+    const result = await compileTex("x", { latexmkPath: "/definitely/not/latexmk", runAs: "tex" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/latexmk not found/);
+    expect(result.message).toMatch(/"tex"/);
+  });
+
+  it("reports a timeout when GNU timeout stopped latexmk", async () => {
+    const latexmk = await fakeLatexmk("inner-timeout", "exit 124");
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/timed out/);
+  });
+
+  it("treats exit 124 as an ordinary failure when latexmk runs directly", async () => {
+    const latexmk = await fakeLatexmk("plain-124", "exit 124");
+    const result = await compileTex("x", { latexmkPath: latexmk });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/compilation failed/);
+  });
+});
+
+describe("compileTex timeout handling (stand-in latexmk)", () => {
+  let bin: string;
+
+  async function fakeLatexmk(name: string, body: string): Promise<string> {
+    const script = path.join(bin, name);
+    await writeFile(script, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return script;
+  }
+
+  function running(pattern: string): string {
+    try {
+      return execFileSync("pgrep", ["-f", pattern], { encoding: "utf8" }).trim();
+    } catch {
+      // pgrep exits 1 when nothing matches.
+      return "";
+    }
+  }
+
+  beforeAll(async () => {
+    bin = await mkdtemp(path.join(os.tmpdir(), "timeout-latexmk-"));
+  });
+  afterAll(() => rm(bin, { recursive: true, force: true }));
+
+  it("asks latexmk to stop with SIGTERM first, which sudo can relay to TeX", async () => {
+    const latexmk = await fakeLatexmk("term", "trap 'echo got SIGTERM >&2; exit 143' TERM\nsleep 30 &\nwait");
+    const started = Date.now();
+    const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/timed out/);
+    expect(result.log).toContain("got SIGTERM");
+    expect(Date.now() - started).toBeLessThan(2_000);
+  }, 10_000);
+
+  it("kills the process group with SIGKILL when SIGTERM is ignored", async () => {
+    const latexmk = await fakeLatexmk("ignores-term", "trap '' TERM\nsleep 37.25");
+    const started = Date.now();
+    const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
+    const elapsed = Date.now() - started;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/timed out/);
+    expect(elapsed).toBeGreaterThanOrEqual(3_000);
+    expect(elapsed).toBeLessThan(5_000);
+    expect(running("sleep 37.25")).toBe("");
+  }, 15_000);
+
+  it("stops waiting when a process it cannot signal keeps the output open", async () => {
+    // The holder leaves the process group, like a TeX process owned by another user that the server cannot kill.
+    const pidFile = path.join(bin, "holder.pid");
+    const latexmk = await fakeLatexmk(
+      "holder",
+      `perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", $ARGV[0]) or die; print $f $$; close $f; sleep 41' "${pidFile}" &\nsleep 30`,
+    );
+    const started = Date.now();
+    try {
+      const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.message).toMatch(/timed out/);
+      expect(Date.now() - started).toBeLessThan(8_000);
+    } finally {
+      const pid = Number(await readFile(pidFile, "utf8").catch(() => ""));
+      if (pid > 0) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  }, 20_000);
 });
