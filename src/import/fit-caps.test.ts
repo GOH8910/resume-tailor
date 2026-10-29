@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type ResumeState, ResumeStateInputSchema } from "@/applications/schema";
 import { type Bank, BankInputSchema, emptyBank } from "@/bank/schema";
-import { fitBankToCaps, fitResumeToCaps, truncateText } from "./fit-caps";
+import { truncateText } from "@/lib/input-caps";
+import { fitBankToCaps, fitResumeToCaps } from "./fit-caps";
 
 describe("truncateText", () => {
   it("leaves text within the cap alone", () => {

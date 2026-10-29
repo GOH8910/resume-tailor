@@ -44,11 +44,11 @@ describe("PUT /api/applications/[id]", () => {
     expect(applications.save).toHaveBeenCalledWith("u1", { id: ID, resume: RESUME });
   });
 
-  it("refuses a resume over 200 KB as JSON with a 413, saving nothing", async () => {
-    const bullets = Array.from({ length: 400 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
+  it("refuses a resume over 700 KB as JSON with a 413, saving nothing", async () => {
+    const bullets = Array.from({ length: 1_200 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
     const res = await save({ ...RESUME, experience: [{ entryId: "e1", rationale: "", bullets }] });
     expect(res.status).toBe(413);
-    expect((await res.json()).error).toBe("The resume is too large: keep it under 200 KB");
+    expect((await res.json()).error).toBe("The resume is too large: keep it under 700 KB");
     expect(applications.save).not.toHaveBeenCalled();
   });
 

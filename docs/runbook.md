@@ -133,7 +133,7 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   bucket that starts full, so an account's first window can see up to about twice the figure (the burst plus
   what refills meanwhile). A refusal is a 429 with `details.retryAfter` and a `Retry-After` header; autosave
   keeps the edit and saves it again after the wait, and the preview retries a compile once.
-- **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 200 KB of JSON in
+- **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
   UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
   account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)
   is held to the editors' caps, so the API never refuses to save data it stored. Beyond 2 running and 8 waiting

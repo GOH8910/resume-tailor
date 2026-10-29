@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { type Bank, BankInputSchema, type Bullet, emptyBank } from "@/bank/schema";
+import { jsonBytes, MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
 import { JobInputSchema, requireResumeWithinSize, requireRoomForApplication } from "./input";
+import { fullStateFromBank } from "./resume-state";
 
 const job = { company: "Acme", jobDescription: "We need Go engineers." };
 
@@ -44,14 +47,24 @@ describe("requireResumeWithinSize", () => {
     skills: [],
   });
 
-  it("passes a resume up to 200 KB as JSON, and no resume at all", () => {
-    expect(() => requireResumeWithinSize(resumeOf(300))).not.toThrow();
+  it("passes a resume up to 700 KB as JSON, and no resume at all", () => {
+    expect(() => requireResumeWithinSize(resumeOf(1_000))).not.toThrow();
     expect(() => requireResumeWithinSize(undefined)).not.toThrow();
   });
 
   it("refuses a larger one with a 413", () => {
-    expect(() => requireResumeWithinSize(resumeOf(400))).toThrow(
-      expect.objectContaining({ status: 413, message: "The resume is too large: keep it under 200 KB" }),
+    expect(() => requireResumeWithinSize(resumeOf(1_200))).toThrow(
+      expect.objectContaining({ status: 413, message: "The resume is too large: keep it under 700 KB" }),
     );
+  });
+
+  // "Start from full bank" copies every bullet into the resume twice (original and text).
+  it("passes a full-bank resume built from a bank at the 300 KB cap", () => {
+    const bullets: Bullet[] = [];
+    const bank = (): Bank => ({ ...emptyBank("Ada"), summary: "s".repeat(2_000), experience: [{ id: "e1", title: "Engineer", start: "", end: "", bullets }] });
+    while (jsonBytes(bank()) + 700 <= MAX_BANK_JSON_BYTES) bullets.push({ id: `b${bullets.length}`, text: "é".repeat(300) });
+    expect(jsonBytes(bank())).toBeGreaterThan(MAX_BANK_JSON_BYTES - 700);
+    expect(BankInputSchema.safeParse(bank()).success).toBe(true);
+    expect(() => requireResumeWithinSize(fullStateFromBank(bank()))).not.toThrow();
   });
 });

@@ -140,8 +140,9 @@ allowances (`securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
 - Request size, in every mode: 1 MB JSON body cap in `readJson` (413, counted while reading); field caps in
   the request schemas (stored data is read uncapped): job description 20k chars, company and role title 200,
   bullet 600, summary 2k, chat message 4k (Claude's replies in the history 16k), at most 20 messages and 40k
-  characters per chat request, bank 300 KB and one resume 200 KB serialised (UTF-8 bytes; 413; the resume cap
-  covers saves, compiles and chat), applications per account 200 (409). A 400 names the first problem
+  characters per chat request, bank 300 KB and one resume 700 KB serialised (UTF-8 bytes; 413; the resume cap
+  covers saves, compiles and chat, and is 2 × the bank cap + 100 KB because a full-bank resume stores each bullet
+  twice), applications per account 200 (409). A 400 names the first problem
   (`field.path: message`).
 - Caps where the server writes, so the API never refuses data it stored: chat's bank and resume changes skip
   over-cap text with a warning, an over-cap tailored rewrite or summary falls back to the bank's text with a

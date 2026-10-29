@@ -21,8 +21,11 @@ export const MAX_CHAT_TOTAL_CHARS = 40_000;
 /** The bank serialised as JSON, in UTF-8 bytes (300 KB). */
 export const MAX_BANK_JSON_BYTES = 300_000;
 
-/** One resume (an application's review state) serialised as JSON, in UTF-8 bytes (200 KB). */
-export const MAX_RESUME_JSON_BYTES = 200_000;
+/**
+ * One resume (an application's review state) serialised as JSON, in UTF-8 bytes (700 KB). "Start from full bank"
+ * stores each bullet twice (original and text), so a resume from a bank at its cap can be about twice its size.
+ */
+export const MAX_RESUME_JSON_BYTES = 2 * MAX_BANK_JSON_BYTES + 100_000;
 
 /** The size of `value` as JSON in UTF-8 bytes, which is what the byte caps count. */
 export function jsonBytes(value: unknown): number {
@@ -31,3 +34,10 @@ export function jsonBytes(value: unknown): number {
 
 /** Saved resumes (applications) per account. */
 export const MAX_APPLICATIONS = 200;
+
+/** `text` cut to `max` UTF-16 units (what the caps count), never ending on half of a surrogate pair. */
+export function truncateText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}

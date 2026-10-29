@@ -65,12 +65,12 @@ describe("POST /api/chat limits", () => {
     expect(runChat).not.toHaveBeenCalled();
   });
 
-  it("refuses a resume over 200 KB as JSON with a 413 before charging", async () => {
-    const bullets = Array.from({ length: 400 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
+  it("refuses a resume over 700 KB as JSON with a 413 before charging", async () => {
+    const bullets = Array.from({ length: 1_200 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
     const resume = { summary: "", education: [], experience: [{ entryId: "e1", rationale: "", bullets }], projects: [], skills: [] };
     const { res } = await chatAs("free", { messages, resume });
     expect(res.status).toBe(413);
-    expect((await res.json()).error).toBe("The resume is too large: keep it under 200 KB");
+    expect((await res.json()).error).toBe("The resume is too large: keep it under 700 KB");
     expect(credits.charge).not.toHaveBeenCalled();
     expect(runChat).not.toHaveBeenCalled();
   });

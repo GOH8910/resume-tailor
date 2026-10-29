@@ -9,6 +9,7 @@ import { createManualApplication } from "@/tailor/tailor";
 import { usageFromError } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
+import { jsonBytes, MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
 import { checkChatMessages, runChat } from "./chat";
 import type { ChatModel } from "./model";
 import { type ChatResult, EMPTY_BANK_CHANGE, EMPTY_RESUME_CHANGE } from "./schema";
@@ -83,6 +84,31 @@ describe("runChat", () => {
     );
     expect(err).toBe(failure);
     expect(usageFromError(err)).toEqual(fakeUsage);
+  });
+
+  it("skips the bank write, with a warning, when Claude's changes would take the bank over 300 KB", async () => {
+    const before = await banks.read(USER);
+    const filler = Array.from({ length: 460 }, (_, i) => ({ id: `f${i}`, text: "x".repeat(600) }));
+    const full = { ...before, projects: [...before.projects, { id: "e_fill", title: "Filler", start: "", end: "", bullets: filler }] };
+    await banks.write(USER, full);
+    expect(jsonBytes(full)).toBeLessThanOrEqual(MAX_BANK_JSON_BYTES);
+    const texts = Array.from({ length: 40 }, (_, i) => `${i} ${"y".repeat(590)}`);
+    const model = new FakeModel({ reply: "Added them.", bankChanges: [{ ...EMPTY_BANK_CHANGE, kind: "addBullets", entryId: "e_fill", texts }], resumeChanges: [] });
+
+    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "add these" }] }, { banks, applications, model });
+
+    expect(outcome.bankChanged).toBe(false);
+    expect(outcome.applied).toEqual([]);
+    expect(outcome.warnings).toContain("Claude's changes would make your bank larger than 300 KB, so none were saved");
+    expect(outcome.bank).toEqual(full);
+    expect(await banks.read(USER)).toEqual(full);
+  });
+
+  it("cuts a reply over 16,000 characters, so it cannot block later requests", async () => {
+    const model = new FakeModel({ reply: "r".repeat(20_000), bankChanges: [], resumeChanges: [] });
+    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "talk a lot" }] }, { banks, applications, model });
+    expect(outcome.reply).toHaveLength(16_000);
+    expect(outcome.warnings).toContain("Claude's reply was cut to 16,000 characters");
   });
 
   it("rejects a conversation that does not end with a user message", async () => {

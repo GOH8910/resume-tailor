@@ -243,16 +243,16 @@ describe("importLocalData", () => {
     expect(await db.select().from(banksTable)).toEqual([]);
   });
 
-  it("skips an application whose resume is over 200 KB of JSON", async () => {
+  it("skips an application whose resume is over 700 KB of JSON", async () => {
     await standardFixture();
     const big = app(WITHOUT_PDF, "Globex");
-    const bullets = Array.from({ length: 400 }, (_, i) => ({ bulletId: `b_${i}`, original: "", text: "x".repeat(600) }));
+    const bullets = Array.from({ length: 1_200 }, (_, i) => ({ bulletId: `b_${i}`, original: "", text: "x".repeat(600) }));
     big.resume = { ...big.resume, experience: [{ entryId: "e_1", rationale: "", bullets }] };
     await writeFixture({ [`applications/${WITHOUT_PDF}.json`]: JSON.stringify(big) });
 
     const result = await run();
 
     expect(result.applications).toBe(1);
-    expect(result.skipped).toEqual([`applications/${WITHOUT_PDF}.json: resume is over 200 KB as JSON`]);
+    expect(result.skipped).toEqual([`applications/${WITHOUT_PDF}.json: resume is over 700 KB as JSON`]);
   });
 });

@@ -17,7 +17,7 @@ export async function requireRoomForApplication(applications: { count(userId: st
   }
 }
 
-/** Refuses (413) a resume over 200 KB as JSON. Saves, compiles and chat requests all carry one. */
+/** Refuses (413) a resume over 700 KB as JSON. Saves, compiles and chat requests all carry one. */
 export function requireResumeWithinSize(resume: ResumeState | undefined): void {
   if (resume && jsonBytes(resume) > MAX_RESUME_JSON_BYTES) {
     throw new AppError(`The resume is too large: keep it under ${MAX_RESUME_JSON_BYTES / 1000} KB`, 413);

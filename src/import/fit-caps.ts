@@ -1,7 +1,7 @@
 import type { ResumeEntry, ResumeState } from "@/applications/schema";
 import type { Bank, Entry } from "@/bank/schema";
 import { SECTION_KEYS } from "@/bank/schema";
-import { MAX_CHARS } from "@/lib/input-caps";
+import { MAX_CHARS, truncateText } from "@/lib/input-caps";
 
 /**
  * Brings data written outside the API (the seed and import scripts) within the caps the editors are held to, so
@@ -9,13 +9,6 @@ import { MAX_CHARS } from "@/lib/input-caps";
  * echoes résumé text.
  */
 export type Fitted<T> = { truncated: string[] } & T;
-
-/** `text` cut to `max` UTF-16 units (what the caps count), never ending on half of a surrogate pair. */
-export function truncateText(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const cut = text.slice(0, max);
-  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
-}
 
 export function fitBankToCaps(bank: Bank): Fitted<{ bank: Bank }> {
   const truncated: string[] = [];
