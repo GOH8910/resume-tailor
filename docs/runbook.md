@@ -128,11 +128,16 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   or a `COMPILE_CONCURRENCY` above the TeX users in the image, shows as `"latexmk":"error: …"` with a 503 and
   fails the deploy. `?deep=1` also runs `select 1` against the database.
 - **Limits** (hosted mode, in memory, reset by a restart): per account, tailor 10/hour, chat 30/10 min,
-  compile 30/10 min, bank saves 60/10 min, new resumes 30/10 min, ad starts 20/hour; magic links 5/hour and
-  sign-in verifications 20/hour per IP (Better Auth, production only). A refusal is a 429 with
-  `details.retryAfter` and a `Retry-After` header. At most 200 saved resumes per account (409), JSON bodies up
-  to 1 MB and banks up to 300 KB of JSON in UTF-8 bytes (413). Beyond 2 running and 8 waiting compiles, the API answers 503
-  with `Retry-After: 10` and the review screen retries once.
+  compile 60/10 min, bank saves 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad starts 20/hour;
+  magic links 5/hour and sign-in verifications 20/hour per IP (Better Auth, production only). Each is a token
+  bucket that starts full, so an account's first window can see up to about twice the figure (the burst plus
+  what refills meanwhile). A refusal is a 429 with `details.retryAfter` and a `Retry-After` header; autosave
+  keeps the edit and saves it again after the wait, and the preview retries a compile once.
+- **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 200 KB of JSON in
+  UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
+  account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)
+  is held to the editors' caps, so the API never refuses to save data it stored. Beyond 2 running and 8 waiting
+  compiles, the API answers 503 with `Retry-After: 10` and the review screen retries once.
 - **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
   `COMPILE_CONCURRENCY` in `fly.toml` to at most N.
 - **Deploys during a compile**: `kill_timeout = 65` lets a stopping machine finish a compile (up to 60 s).

@@ -1,4 +1,5 @@
 import type { Bank, Entry, SectionKey } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { DEFAULT_LIMITS, type TailorLimits } from "./limits";
 import type { SelectedBullet, SelectedEntry, TailorResult, TailorSkillCategory } from "./schema";
 
@@ -6,7 +7,10 @@ export type ValidatedTailor = { result: TailorResult; warnings: string[] };
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-/** Reconcile Claude's answer with the bank: unknown ids are dropped, pinned bullets enforced, limits applied. */
+/**
+ * Reconcile Claude's answer with the bank: unknown ids are dropped, pinned bullets enforced, limits applied, and text
+ * over the caps the review screen is held to (MAX_CHARS) replaced by the bank's own.
+ */
 export function validateTailorResult(bank: Bank, result: TailorResult, limits: TailorLimits = DEFAULT_LIMITS): ValidatedTailor {
   const warnings: string[] = [];
 
@@ -14,8 +18,7 @@ export function validateTailorResult(bank: Bank, result: TailorResult, limits: T
   const experience = validateSection(bank, "experience", result.experience, limits.experienceBullets, warnings);
   const projects = validateSection(bank, "projects", result.projects, limits.projectBullets, warnings, limits.projectEntries);
 
-  const summary = result.summary.trim() || bank.summary;
-  if (!result.summary.trim()) warnings.push("Claude returned an empty summary; using the master summary instead");
+  const summary = chooseSummary(bank, result.summary.trim(), warnings);
 
   const skills = validateSkills(bank, result.skills, warnings);
 
@@ -77,7 +80,11 @@ function validateBullets(entry: Entry, selected: SelectedBullet[], max: number, 
       continue;
     }
     seen.add(sel.bulletId);
-    const edited = sel.edited?.trim() ?? "";
+    let edited = sel.edited?.trim() ?? "";
+    if (edited.length > MAX_CHARS.bullet) {
+      warnings.push(`Claude's rewrite of a bullet in "${entry.title}" was over ${MAX_CHARS.bullet.toLocaleString("en")} characters; kept your original`);
+      edited = "";
+    }
     picked.push({ bulletId: sel.bulletId, edited: edited && edited !== bullet.text.trim() ? edited : null });
   }
 
@@ -116,6 +123,18 @@ function validateBullets(entry: Entry, selected: SelectedBullet[], max: number, 
   }
   warnings.push(`Trimmed "${entry.title}" from ${kept.length} to ${max} bullets`);
   return kept.filter((k) => keepIds.has(k.bulletId));
+}
+
+function chooseSummary(bank: Bank, summary: string, warnings: string[]): string {
+  if (!summary) {
+    warnings.push("Claude returned an empty summary; using the master summary instead");
+    return bank.summary;
+  }
+  if (summary.length > MAX_CHARS.summary) {
+    warnings.push(`Claude's summary was over ${MAX_CHARS.summary.toLocaleString("en")} characters; using the master summary instead`);
+    return bank.summary;
+  }
+  return summary;
 }
 
 function sortByBankOrder(bankEntries: Entry[], selected: SelectedEntry[]): SelectedEntry[] {

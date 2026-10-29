@@ -7,6 +7,9 @@ import { errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, FOCUS_RING } from "@/ui/Button";
 import { useChatContext } from "@/ui/chat/ChatProvider";
+import { useCountdown } from "@/ui/countdown";
+import { nextSaveDelay, saveRateLimitWait } from "@/ui/save-backoff";
+import { SavingAgain } from "@/ui/SavingAgain";
 import { loadBank, saveBank, saveBankOnExit } from "./bank-saver";
 import { EntryEditor } from "./EntryEditor";
 import { ProfileForm } from "./ProfileForm";
@@ -17,7 +20,8 @@ export type BankSection = (typeof BANK_SECTIONS)[number];
 
 const LABELS: Record<BankSection, string> = { profile: "Profile", skills: "Skills", ...SECTION_LABELS };
 
-type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+/** `waiting`: the server refused a save for now (429); the edits stay unsaved and are saved again after its wait. */
+type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error" | "waiting";
 const SAVE_DELAY_MS = 800;
 
 export function BankEditor({ section }: { section: BankSection }) {
@@ -27,6 +31,11 @@ export function BankEditor({ section }: { section: BankSection }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<Bank | null>(null);
+  // When a rate-limited save may run again; edits made before then wait for it too.
+  const retryAt = useRef<number | null>(null);
+  const mounted = useRef(false);
+  const saveRef = useRef<() => Promise<void>>(async () => {});
+  const { secondsLeft, start: startCountdown } = useCountdown();
   const tabs = useRef<HTMLElement>(null);
   const { register: registerChat } = useChatContext();
 
@@ -51,35 +60,63 @@ export function BankEditor({ section }: { section: BankSection }) {
     };
   }, []);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  /** Saves the latest bank after `ms`, replacing any save already scheduled. */
+  const schedule = useCallback((ms: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      void saveRef.current();
+    }, ms);
+  }, []);
+
   const save = useCallback(async () => {
     const bank = latest.current;
     if (!bank) return;
     setStatus("saving");
     try {
       await saveBank(bank);
+      retryAt.current = null;
       if (latest.current !== bank) return; // a newer edit supersedes this save; it reports its own status
       setStatus("saved");
       setSaveError(null);
     } catch (err) {
+      const wait = saveRateLimitWait(err);
+      if (wait !== null) {
+        // The edits stay unsaved: the latest bank is saved once the server's wait is over, unless the editor has gone.
+        retryAt.current = Date.now() + wait * 1000;
+        if (!mounted.current) return;
+        startCountdown(wait);
+        setStatus("waiting");
+        setSaveError(null);
+        schedule(wait * 1000);
+        return;
+      }
       if (latest.current !== bank) return;
       setStatus("error");
       setSaveError(errorMessage(err));
     }
-  }, []);
+  }, [schedule, startCountdown]);
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
 
   const update = useCallback(
     (fn: (bank: Bank) => Bank) => {
       if (!latest.current) return;
       latest.current = fn(latest.current); // computed outside the updater: no side effect inside setState
       setBank(latest.current);
-      setStatus("dirty");
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => {
-        timer.current = null;
-        void save();
-      }, SAVE_DELAY_MS);
+      const now = Date.now();
+      setStatus(retryAt.current !== null && retryAt.current > now ? "waiting" : "dirty");
+      schedule(nextSaveDelay(now, retryAt.current, SAVE_DELAY_MS));
     },
-    [save],
+    [schedule],
   );
 
   // The chat drawer saves pending edits before Claude reads the bank, and re-reads it after Claude changes it.
@@ -134,7 +171,7 @@ export function BankEditor({ section }: { section: BankSection }) {
               </Button>
             </div>
           )}
-          <SaveIndicator status={status} />
+          <SaveIndicator status={status} secondsLeft={secondsLeft} />
         </div>
       </div>
 
@@ -181,18 +218,19 @@ export function BankEditor({ section }: { section: BankSection }) {
   );
 }
 
-function SaveIndicator({ status }: { status: SaveStatus }) {
+function SaveIndicator({ status, secondsLeft }: { status: SaveStatus; secondsLeft: number }) {
   const text: Record<SaveStatus, string> = {
     idle: "",
     dirty: "Unsaved changes",
     saving: "Saving…",
     saved: "Saved",
     error: "Save failed",
+    waiting: "Unsaved changes",
   };
   const tone = status === "saved" ? "text-ok" : status === "error" ? "text-danger" : "text-ink-faint";
   return (
     <span role="status" className={`text-sm ${tone}`}>
-      {text[status]}
+      {status === "waiting" && secondsLeft > 0 ? <SavingAgain secondsLeft={secondsLeft} /> : text[status]}
     </span>
   );
 }

@@ -106,7 +106,9 @@ npm run import:local -- --email you@example.com --from data/<slug>
 `--dry-run` validates, counts and says what would happen to the bank, without
 writing. Applications and their PDFs are upserted, so a re-run is safe; a file
 that fails validation, or whose id does not match its file name, is skipped and
-listed. A bank that already has content is kept unless you pass `--replace`.
+listed. Text longer than the editors allow (600 characters per bullet, 2,000 for a
+summary) is cut to fit, and each field cut is listed. A bank that already has
+content is kept unless you pass `--replace`.
 Use an absolute `--from` path when the data lives in another checkout.
 
 To import into production, sign in on the production site first, then set
@@ -131,6 +133,15 @@ PDF. It needs `npx playwright install chromium` and MacTeX.
 ## Deploying
 
 See `docs/runbook.md`.
+
+Upgrading from a version where `LATEX_RUN_AS` named one user: it is now a
+user-name prefix. With `LATEX_RUN_AS=tex`, compile slot 1 runs TeX as `tex1` in
+a folder of group `texrun1`, slot 2 as `tex2` with `texrun2`, and so on up to
+`COMPILE_CONCURRENCY`. The Docker image creates them. Outside Docker, create
+each `texN` user with its own `texrunN` group, add the server's user to every
+`texrunN`, and let it run `/usr/bin/timeout` as each `texN` through sudo (see
+`docker/sudoers-latex`); or unset `LATEX_RUN_AS` to run TeX as the server's
+user.
 
 ## Layout of the code
 

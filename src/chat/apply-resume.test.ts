@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fullStateFromBank } from "@/applications/resume-state";
+import { ResumeStateInputSchema } from "@/applications/schema";
 import { BankSchema } from "@/bank/schema";
 import { applyResumeChanges } from "./apply-resume";
 import { EMPTY_RESUME_CHANGE, type ResumeChange } from "./schema";
@@ -43,5 +44,20 @@ describe("applyResumeChanges", () => {
     expect(applied).toHaveLength(4);
     expect(warnings).toHaveLength(2);
     expect(state.experience[0].bullets[0].text).not.toBe("Reworded");
+  });
+});
+
+describe("applyResumeChanges caps (the resume must stay one the review screen can save)", () => {
+  it("skips a reworded bullet over 600 characters and a summary over 2,000, with warnings", () => {
+    const { state: next, warnings } = applyResumeChanges(state, bank, [
+      { ...blank, kind: "editBullet", entryId: "e_exp1", bulletId: "b_exp1a", text: "x".repeat(601) },
+      { ...blank, kind: "setSummary", text: "y".repeat(2_001) },
+    ]);
+    expect(next).toBe(state);
+    expect(warnings).toEqual([
+      'Skipped a reworded bullet in "Software Engineer Intern": over 600 characters',
+      "Skipped the new summary: over 2,000 characters",
+    ]);
+    expect(ResumeStateInputSchema.safeParse(next).success).toBe(true);
   });
 });

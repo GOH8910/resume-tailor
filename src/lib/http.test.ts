@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { AppError } from "./errors";
 import { clientIp, handle, ipKey, MAX_BODY_BYTES, readJson, requireUser } from "./http";
 
@@ -52,6 +53,26 @@ describe("handle", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("7");
     expect(await res.json()).toEqual({ error: "Too many tailor requests, try again in 7 s", details: { retryAfter: 7 } });
+  });
+
+  it("answers a validation error with its first issue, prefixed by the field's path, and every issue in details", async () => {
+    const schema = z.object({ experience: z.array(z.object({ text: z.string().max(3, "A bullet can be at most 3 characters") })), company: z.string() });
+    const res = await handle(async () => {
+      schema.parse({ experience: [{ text: "ok" }, { text: "too long" }] });
+      return new Response();
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("experience.1.text: A bullet can be at most 3 characters");
+    expect(body.details).toHaveLength(2);
+  });
+
+  it("answers a validation error on the whole body with the bare message", async () => {
+    const res = await handle(async () => {
+      z.array(z.string()).max(1, "At most one").parse(["a", "b"]);
+      return new Response();
+    });
+    expect((await res.json()).error).toBe("At most one");
   });
 
   it("sets no Retry-After without a numeric details.retryAfter", async () => {

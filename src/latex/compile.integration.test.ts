@@ -223,6 +223,8 @@ async function handOffGroup(exceptGid: number): Promise<{ name: string; gid: num
 describe("compileTex as another user (stand-in sudo)", () => {
   let bin: string;
   let root: string;
+  // runAs comes with the group its compile folder is handed to; any group this process is in will do here.
+  let group: string;
 
   async function fakeLatexmk(name: string, body: string): Promise<string> {
     const script = path.join(bin, name);
@@ -234,6 +236,9 @@ describe("compileTex as another user (stand-in sudo)", () => {
     bin = await mkdtemp(path.join(os.tmpdir(), "sudo-latexmk-"));
     root = await mkdtemp(path.join(os.tmpdir(), "sudo-root-"));
     await writeFakeSudo(bin);
+    const found = await handOffGroup(-1);
+    if (!found) throw new Error("No group in /etc/group that this process is in: these tests hand compile folders to one");
+    group = found.name;
   });
   afterAll(async () => {
     await rm(bin, { recursive: true, force: true });
@@ -249,7 +254,7 @@ describe("compileTex as another user (stand-in sudo)", () => {
 
   it("runs latexmk through sudo and GNU timeout as that user", async () => {
     const latexmk = await fakeLatexmk("args", 'echo "latexmk as $FAKE_SUDO_RUN_AS: $*" >&2\nexit 1');
-    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", timeoutMs: 60_000 });
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", group, timeoutMs: 60_000 });
     expect(result.log).toContain(`sudo -n -u tex -- /usr/bin/timeout -k 3 55s ${latexmk} -norc -no-shell-escape -pdf`);
     expect(result.log).toContain("latexmk as tex: -norc -no-shell-escape -pdf -interaction=nonstopmode");
   });
@@ -284,13 +289,13 @@ describe("compileTex as another user (stand-in sudo)", () => {
 
   it("keeps the compile folder in the shared group so TeX's files stay readable to the server", async () => {
     const latexmk = await fakeLatexmk("mode", "ls -ld . >&2\nexit 1");
-    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", group });
     expect(result.log).toMatch(/^drwxrws---/m);
   });
 
   it("returns the PDF that TeX wrote", async () => {
     const latexmk = await fakeLatexmk("writes-pdf", "printf '%%PDF-1.4 stand-in' > resume.pdf");
-    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", group });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.pdf.toString()).toBe("%PDF-1.4 stand-in");
@@ -299,7 +304,7 @@ describe("compileTex as another user (stand-in sudo)", () => {
   it("explains that sudo is missing", async () => {
     vi.stubEnv("PATH", await mkdtemp(path.join(os.tmpdir(), "no-sudo-")));
     const latexmk = await fakeLatexmk("unused", "exit 0");
-    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", group });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.message).toMatch(/sudo not found/);
@@ -307,7 +312,7 @@ describe("compileTex as another user (stand-in sudo)", () => {
   });
 
   it("explains that latexmk is missing for that user", async () => {
-    const result = await compileTex("x", { latexmkPath: "/definitely/not/latexmk", runAs: "tex" });
+    const result = await compileTex("x", { latexmkPath: "/definitely/not/latexmk", runAs: "tex", group });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.message).toMatch(/latexmk not found/);
@@ -316,7 +321,7 @@ describe("compileTex as another user (stand-in sudo)", () => {
 
   it("reports a timeout when GNU timeout stopped latexmk", async () => {
     const latexmk = await fakeLatexmk("inner-timeout", "exit 124");
-    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex" });
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex", group });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.message).toMatch(/timed out/);

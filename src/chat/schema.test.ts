@@ -27,4 +27,12 @@ describe("ChatMessagesSchema", () => {
     expect(ChatMessagesSchema.safeParse(Array.from({ length: 20 }, () => user("hi"))).success).toBe(true);
     expect(ChatMessagesSchema.safeParse(Array.from({ length: 21 }, () => user("hi"))).success).toBe(false);
   });
+
+  it("caps the conversation at 40,000 characters in total", () => {
+    const at = [assistant("x".repeat(16_000)), assistant("x".repeat(16_000)), user("x".repeat(4_000)), user("x".repeat(4_000))];
+    expect(ChatMessagesSchema.safeParse(at).success).toBe(true);
+    const over = ChatMessagesSchema.safeParse([...at.slice(0, 3), user("x".repeat(4_000)), user("x")]);
+    expect(over.success).toBe(false);
+    if (!over.success) expect(over.error.issues[0].message).toBe("The conversation can be at most 40,000 characters in total");
+  });
 });

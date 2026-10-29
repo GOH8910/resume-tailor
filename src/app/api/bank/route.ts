@@ -2,7 +2,7 @@ import { BankInputSchema } from "@/bank/schema";
 import { banks } from "@/lib/deps";
 import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
-import { MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
+import { jsonBytes, MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
 import { limitUser } from "@/lib/limits";
 
 export async function GET(request: Request) {
@@ -18,11 +18,10 @@ export async function PUT(request: Request) {
     limitUser("bankWrite", user);
     const body = await readJson(request);
     // Bytes, not string length: a character outside ASCII takes up to 4 bytes to store.
-    if (Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_BANK_JSON_BYTES) {
+    if (jsonBytes(body) > MAX_BANK_JSON_BYTES) {
       throw new AppError(`The bank is too large to save: keep it under ${MAX_BANK_JSON_BYTES / 1000} KB`, 413);
     }
-    const parsed = BankInputSchema.safeParse(body);
-    if (!parsed.success) throw new AppError("Bank does not match the schema", 400, parsed.error.issues);
-    return Response.json(await banks.write(user.id, parsed.data));
+    // A ZodError becomes a 400 naming the first problem (handle()).
+    return Response.json(await banks.write(user.id, BankInputSchema.parse(body)));
   });
 }

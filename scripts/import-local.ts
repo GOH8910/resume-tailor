@@ -59,6 +59,10 @@ function report(result: ImportResult, dryRun: boolean): void {
     console.log(`Skipped ${result.skipped.length}:`);
     for (const line of result.skipped) console.log(`  ${line}`);
   }
+  if (result.truncated.length > 0) {
+    console.log(`Cut to the editors' length caps ${result.truncated.length}:`);
+    for (const line of result.truncated) console.log(`  ${line}`);
+  }
   if (dryRun) console.log("Dry run: nothing was written.");
 }
 

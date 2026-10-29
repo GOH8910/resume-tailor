@@ -15,10 +15,12 @@ export type CompileResult =
   | { ok: false; message: string; log: string };
 
 /**
- * `runAs` runs TeX as that user through sudo (see latexCommand); `group` is then the group the compile folder is
- * handed to, one that user and the server are both in (see slotIdentity). Without `runAs` TeX runs as the server.
+ * Who runs TeX: `runAs` through sudo (see latexCommand), in a compile folder handed to `group`, one that user and
+ * the server are both in (see slotIdentity). They come together; without them TeX runs as the server's own user.
  */
-export type CompileOptions = { latexmkPath?: string; timeoutMs?: number; runAs?: string; group?: string };
+export type TexIdentity = { runAs: string; group: string };
+
+export type CompileOptions = { latexmkPath?: string; timeoutMs?: number } & (TexIdentity | { runAs?: undefined; group?: undefined });
 
 export type LatexCommand = { file: string; args: string[] };
 
@@ -155,11 +157,11 @@ export function compileRoot(): string {
 
 export async function compileTex(tex: string, options: CompileOptions = {}): Promise<CompileResult> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
-  const { runAs, group } = options;
+  const { runAs } = options;
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(compileRoot(), "resume-tailor-"));
   try {
-    if (runAs) await shareWithTex(dir, group);
+    if (options.runAs !== undefined) await shareWithTex(dir, options.group);
     await writeFile(path.join(dir, "resume.tex"), PREAMBLE_PREFIX + tex, "utf8");
     const run = await runLatexmk(latexCommand(latexmk, LATEXMK_ARGS, runAs, timeout), dir, timeout);
     // The captured output covers a timeout or an early latexmk failure, where no log file exists.
@@ -185,13 +187,12 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
 }
 
 /**
- * Opens the compile folder (created 0700 by mkdtemp) to TeX's user through a group it shares with the server: the
- * slot's own group when given (-1 keeps the server as the owner), else the one inherited from COMPILE_ROOT. The
- * setgid bit (a plain 0o770 would clear it) puts TeX's output files in that group, so the server can read the PDF;
- * the server owns the folder, so it can remove them.
+ * Opens the compile folder (created 0700 by mkdtemp) to TeX's user, and to no one else, through the group it shares
+ * with the server (-1 keeps the server as the owner). The setgid bit (a plain 0o770 would clear it) puts TeX's
+ * output files in that group, so the server can read the PDF; the server owns the folder, so it can remove them.
  */
-async function shareWithTex(dir: string, group: string | undefined): Promise<void> {
-  if (group) await chown(dir, -1, await groupId(group));
+async function shareWithTex(dir: string, group: string): Promise<void> {
+  await chown(dir, -1, await groupId(group));
   await chmod(dir, 0o2770);
 }
 

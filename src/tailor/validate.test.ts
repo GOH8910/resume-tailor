@@ -194,3 +194,31 @@ describe("validateTailorResult", () => {
     expect(JSON.stringify(bank)).toBe(snapshot);
   });
 });
+
+describe("validateTailorResult caps (a saved resume must stay one the review screen can save)", () => {
+  it("drops a rewrite over 600 characters and keeps the original bullet, with a warning", () => {
+    const long = "x".repeat(601);
+    const raw: TailorResult = {
+      ...base,
+      experience: [{ entryId: "e_exp1", rationale: "r", bullets: [{ bulletId: "b_exp1b", edited: long }] }],
+    };
+    const { result, warnings } = validateTailorResult(bank, raw);
+    expect(result.experience[0].bullets.find((b) => b.bulletId === "b_exp1b")?.edited).toBeNull();
+    expect(warnings).toContain(`Claude's rewrite of a bullet in "${bank.experience[0].title}" was over 600 characters; kept your original`);
+  });
+
+  it("keeps a rewrite of exactly 600 characters", () => {
+    const raw: TailorResult = {
+      ...base,
+      experience: [{ entryId: "e_exp1", rationale: "r", bullets: [{ bulletId: "b_exp1b", edited: "x".repeat(600) }] }],
+    };
+    const bullets = validateTailorResult(bank, raw).result.experience[0].bullets;
+    expect(bullets.find((b) => b.bulletId === "b_exp1b")?.edited).toBe("x".repeat(600));
+  });
+
+  it("uses the master summary when Claude's is over 2,000 characters", () => {
+    const { result, warnings } = validateTailorResult(bank, { ...base, summary: "y".repeat(2_001) });
+    expect(result.summary).toBe(bank.summary);
+    expect(warnings).toContain("Claude's summary was over 2,000 characters; using the master summary instead");
+  });
+});

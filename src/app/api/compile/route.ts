@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireResumeWithinSize } from "@/applications/input";
 import { resolveResume } from "@/applications/resume-state";
 import { ResumeStateInputSchema } from "@/applications/schema";
 import { buildTex } from "@/latex/build";
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
     const user = await requireUser(request);
     limitUser("compile", user);
     const body = CompileRequestSchema.parse(await readJson(request));
+    requireResumeWithinSize(body.resume);
     // Fail fast with a 404 for a deleted application instead of compiling a PDF that cannot be saved.
     if (body.applicationId) await applications.get(user.id, body.applicationId);
     const bank = await banks.read(user.id);

@@ -74,13 +74,21 @@ describe("POST /api/compile", () => {
     expect(compileTex).not.toHaveBeenCalled();
   });
 
-  it("answers the 31st compile in 10 minutes with a 429 and Retry-After, in hosted mode only", async () => {
-    for (let i = 0; i < 30; i++) expect((await compile()).status).toBe(200);
+  it("refuses a resume over 200 KB as JSON with a 413, compiling nothing", async () => {
+    const bullets = Array.from({ length: 400 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
+    const res = await compile({ ...RESUME, experience: [{ entryId: "e1", rationale: "", bullets }] });
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toBe("The resume is too large: keep it under 200 KB");
+    expect(compileTex).not.toHaveBeenCalled();
+  });
+
+  it("answers the 61st compile in 10 minutes with a 429 and Retry-After, in hosted mode only", async () => {
+    for (let i = 0; i < 60; i++) expect((await compile()).status).toBe(200);
     const res = await compile();
     expect(res.status).toBe(429);
-    expect(res.headers.get("Retry-After")).toBe("20");
-    expect(await res.json()).toEqual({ error: "Too many compile requests, try again in 20 s", details: { retryAfter: 20 } });
-    expect(compileTex).toHaveBeenCalledTimes(30);
+    expect(res.headers.get("Retry-After")).toBe("10");
+    expect(await res.json()).toEqual({ error: "Too many compile requests, try again in 10 s", details: { retryAfter: 10 } });
+    expect(compileTex).toHaveBeenCalledTimes(60);
 
     useEnv({ APP_MODE: "selfhost" });
     expect((await compile()).status).toBe(200);

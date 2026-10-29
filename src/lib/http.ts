@@ -18,12 +18,23 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
       return Response.json({ error: err.message, details: err.details ?? null }, { status: err.status, headers });
     }
     if (err instanceof ZodError) {
-      return Response.json({ error: "Invalid request body", details: err.issues }, { status: 400 });
+      return Response.json({ error: issueMessage(err), details: err.issues }, { status: 400 });
     }
     // Driver errors carry SQL, bound params and hostnames in their message: log the cause, tell the client nothing.
     console.error(err instanceof Error && err.cause ? err.cause : err);
     return Response.json({ error: "Something went wrong" }, { status: 500 });
   }
+}
+
+/**
+ * What a client is told about a validation error: its first issue, prefixed by the field's path when there is one
+ * ("experience.0.bullets.2.text: A bullet can be at most 600 characters"). The UI shows only this message.
+ */
+export function issueMessage(error: ZodError): string {
+  const [first] = error.issues;
+  if (!first) return "Invalid request body";
+  const field = first.path.join(".");
+  return field ? `${field}: ${first.message}` : first.message;
 }
 
 function retryAfterOf(details: unknown): number | undefined {

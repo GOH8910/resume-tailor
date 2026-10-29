@@ -46,10 +46,11 @@ describe("limits", () => {
   it.each([
     ["tailor", 10],
     ["chat", 30],
-    ["compile", 30],
-    ["bankWrite", 60],
+    ["compile", 60],
+    ["bankWrite", 120],
     ["adStart", 20],
     ["applicationCreate", 30],
+    ["applicationWrite", 120],
   ] as const)("%s allows a burst of %i", (name, burst) => {
     const { limiter } = limits[name];
     for (let i = 0; i < burst; i++) expect(limiter.take("u1", 0).ok).toBe(true);

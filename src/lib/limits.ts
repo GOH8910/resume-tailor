@@ -8,7 +8,10 @@ type Limit = { limiter: RateLimiter; label: string };
 const HOUR_S = 60 * 60;
 const TEN_MINUTES_S = 10 * 60;
 
-/** `count` requests per `windowSeconds`, as a burst of `count` that refills evenly across the window. */
+/**
+ * `count` requests per `windowSeconds`, as a burst of `count` that refills evenly across the window. A full (cold)
+ * bucket therefore allows up to about 2 × `count` in its first window: the burst plus what refills meanwhile.
+ */
 function perWindow(count: number, windowSeconds: number, label: string): Limit {
   return { limiter: createRateLimiter({ capacity: count, refillPerSecond: count / windowSeconds }), label };
 }
@@ -17,10 +20,12 @@ function perWindow(count: number, windowSeconds: number, label: string): Limit {
 export const limits = {
   tailor: perWindow(10, HOUR_S, "tailor"),
   chat: perWindow(30, TEN_MINUTES_S, "chat"),
-  compile: perWindow(30, TEN_MINUTES_S, "compile"),
-  bankWrite: perWindow(60, TEN_MINUTES_S, "bank save"),
+  // The compile queue protects the CPU; this only stops one account flooding it. Autosave compiles after every save.
+  compile: perWindow(60, TEN_MINUTES_S, "compile"),
+  bankWrite: perWindow(120, TEN_MINUTES_S, "bank save"),
   adStart: perWindow(20, HOUR_S, "ad"),
   applicationCreate: perWindow(30, TEN_MINUTES_S, "new resume"),
+  applicationWrite: perWindow(120, TEN_MINUTES_S, "resume save"),
 } satisfies Record<string, Limit>;
 
 export type LimitName = keyof typeof limits;

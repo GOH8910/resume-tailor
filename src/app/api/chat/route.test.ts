@@ -65,11 +65,25 @@ describe("POST /api/chat limits", () => {
     expect(runChat).not.toHaveBeenCalled();
   });
 
+  it("refuses a resume over 200 KB as JSON with a 413 before charging", async () => {
+    const bullets = Array.from({ length: 400 }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) }));
+    const resume = { summary: "", education: [], experience: [{ entryId: "e1", rationale: "", bullets }], projects: [], skills: [] };
+    const { res } = await chatAs("free", { messages, resume });
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toBe("The resume is too large: keep it under 200 KB");
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(runChat).not.toHaveBeenCalled();
+  });
+
   it("refuses a message over 4,000 characters and a conversation over 20 messages before charging", async () => {
     const long = [{ role: "user", content: "x".repeat(4_001) }];
     expect((await chatAs("free", { messages: long })).res.status).toBe(400);
     const many = Array.from({ length: 21 }, () => ({ role: "user", content: "hi" }));
     expect((await chatAs("free", { messages: many })).res.status).toBe(400);
+    const total = [...Array.from({ length: 3 }, () => ({ role: "assistant", content: "x".repeat(13_000) })), { role: "user", content: "x".repeat(1_001) }];
+    const { res } = await chatAs("free", { messages: total });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("messages: The conversation can be at most 40,000 characters in total");
     expect(credits.charge).not.toHaveBeenCalled();
   });
 });

@@ -1,41 +1,59 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/ui/api";
-import { retryOnceWhenBusy } from "./busy-retry";
+import { retryOnceAfterWait } from "./busy-retry";
 
 const busy = () => new ApiError("Server busy, try again in a moment", 503, { retryAfter: 10 });
+const limited = () => new ApiError("Too many compile requests, try again in 20 s", 429, { retryAfter: 20 });
+const noWait = async () => {};
 
-describe("retryOnceWhenBusy", () => {
+describe("retryOnceAfterWait", () => {
   it("returns the first result without waiting", async () => {
     const onWait = vi.fn();
     const wait = vi.fn();
-    expect(await retryOnceWhenBusy(async () => "pdf", onWait, wait)).toBe("pdf");
+    expect(await retryOnceAfterWait(async () => "pdf", { onWait, stillWanted: () => true, wait })).toBe("pdf");
     expect(onWait).not.toHaveBeenCalled();
     expect(wait).not.toHaveBeenCalled();
   });
 
-  it("reports the wait, waits it out and tries once more when the server is busy", async () => {
-    const attempt = vi.fn().mockRejectedValueOnce(busy()).mockResolvedValueOnce("pdf");
+  it.each([
+    ["the queue is full", busy, 10, "busy"],
+    ["the account is rate limited", limited, 20, "limited"],
+  ] as const)("reports the wait, waits it out and tries once more when %s", async (_label, error, seconds, reason) => {
+    const attempt = vi.fn().mockRejectedValueOnce(error()).mockResolvedValueOnce("pdf");
     const onWait = vi.fn();
-    const wait = vi.fn(async () => {});
-    expect(await retryOnceWhenBusy(attempt, onWait, wait)).toBe("pdf");
-    expect(onWait).toHaveBeenCalledWith(10);
-    expect(wait).toHaveBeenCalledWith(10_000);
+    const wait = vi.fn(noWait);
+    expect(await retryOnceAfterWait(attempt, { onWait, stillWanted: () => true, wait })).toBe("pdf");
+    expect(onWait).toHaveBeenCalledWith(seconds, reason);
+    expect(wait).toHaveBeenCalledWith(seconds * 1000);
     expect(attempt).toHaveBeenCalledTimes(2);
   });
 
   it("gives up after one retry", async () => {
     const attempt = vi.fn().mockRejectedValue(busy());
-    await expect(retryOnceWhenBusy(attempt, () => {}, async () => {})).rejects.toMatchObject({ status: 503 });
+    await expect(retryOnceAfterWait(attempt, { onWait: () => {}, stillWanted: () => true, wait: noWait })).rejects.toMatchObject({
+      status: 503,
+    });
     expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry once the caller has gone (the preview unmounted during the wait)", async () => {
+    const error = busy();
+    const attempt = vi.fn().mockRejectedValue(error);
+    let wanted = true;
+    const wait = async () => {
+      wanted = false;
+    };
+    await expect(retryOnceAfterWait(attempt, { onWait: () => {}, stillWanted: () => wanted, wait })).rejects.toBe(error);
+    expect(attempt).toHaveBeenCalledOnce();
   });
 
   it.each([
     ["a 503 without retryAfter", new ApiError("The AI service is not configured on this server", 503, null)],
-    ["a rate limit", new ApiError("Too many compile requests, try again in 20 s", 429, { retryAfter: 20 })],
+    ["a 429 without retryAfter", new ApiError("Daily ad limit reached", 429, { reason: "account" })],
     ["a LaTeX error", new ApiError("LaTeX compilation failed", 422, "log")],
   ])("does not retry %s", async (_label, error) => {
     const attempt = vi.fn().mockRejectedValue(error);
-    await expect(retryOnceWhenBusy(attempt, () => {}, async () => {})).rejects.toBe(error);
+    await expect(retryOnceAfterWait(attempt, { onWait: () => {}, stillWanted: () => true, wait: noWait })).rejects.toBe(error);
     expect(attempt).toHaveBeenCalledOnce();
   });
 });

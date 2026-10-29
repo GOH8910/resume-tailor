@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { JobInputSchema, requireRoomForApplication } from "./input";
+import { JobInputSchema, requireResumeWithinSize, requireRoomForApplication } from "./input";
 
 const job = { company: "Acme", jobDescription: "We need Go engineers." };
 
@@ -30,5 +30,28 @@ describe("requireRoomForApplication", () => {
       status: 409,
       message: "You have 200 saved resumes; delete some first",
     });
+  });
+});
+
+describe("requireResumeWithinSize", () => {
+  const resumeOf = (bullets: number) => ({
+    summary: "",
+    education: [],
+    experience: [
+      { entryId: "e1", rationale: "", bullets: Array.from({ length: bullets }, (_, i) => ({ bulletId: `b${i}`, original: "", text: "x".repeat(600) })) },
+    ],
+    projects: [],
+    skills: [],
+  });
+
+  it("passes a resume up to 200 KB as JSON, and no resume at all", () => {
+    expect(() => requireResumeWithinSize(resumeOf(300))).not.toThrow();
+    expect(() => requireResumeWithinSize(undefined)).not.toThrow();
+  });
+
+  it("refuses a larger one with a 413", () => {
+    expect(() => requireResumeWithinSize(resumeOf(400))).toThrow(
+      expect.objectContaining({ status: 413, message: "The resume is too large: keep it under 200 KB" }),
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireResumeWithinSize } from "@/applications/input";
 import { ResumeStateInputSchema } from "@/applications/schema";
 import { chooseModel } from "@/billing/plan";
 import { currentPolicy } from "@/billing/policy";
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       throw new AppError("The AI service is not configured on this server", 503);
     }
     const body = ChatRequestSchema.parse(await readJson(request));
+    requireResumeWithinSize(body.resume);
     checkChatMessages(body.messages);
     const policy = currentPolicy(user.plan);
     const model = new AnthropicChatModel(chooseModel(policy, body.model));

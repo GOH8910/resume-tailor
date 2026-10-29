@@ -70,10 +70,10 @@ describe("PUT /api/bank", () => {
     expect(banks.write).toHaveBeenCalledWith("u1", body);
   });
 
-  it("refuses a body that is not a bank with a 400, writing nothing", async () => {
-    const res = await put({ profile: { name: "Ada" } });
+  it("refuses a body that is not a bank with a 400 naming the first problem, writing nothing", async () => {
+    const res = await put({ ...emptyBank("Ada"), summary: 5 });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("Bank does not match the schema");
+    expect((await res.json()).error).toBe("summary: Invalid input: expected string, received number");
     expect(banks.write).not.toHaveBeenCalled();
   });
 
@@ -81,7 +81,7 @@ describe("PUT /api/bank", () => {
     expect((await put(withBullet("x".repeat(600)))).status).toBe(200);
     const res = await put(withBullet("x".repeat(601)));
     expect(res.status).toBe(400);
-    expect((await res.json()).details[0].message).toBe("A bullet can be at most 600 characters");
+    expect((await res.json()).error).toBe("experience.0.bullets.0.text: A bullet can be at most 600 characters");
     expect(banks.write).toHaveBeenCalledOnce();
   });
 
@@ -113,16 +113,16 @@ describe("PUT /api/bank", () => {
     expect(banks.write).toHaveBeenCalledOnce();
   });
 
-  it("answers the 61st save in 10 minutes with a 429 in hosted mode", async () => {
-    for (let i = 0; i < 60; i++) expect((await put(emptyBank("Ada"))).status).toBe(200);
+  it("answers the 121st save in 10 minutes with a 429 in hosted mode", async () => {
+    for (let i = 0; i < 120; i++) expect((await put(emptyBank("Ada"))).status).toBe(200);
     const res = await put(emptyBank("Ada"));
     expect(res.status).toBe(429);
-    expect((await res.json()).details).toEqual({ retryAfter: 10 });
-    expect(banks.write).toHaveBeenCalledTimes(60);
+    expect((await res.json()).details).toEqual({ retryAfter: 5 });
+    expect(banks.write).toHaveBeenCalledTimes(120);
   });
 
   it("does not limit saves on a self-hosted server", async () => {
     useEnv({ APP_MODE: "selfhost" });
-    for (let i = 0; i < 65; i++) expect((await put(emptyBank("Ada"))).status).toBe(200);
+    for (let i = 0; i < 125; i++) expect((await put(emptyBank("Ada"))).status).toBe(200);
   });
 });

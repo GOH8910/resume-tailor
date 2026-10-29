@@ -17,8 +17,10 @@ import type { Bank } from "@/bank/schema";
 import { recordUsageOrLog } from "@/billing/usage";
 import { getDb } from "@/db/client";
 import { findUserIdByEmail } from "@/db/users";
+import { fitBankToCaps } from "@/import/fit-caps";
 import { latexEnv } from "@/latex/compile";
 import { createStructured } from "@/lib/anthropic";
+import { jsonBytes, MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
 
 const SEED_MODEL = "claude-opus-5-5";
 
@@ -149,8 +151,16 @@ async function main(): Promise<void> {
     console.log(`  +${countBullets(bank) - before} new bullets`);
   }
 
-  await repo.write(userId, bank);
-  console.log(`Saved the bank for ${email} with ${countBullets(bank)} bullets.`);
+  // The bank editor must be able to save what this writes.
+  const fitted = fitBankToCaps(bank);
+  if (fitted.truncated.length > 0) {
+    console.log(`Cut ${fitted.truncated.length} text(s) to the editor's length caps: ${fitted.truncated.join(", ")}`);
+  }
+  if (jsonBytes(fitted.bank) > MAX_BANK_JSON_BYTES) {
+    throw new Error(`The merged bank is over ${MAX_BANK_JSON_BYTES / 1000} KB as JSON, more than the bank editor can save; nothing was written`);
+  }
+  await repo.write(userId, fitted.bank);
+  console.log(`Saved the bank for ${email} with ${countBullets(fitted.bank)} bullets.`);
 }
 
 // Exit explicitly: an open pg pool would otherwise keep the process alive.

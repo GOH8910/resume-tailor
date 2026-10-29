@@ -128,16 +128,24 @@ allowances (`securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
 ## Limits and hardening (hosted mode)
 
 - Burst limits, in-memory per machine (`src/lib/rate-limit.ts` token buckets, named in `src/lib/limits.ts`,
-  keyed by user id), applied in hosted mode only: tailor 10/hour, chat 30/10 min, compile 30/10 min, bank
-  writes 60/10 min, new resumes 30/10 min, ad start 20/hour. Magic links 5/hour and verifications 20/hour per
-  IP through Better Auth's `rateLimit.customRules` (production only), alongside the per-email throttle.
-  Responses: 429 `{ error, details: { retryAfter } }` (seconds) plus a `Retry-After` header; the tailor form
-  and the chat show a countdown.
+  keyed by user id), applied in hosted mode only: tailor 10/hour, chat 30/10 min, compile 60/10 min (the
+  queue protects the CPU), bank writes 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad start
+  20/hour. Buckets start full, so a first window allows up to about 2× the figure. Magic links 5/hour and
+  verifications 20/hour per IP through Better Auth's `rateLimit.customRules` (production only, replacing the
+  magic-link plugin's 5/min), alongside the per-email throttle. Responses: 429 `{ error, details: { retryAfter }
+  }` (seconds) plus a `Retry-After` header; the tailor form and the chat show a countdown, the bank editor and
+  the review screen keep the edit and save it again after the wait ("Saving again in N s"), and the preview
+  retries a compile once.
 - Per-IP keys (the ad caps): IPv6 addresses count by their /64.
 - Request size, in every mode: 1 MB JSON body cap in `readJson` (413, counted while reading); field caps in
   the request schemas (stored data is read uncapped): job description 20k chars, company and role title 200,
-  bullet 600, summary 2k, chat message 4k (Claude's replies in the history 16k), at most 20 messages per chat
-  request, bank 300 KB serialised (UTF-8 bytes; 413), applications per account 200 (409).
+  bullet 600, summary 2k, chat message 4k (Claude's replies in the history 16k), at most 20 messages and 40k
+  characters per chat request, bank 300 KB and one resume 200 KB serialised (UTF-8 bytes; 413; the resume cap
+  covers saves, compiles and chat), applications per account 200 (409). A 400 names the first problem
+  (`field.path: message`).
+- Caps where the server writes, so the API never refuses data it stored: chat's bank and resume changes skip
+  over-cap text with a warning, an over-cap tailored rewrite or summary falls back to the bank's text with a
+  warning, and the seed and import scripts cut text to the caps and list each field cut.
 - Compile queue: at most 8 waiting; beyond that 503 `{ details: { retryAfter: 10 } }` with `Retry-After: 10`;
   the review screen says "Server busy, retrying in 10 s" and retries once.
 - One TeX uid and group per compile slot (`tex1`/`texrun1`, `tex2`/`texrun2`; `LATEX_RUN_AS` is the user-name

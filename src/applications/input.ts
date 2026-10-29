@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppError } from "@/lib/errors";
-import { MAX_APPLICATIONS, MAX_CHARS } from "@/lib/input-caps";
+import { jsonBytes, MAX_APPLICATIONS, MAX_CHARS, MAX_RESUME_JSON_BYTES } from "@/lib/input-caps";
+import type { ResumeState } from "./schema";
 
 /** The job a new resume is for, as the tailor form sends it (AI and manual). */
 export const JobInputSchema = z.object({
@@ -13,5 +14,12 @@ export const JobInputSchema = z.object({
 export async function requireRoomForApplication(applications: { count(userId: string): Promise<number> }, userId: string): Promise<void> {
   if ((await applications.count(userId)) >= MAX_APPLICATIONS) {
     throw new AppError(`You have ${MAX_APPLICATIONS} saved resumes; delete some first`, 409);
+  }
+}
+
+/** Refuses (413) a resume over 200 KB as JSON. Saves, compiles and chat requests all carry one. */
+export function requireResumeWithinSize(resume: ResumeState | undefined): void {
+  if (resume && jsonBytes(resume) > MAX_RESUME_JSON_BYTES) {
+    throw new AppError(`The resume is too large: keep it under ${MAX_RESUME_JSON_BYTES / 1000} KB`, 413);
   }
 }
