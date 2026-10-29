@@ -295,3 +295,21 @@ describe("parseEnv: modes, plans and credits", () => {
     expect(parseEnv({ FREE_MODEL: " claude-haiku-5-5 " }).FREE_MODEL).toBe("claude-haiku-5-5");
   });
 });
+
+describe("parseEnv: privacy contact", () => {
+  it("defaults the privacy contact to the address in EMAIL_FROM", () => {
+    expect(parseEnv({ EMAIL_FROM: "Resume Tailor <signin@example.com>" }).privacyContactEmail).toBe("signin@example.com");
+    expect(parseEnv({ EMAIL_FROM: "signin@example.com" }).privacyContactEmail).toBe("signin@example.com");
+    expect(parseEnv({}).privacyContactEmail).toBe("signin@localhost");
+  });
+
+  it("uses PRIVACY_CONTACT_EMAIL when set, and reads a blank one as unset", () => {
+    const from = { EMAIL_FROM: "Resume Tailor <signin@example.com>" };
+    expect(parseEnv({ ...from, PRIVACY_CONTACT_EMAIL: "privacy@example.com" }).privacyContactEmail).toBe("privacy@example.com");
+    expect(parseEnv({ ...from, PRIVACY_CONTACT_EMAIL: " " }).privacyContactEmail).toBe("signin@example.com");
+  });
+
+  it("rejects a PRIVACY_CONTACT_EMAIL that is not an email address", () => {
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "Privacy <privacy@example.com>" })).toThrow();
+  });
+});

@@ -80,7 +80,9 @@ test("deleting the account signs out everywhere, and the same email starts afres
   await confirm.fill(email.toUpperCase());
   await deleteButton.click();
 
-  await expect(page).toHaveURL(/\/signin/);
+  // The landing page, which says so.
+  await expect(page).toHaveURL(/\/\?deleted=1$/);
+  await expect(page.getByRole("status").filter({ hasText: "Your account has been deleted." })).toBeVisible();
   // The response expired the session cookie, rather than leaving it to name a session that no longer exists.
   expect((await page.context().cookies()).filter((cookie) => cookie.name.endsWith("session_token"))).toEqual([]);
   await page.goto("/bank/experience");

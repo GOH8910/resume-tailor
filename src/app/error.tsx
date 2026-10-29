@@ -12,7 +12,7 @@ export default function ErrorPage({ retry }: { error: unknown; retry: () => void
       <Button variant="primary" onClick={() => retry()}>
         Try again
       </Button>
-      <Link href="/" className={buttonClass({})}>
+      <Link href="/dashboard" className={buttonClass({})}>
         Go to your dashboard
       </Link>
     </StatusCard>

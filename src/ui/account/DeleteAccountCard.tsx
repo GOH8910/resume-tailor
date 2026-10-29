@@ -25,8 +25,9 @@ export function DeleteAccountCard({ email }: { email: string }) {
     try {
       await api.send("/api/account/delete", "POST", { email: typed });
       forgetChats();
-      // A full load drops the router cache and every in-memory copy of this account's data.
-      window.location.replace("/");
+      // A full load drops the router cache and every in-memory copy of this account's data. The landing page says
+      // the account is gone.
+      window.location.replace("/?deleted=1");
     } catch (err) {
       setSigningOut(false);
       setError(errorMessage(err));

@@ -23,7 +23,7 @@ describe("safeNextPath", () => {
     "/%2fevil.example",
     "/%5Cevil.example",
     ["/bank", "/tailor"],
-  ])("falls back to / for %j", (next) => {
-    expect(safeNextPath(next)).toBe("/");
+  ])("falls back to the dashboard for %j", (next) => {
+    expect(safeNextPath(next)).toBe("/dashboard");
   });
 });

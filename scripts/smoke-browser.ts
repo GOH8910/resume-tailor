@@ -1,7 +1,8 @@
 /**
  * The production-policy browser check for scripts/smoke-image.sh. The e2e suites run under `next dev`, whose policy
- * allows eval and inline styles; this walks the production image in headless Chromium, signed in with the smoke
- * script's curl cookie jar, and fails on any Content-Security-Policy violation, page error or console error.
+ * allows eval and inline styles; this walks the production image in headless Chromium, first signed out (the landing
+ * and privacy pages), then signed in with the smoke script's curl cookie jar, and fails on any
+ * Content-Security-Policy violation, page error or console error.
  *   npx tsx scripts/smoke-browser.ts <base url> <curl cookie jar>
  */
 import { readFileSync } from "node:fs";
@@ -24,9 +25,24 @@ function cookiesFromJar(file: string): JarCookie[] {
     });
 }
 
-async function walk(page: Page): Promise<void> {
+/** Signed out: the pages anyone can open. */
+async function walkPublic(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByRole("heading").first().waitFor();
+  await page.getByRole("heading", { level: 1, name: /^Job hunting is hard\./ }).waitFor();
+  // The sample resume comes from public/, which the image must ship.
+  await page.waitForFunction(() => {
+    const sample = document.querySelector<HTMLImageElement>("main img");
+    return sample !== null && sample.naturalWidth > 0;
+  });
+  await page.goto("/privacy");
+  await page.getByRole("heading", { level: 1, name: "Privacy" }).waitFor();
+}
+
+async function walk(page: Page): Promise<void> {
+  // A signed-in visit to the landing page goes to the dashboard.
+  await page.goto("/");
+  await page.waitForURL(/\/dashboard$/);
+  await page.getByRole("heading", { name: "Tailored resumes" }).waitFor();
   await page.goto("/bank/experience");
   await page.getByRole("heading", { name: "Experience" }).waitFor();
   await page.goto("/tailor");
@@ -49,7 +65,6 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ baseURL });
-    await context.addCookies(cookiesFromJar(jar));
     await context.exposeBinding("__reportCspViolation", ({ page }, text: string) => {
       problems.push(`CSP violation on ${page.url()}: ${text}`);
     });
@@ -67,6 +82,8 @@ async function main(): Promise<void> {
       const own404 = message.location().url.endsWith("/no-such-page") && message.text().includes("status of 404");
       if (!own404) problems.push(`console error on ${page.url()}: ${message.text()}`);
     });
+    await walkPublic(page);
+    await context.addCookies(cookiesFromJar(jar));
     await walk(page);
     // A round trip delivers any violation report still on its way.
     await page.evaluate(() => 0);

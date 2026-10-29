@@ -16,7 +16,18 @@ function request(path: string, headers: Record<string, string> = {}): NextReques
 const passesThrough = (res: Response) => res.headers.get("x-middleware-next") === "1";
 
 describe("proxy", () => {
-  it.each(["/signin", "/signin?next=%2Fbank", "/api/auth/get-session", "/api/health", "/privacy", "/terms", "/api/ads/ssv?key_id=1"])(
+  it.each([
+    "/",
+    "/?deleted=1",
+    "/signin",
+    "/signin?next=%2Fbank",
+    "/api/auth/get-session",
+    "/api/health",
+    "/privacy",
+    "/terms",
+    "/cookies",
+    "/api/ads/ssv?key_id=1",
+  ])(
     "lets %s through without a session",
     (path) => {
       expect(passesThrough(proxy(request(path)))).toBe(true);
@@ -32,6 +43,10 @@ describe("proxy", () => {
   it("keeps the query string in ?next=", () => {
     const res = proxy(request("/tailor?company=acme"));
     expect(new URL(res.headers.get("location") ?? "").searchParams.get("next")).toBe("/tailor?company=acme");
+  });
+
+  it.each(["/dashboard", "/privacy/x", "/cookies/x", "/terms-x"])("keeps %s behind sign-in: the public pages match exactly", (path) => {
+    expect(proxy(request(path)).status).toBe(307);
   });
 
   it("keeps the other ads endpoints behind sign-in", () => {
@@ -86,7 +101,8 @@ describe("proxy matcher", () => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
   });
 
-  it.each(["/_next/static/chunks/app.js", "/favicon.ico", "/robots.txt"])("skips %s", (url) => {
+  // Files in public/ (the landing page's sample resume) are served without the proxy, so signed out too.
+  it.each(["/_next/static/chunks/app.js", "/favicon.ico", "/robots.txt", "/sample-resume.png"])("skips %s", (url) => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
   });
 });

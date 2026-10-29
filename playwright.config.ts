@@ -57,11 +57,13 @@ function webServer(spec: ServerSpec): WebServer {
 }
 
 const HOSTED_ONLY = /(credits|account)\.spec\.ts$/;
+// Run by both projects: the public pages differ between the modes. The selfhost project runs everything else.
+const BOTH_MODES = /public\.spec\.ts$/;
 
 function project(spec: ServerSpec): PlaywrightTestProject {
   return {
     name: spec.name,
-    ...(spec.name === "hosted" ? { testMatch: HOSTED_ONLY } : { testIgnore: HOSTED_ONLY }),
+    ...(spec.name === "hosted" ? { testMatch: [HOSTED_ONLY, BOTH_MODES] } : { testIgnore: HOSTED_ONLY }),
     use: { baseURL: baseUrl(spec), headless: true },
     // e2e/helpers.ts reads the sign-in links from here.
     metadata: { dataDir: dataDir(spec) },

@@ -25,5 +25,5 @@ function isSafeRelativePath(value: string): boolean {
 
 /** Where to go after signing in: a path on this site, else the dashboard. */
 export function safeNextPath(next: string | string[] | undefined): string {
-  return typeof next === "string" && isSafeRelativePath(next) ? next : "/";
+  return typeof next === "string" && isSafeRelativePath(next) ? next : "/dashboard";
 }

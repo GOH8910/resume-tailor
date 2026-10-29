@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Not found · Resume Tailor" };
 export default function NotFound() {
   return (
     <StatusCard title="Page not found" message="There is nothing at this address.">
-      <Link href="/" className={buttonClass({ variant: "primary" })}>
+      <Link href="/dashboard" className={buttonClass({ variant: "primary" })}>
         Go to your dashboard
       </Link>
     </StatusCard>

@@ -204,7 +204,7 @@ tailor and a chat message cost, and the last 50 ledger rows (`GET /api/account/c
   sessions their IP, except today's grants, which the per-IP cap counts until midnight UTC. A call that finishes after
   the deletion books its usage with no account (a foreign-key failure is retried with `user_id` null). The response
   expires the session cookies through Next's cookie store (Better Auth's names and attributes, `Max-Age=0` and an
-  `Expires` in 1970); the client forgets its chats and loads `/`. Signing in again with the same email creates
+  `Expires` in 1970); the client forgets its chats and loads `/?deleted=1`, the landing page, which says the account was deleted. Signing in again with the same email creates
   a fresh, empty account (the sign-up grant again: the per-IP ad cap still counts the old account's ads).
 
 `/admin` is for accounts whose email is in `ADMIN_EMAILS`, whatever their plan (`requireAdmin`); any other signed-in
@@ -221,11 +221,16 @@ demotes an account later.
 - `/` landing page (public): the pitch in Edward's words ("job hunting is hard; I built this for
   myself; it's free, ads pay for it; you can self-host it"), how it works in three steps, a sample
   PDF image, the ads explanation ("one ad ≈ one credit, two credits per tailored resume"), sign-in
-  button, links to GitHub, privacy and terms. Signed-in visitors see the dashboard at `/` as now.
+  button, links to GitHub, privacy, terms and cookies. In selfhost mode the credits explanation is one line
+  ("This instance is self-hosted: no ads, no credits."). The dashboard moves to `/dashboard`: signed-in visitors
+  to `/` (and `/signin`) are redirected there, and it is where signing in goes by default. `/?deleted=1` says
+  the account was just deleted.
 - `/privacy`, `/terms`, `/cookies` (static, template-grade, naming Anthropic, Neon, Fly.io, Resend,
   Google Ad Manager as processors, the credits/ads mechanics, the ledger retention, and the right to
-  export/delete). Not legal advice.
-- `src/proxy.ts` PUBLIC gains `/`, `/cookies`, `/api/ads/ssv`.
+  export/delete). Not legal advice. The text is data in `src/legal/*.ts`, rendered by
+  `src/ui/legal/LegalPage.tsx`; the contact address is `PRIVACY_CONTACT_EMAIL`, defaulting to the address in
+  `EMAIL_FROM`.
+- `src/proxy.ts` PUBLIC gains `/` (an exact match), `/cookies`, `/api/ads/ssv`.
 
 ## Open source
 

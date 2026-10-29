@@ -22,6 +22,8 @@ const Schema = z.object({
   EMAIL_TRANSPORT: z.enum(["resend", "file"]).optional(),
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default("Resume Tailor <signin@localhost>"),
+  // Shown on the privacy page; a bare address. Unset: the address in EMAIL_FROM.
+  PRIVACY_CONTACT_EMAIL: blankAsUnset(z.email().optional()),
   SIGNUP_EMAILS: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   // A prefix: compile slot n (from 1) runs TeX as user `${LATEX_RUN_AS}${n}`, in a folder of group `${LATEX_RUN_AS}run${n}`.
@@ -62,6 +64,8 @@ export type Env = Parsed & {
   adminEmails: Set<string>;
   /** The ad provider in effect: always "none" in selfhost mode. */
   adProvider: Parsed["AD_PROVIDER"];
+  /** Where people write about their data: PRIVACY_CONTACT_EMAIL, else the sender address of the sign-in emails. */
+  privacyContactEmail: string;
 };
 
 /** Parses the environment; in production (but not during `next build`) it must be complete and explicit. */
@@ -76,6 +80,7 @@ export function parseEnv(source: Source): Env {
     appMode,
     adminEmails: parseEmailList(parsed.ADMIN_EMAILS),
     adProvider: appMode === "selfhost" ? "none" : parsed.AD_PROVIDER,
+    privacyContactEmail: parsed.PRIVACY_CONTACT_EMAIL ?? addressIn(parsed.EMAIL_FROM),
   };
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together");
@@ -111,6 +116,11 @@ function checkProduction(source: Source, env: Env): void {
   if (env.adProvider === "google" && !env.AD_UNIT_PATH) {
     throw new Error("AD_UNIT_PATH must be set when AD_PROVIDER=google");
   }
+}
+
+/** The address in a sender such as `Resume Tailor <signin@example.com>`, or the whole value when it has no <…>. */
+function addressIn(sender: string): string {
+  return /<([^<>]+)>\s*$/.exec(sender)?.[1].trim() ?? sender.trim();
 }
 
 function parseEmailList(value: string | undefined): Set<string> {

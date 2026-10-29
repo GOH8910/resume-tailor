@@ -4,11 +4,14 @@ import { buildCsp } from "@/ads/csp";
 import { env } from "@/lib/env";
 
 const PUBLIC = [
+  // The landing page, as an exact match: a prefix would open every path.
+  /^\/$/,
   /^\/signin(\/|$)/,
   /^\/api\/auth\//,
   /^\/api\/health$/,
   /^\/privacy$/,
   /^\/terms$/,
+  /^\/cookies$/,
   // The ad network's server-to-server reward callback; its signature is checked in the route.
   /^\/api\/ads\/ssv$/,
 ];

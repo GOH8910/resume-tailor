@@ -221,7 +221,7 @@ function ApplicationReview({ applicationId }: Props) {
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <aside className="grid content-start gap-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-auto">
         <div>
-          <Link href="/" className="text-xs text-ink-faint hover:text-ink">
+          <Link href="/dashboard" className="text-xs text-ink-faint hover:text-ink">
             ← Dashboard
           </Link>
           <h1 className="mt-1 text-3xl leading-tight">{application.company}</h1>

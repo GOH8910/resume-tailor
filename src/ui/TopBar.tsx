@@ -14,7 +14,7 @@ import { useMe } from "./useMe";
 type NavLink = { href: string; label: string; isActive: (pathname: string) => boolean };
 
 const LINKS: NavLink[] = [
-  { href: "/", label: "Dashboard", isActive: (p) => p === "/" },
+  { href: "/dashboard", label: "Dashboard", isActive: (p) => p === "/dashboard" },
   { href: "/bank/experience", label: "Bank", isActive: (p) => p.startsWith("/bank") },
   { href: "/tailor", label: "Tailor", isActive: (p) => p.startsWith("/tailor") },
   { href: "/account", label: "Account", isActive: (p) => p === "/account" },
@@ -54,7 +54,7 @@ export function TopBar({ user }: { user: { email: string } }) {
   return (
     <header className="sticky top-0 z-10 border-b border-rule bg-paper/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-        <Link href="/" className="font-serif text-xl tracking-tight">
+        <Link href="/dashboard" className="font-serif text-xl tracking-tight">
           Resume<span className="text-accent">Tailor</span>
         </Link>
         <nav aria-label="Main navigation" className="flex flex-wrap gap-1">

@@ -63,7 +63,7 @@ export async function signIn(page: Page, email: string): Promise<void> {
     }, { message: `a new sign-in link in ${file}` })
     .toBe(true);
   await page.goto(link);
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/dashboard$/);
 }
 
 /** Replaces the signed-in user's bank with data/example/bank.json. */

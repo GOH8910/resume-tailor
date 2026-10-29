@@ -13,8 +13,8 @@ export default function GlobalError() {
       <body className="min-h-screen">
         <title>Something went wrong · Resume Tailor</title>
         <StatusCard title="Something went wrong" message="The site could not load this page. Go back to your dashboard.">
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full page load, which does not rely on the client router */}
-          <a href="/" className={buttonClass({ variant: "primary" })}>
+          {/* A plain <a>: a full page load, which does not rely on the client router. */}
+          <a href="/dashboard" className={buttonClass({ variant: "primary" })}>
             Go to your dashboard
           </a>
         </StatusCard>

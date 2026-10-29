@@ -138,16 +138,29 @@ check "each response gets its own nonce" test "$(csp_nonce "$WORK/signin.headers
 check "every <script> and <style> on /signin carries the nonce, and nothing uses style=\"\"" \
   markup_carries_nonce "$WORK/signin.headers" "$WORK/signin.html"
 
+# --- Public pages, signed out ---
+for page in landing privacy terms cookies; do
+  path=/$page
+  if [ "$page" = landing ]; then path=/; fi
+  name=public-$page
+  code=$(curl -sS -D "$WORK/$name.headers" -o "$WORK/$name.html" -w '%{http_code}' "$BASE$path" || true)
+  check "$path answers 200 signed out (HTTP $code)" test "$code" = 200
+  check "every <script> and <style> on $path carries the nonce, and nothing uses style=\"\"" \
+    markup_carries_nonce "$WORK/$name.headers" "$WORK/$name.html"
+done
+sample=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$BASE/sample-resume.png" || true)
+check "the landing page's sample resume is served from public/ ($sample)" test "$sample" = "200 image/png"
+
 # --- Sign in, save a bank, compile ---
 code=$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"callbackURL\":\"/\"}" "$BASE/api/auth/sign-in/magic-link" || true)
+  -d "{\"email\":\"$EMAIL\",\"callbackURL\":\"/dashboard\"}" "$BASE/api/auth/sign-in/magic-link" || true)
 check "sign-in link requested (HTTP $code)" test "$code" = 200
 link=$(docker exec "$APP" cat "/app/data/magic-links/$EMAIL.txt" 2>/dev/null || true)
 code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -c "$JAR" "$link" || true)
 check "sign-in link redirects (HTTP $code)" test "$code" = 302
 api -o "$WORK/session.json" "$BASE/api/auth/get-session" || true
 check "session belongs to $EMAIL" test "$(json "$WORK/session.json" user.email)" = "$EMAIL"
-curl -sS -b "$JAR" -D "$WORK/dashboard.headers" -o "$WORK/dashboard.html" "$BASE/" || true
+curl -sS -b "$JAR" -D "$WORK/dashboard.headers" -o "$WORK/dashboard.html" "$BASE/dashboard" || true
 check "every <script> and <style> on the dashboard carries the nonce" \
   markup_carries_nonce "$WORK/dashboard.headers" "$WORK/dashboard.html"
 # Signed in, or the proxy would redirect it to /signin.
@@ -184,7 +197,7 @@ check "compile folders were cleaned up" test -z "$(in_app 'ls -A /var/lib/compil
 
 # --- The production policy in a browser ---
 # The e2e suites run under next dev's looser policy; this is the check of the production one.
-check "a signed-in browser walk (dashboard, bank, tailor, review, 404) has no CSP violation or console error" \
+check "a browser walk (landing and privacy signed out; dashboard, bank, tailor, review, 404 signed in) has no CSP violation or console error" \
   npx tsx scripts/smoke-browser.ts "$BASE" "$JAR"
 location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$BASE/api/auth/error?error=state_mismatch" || true)
 check "Better Auth's error page sends people to /signin (${location:-no redirect})" \
