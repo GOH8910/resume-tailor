@@ -49,6 +49,7 @@ describe("GET /api/me", () => {
       creditsPerTailor: 3,
       creditsPerChatMessage: 1,
       adsAvailable: true,
+      ads: { provider: "test", ssv: false, minWatchSeconds: 7 },
     });
     expect(credits.balance).toHaveBeenCalledWith("u1");
   });
@@ -58,7 +59,21 @@ describe("GET /api/me", () => {
     plans.get.mockResolvedValue({ plan: "free", credits: 0 });
     credits.balance.mockResolvedValue(0);
 
-    expect((await (await get()).json()).adsAvailable).toBe(false);
+    const body = await (await get()).json();
+
+    expect(body.adsAvailable).toBe(false);
+    expect(body.ads).toEqual({ provider: "none", ssv: false, minWatchSeconds: 7 });
+  });
+
+  it("hands the browser the Google ad unit and SSV flag, and no secrets", async () => {
+    useEnv({ APP_MODE: "hosted", AD_PROVIDER: "google", AD_UNIT_PATH: "/123/rewarded", AD_SSV_ENABLED: "true" });
+    getSession.mockResolvedValueOnce(ADA);
+    plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+    credits.balance.mockResolvedValue(0);
+
+    const body = await (await get()).json();
+
+    expect(body.ads).toEqual({ provider: "google", adUnitPath: "/123/rewarded", ssv: true, minWatchSeconds: 7 });
   });
 
   it("describes an unlimited account in hosted mode", async () => {
@@ -79,6 +94,7 @@ describe("GET /api/me", () => {
     const body = await (await get()).json();
 
     expect(body.mode).toBe("selfhost");
+    expect(body.ads.provider).toBe("none");
     expect(body.policy).toEqual({ model: "claude-opus-5-5", picksModel: true, chargesCredits: false, showsAds: false, limited: false });
   });
 });

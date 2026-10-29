@@ -1,8 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
-export const DATA = path.resolve(".e2e-data");
+/** The running project's data folder (playwright.config.ts), where its server writes sign-in links. */
+function dataDir(): string {
+  const dir: unknown = test.info().project.metadata.dataDir;
+  if (typeof dir !== "string") throw new Error("The Playwright project sets no metadata.dataDir");
+  return dir;
+}
 
 /** A fresh address per call, so no test shares an account or a sign-in link with another. */
 export function uniqueEmail(label: string): string {
@@ -15,7 +20,7 @@ export async function signIn(page: Page, email: string): Promise<void> {
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Email me a link" }).click();
   await expect(page.getByText("Check your email")).toBeVisible();
-  const file = path.join(DATA, "magic-links", `${email.toLowerCase()}.txt`);
+  const file = path.join(dataDir(), "magic-links", `${email.toLowerCase()}.txt`);
   let link = "";
   await expect
     .poll(async () => (link = (await readFile(file, "utf8").catch(() => "")).trim()), { message: `sign-in link in ${file}` })

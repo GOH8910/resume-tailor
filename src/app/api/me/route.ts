@@ -1,3 +1,4 @@
+import { adClientConfig } from "@/ads/client-config";
 import { currentPolicy, type Me } from "@/billing/policy";
 import { credits } from "@/lib/deps";
 import { env } from "@/lib/env";
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
       creditsPerTailor: env.CREDITS_PER_TAILOR,
       creditsPerChatMessage: env.CREDITS_PER_CHAT_MESSAGE,
       adsAvailable: env.adProvider !== "none",
+      ads: adClientConfig(),
     };
     return Response.json(me);
   });

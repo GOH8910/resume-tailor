@@ -8,6 +8,7 @@ import { authClient } from "./auth-client";
 import { Button, FOCUS_RING } from "./Button";
 import { forgetChats } from "./chat/chat-storage";
 import { useChatContext } from "./chat/ChatProvider";
+import { useMe } from "./useMe";
 
 const LINKS = [
   { href: "/", label: "Dashboard", isActive: (p: string) => p === "/" },
@@ -18,6 +19,7 @@ const LINKS = [
 export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
   const { handlers } = useChatContext();
+  const { me } = useMe();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   // The value is unused. The (app) layout reads the session without refreshing it (a server component cannot set
@@ -64,6 +66,11 @@ export function TopBar({ user }: { user: { email: string } }) {
           })}
         </nav>
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {me?.policy.chargesCredits && (
+            <span role="status" className="rounded-full border border-rule bg-card px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink">
+              Credits: {me.credits}
+            </span>
+          )}
           <span title={user.email} className="max-w-[14rem] truncate text-sm text-ink-soft">
             {user.email}
           </span>

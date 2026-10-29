@@ -1,32 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { Me } from "@/billing/policy";
-import { api, errorMessage } from "@/ui/api";
+import { useContext } from "react";
+import { MeContext, type MeState } from "./MeProvider";
 
-/** The signed-in account and what its plan allows, loaded on mount. `refresh` reloads it, e.g. after credits change. */
-export function useMe(): { me: Me | null; error: string | null; refresh: () => void } {
-  const [me, setMe] = useState<Me | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [version, setVersion] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.get<Me>("/api/me").then(
-      (loaded) => {
-        if (cancelled) return;
-        setMe(loaded);
-        setError(null);
-      },
-      (err: unknown) => {
-        if (!cancelled) setError(errorMessage(err));
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [version]);
-
-  const refresh = useCallback(() => setVersion((v) => v + 1), []);
-  return { me, error, refresh };
+/** The signed-in account and what its plan allows, shared by MeProvider in the (app) layout. */
+export function useMe(): MeState {
+  const state = useContext(MeContext);
+  if (!state) throw new Error("useMe must be used inside MeProvider");
+  return state;
 }

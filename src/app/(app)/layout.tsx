@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { getAuth } from "@/lib/auth";
 import { ChatDrawer } from "@/ui/chat/ChatDrawer";
 import { ChatProvider } from "@/ui/chat/ChatProvider";
+import { MeProvider } from "@/ui/MeProvider";
 import { TopBar } from "@/ui/TopBar";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -14,10 +15,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // Next does not expose the request path to a layout, so a stale session lands on /signin without ?next=.
   if (!session) redirect("/signin");
   return (
-    <ChatProvider>
-      <TopBar user={{ email: session.user.email }} />
-      <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
-      <ChatDrawer />
-    </ChatProvider>
+    <MeProvider>
+      <ChatProvider>
+        <TopBar user={{ email: session.user.email }} />
+        <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
+        <ChatDrawer />
+      </ChatProvider>
+    </MeProvider>
   );
 }

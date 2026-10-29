@@ -1,3 +1,4 @@
+import type { AdClientConfig } from "@/ads/provider";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { type Mode, type Plan, type PlanPolicy, policyFor } from "./plan";
@@ -13,6 +14,7 @@ export type Me = {
   creditsPerChatMessage: number;
   /** Whether this server has an ad network to earn credits with. */
   adsAvailable: boolean;
+  ads: AdClientConfig;
 };
 
 /** The policy for `plan` under this server's mode and model settings. */

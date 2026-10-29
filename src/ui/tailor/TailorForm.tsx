@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Application } from "@/applications/schema";
 import type { Me } from "@/billing/policy";
 import { MODEL_IDS, MODEL_LABELS, type ModelId, modelName } from "@/tailor/model";
+import { type CreditProblem, creditProblem, creditsLabel } from "@/ui/ads/messages";
+import { RewardedAdButton } from "@/ui/ads/RewardedAdButton";
 import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -13,8 +15,17 @@ import { useMe } from "@/ui/useMe";
 
 type Mode = "ai" | "manual";
 
+/** Why the last start failed. `short` is only shown while the balance is still below the cost. */
+type Notice = { kind: "error"; text: string } | { kind: "paused"; text: string } | { kind: "short" };
+
 function formatElapsed(totalSeconds: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function noticeFor(err: unknown, problem: CreditProblem | null): Notice {
+  if (problem?.kind === "short") return { kind: "short" };
+  if (problem?.kind === "paused") return { kind: "paused", text: problem.message };
+  return { kind: "error", text: errorMessage(err) };
 }
 
 /** "" leaves the choice to the server, which uses the plan's model. */
@@ -50,19 +61,23 @@ function ModelChoice({
 
 export function TailorForm() {
   const router = useRouter();
-  const { me } = useMe();
+  const { me, refresh, setCredits } = useMe();
   const [company, setCompany] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [model, setModel] = useState<ModelChoiceValue>("");
   const [busy, setBusy] = useState<Mode | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const mounted = useRef(false);
   const inFlight = useRef(false);
-  const errorRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
 
   const ready = company.trim().length > 0 && jobDescription.trim().length > 0 && busy === null;
+  const chargesCredits = me?.policy.chargesCredits ?? false;
+  const cost = me?.creditsPerTailor ?? 0;
+  const credits = me?.credits ?? 0;
+  const short = chargesCredits && credits < cost;
 
   useEffect(() => {
     mounted.current = true;
@@ -79,10 +94,10 @@ export function TailorForm() {
     return () => clearInterval(id);
   }, [busy]);
 
-  // The banner only exists after the render that sets `error`, so focus it from an effect.
+  // The banner only exists after the render that sets `notice`, so focus it from an effect.
   useEffect(() => {
-    if (error) errorRef.current?.focus();
-  }, [error]);
+    if (notice) noticeRef.current?.focus();
+  }, [notice]);
 
   async function start(mode: Mode) {
     // The ref catches a second click in the same tick, before `busy` has re-rendered.
@@ -90,7 +105,7 @@ export function TailorForm() {
     inFlight.current = true;
     setBusy(mode);
     setElapsed(0);
-    setError(null);
+    setNotice(null);
     try {
       const { application } =
         mode === "ai"
@@ -101,11 +116,16 @@ export function TailorForm() {
               model: model || undefined,
             })
           : await api.send<{ application: Application }>("/api/applications", "POST", { company, roleTitle, jobDescription });
+      // The top bar's balance outlives this page.
+      if (mode === "ai" && chargesCredits) refresh();
       // The AI call can take a minute; don't pull the user back if they left the page meanwhile.
       if (mounted.current) router.push(`/tailor/${application.id}`);
     } catch (err) {
+      const problem = creditProblem(err);
+      // The server's balance is the truth: another tab may have spent credits since this page loaded.
+      if (problem?.kind === "short") setCredits(problem.credits);
       if (mounted.current) {
-        setError(errorMessage(err));
+        setNotice(noticeFor(err, problem));
         setBusy(null);
       }
     } finally {
@@ -150,16 +170,39 @@ export function TailorForm() {
             <ModelChoice me={me} model={model} onChange={setModel} />
           </fieldset>
 
-          {error && (
-            <Banner ref={errorRef} tabIndex={-1} tone="error" title="Could not start">
-              {error}
+          {notice?.kind === "error" && (
+            <Banner ref={noticeRef} tabIndex={-1} tone="error" title="Could not start">
+              {notice.text}
+            </Banner>
+          )}
+          {notice?.kind === "paused" && (
+            <Banner ref={noticeRef} tabIndex={-1} tone="warn">
+              {notice.text}
+            </Banner>
+          )}
+          {notice?.kind === "short" && short && (
+            <Banner ref={noticeRef} tabIndex={-1} tone="warn" title="Not enough credits">
+              Tailoring costs {creditsLabel(cost)} and you have {credits}.
             </Banner>
           )}
 
           <div className="mt-2 grid gap-2">
-            <Button variant="primary" disabled={busy !== "ai" && !ready} aria-disabled={busy !== null} onClick={() => void start("ai")}>
+            <Button
+              variant="primary"
+              disabled={busy !== "ai" && (!ready || short)}
+              aria-disabled={busy !== null}
+              onClick={() => void start("ai")}
+            >
               {busy === "ai" ? "Asking Claude…" : "Tailor with Claude"}
             </Button>
+            {chargesCredits && cost > 0 && (
+              <div className="grid gap-2">
+                <p className={`text-xs ${short ? "text-warn" : "text-ink-faint"}`}>
+                  Costs {creditsLabel(cost)} · you have {credits}
+                </p>
+                <RewardedAdButton />
+              </div>
+            )}
             <Button variant="ghost" disabled={busy !== "manual" && !ready} aria-disabled={busy !== null} onClick={() => void start("manual")}>
               {busy === "manual" ? "Creating…" : "Start from full bank (no AI)"}
             </Button>

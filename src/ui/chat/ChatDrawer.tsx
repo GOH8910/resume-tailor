@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Bank } from "@/bank/schema";
 import type { ChatMessage, ResumeChange } from "@/chat/schema";
+import { creditProblem, creditsLabel } from "@/ui/ads/messages";
+import { RewardedAdButton } from "@/ui/ads/RewardedAdButton";
 import { api, errorMessage } from "@/ui/api";
+import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { FOCUS_RING } from "@/ui/Button";
+import { useMe } from "@/ui/useMe";
 import { chatStorageKey } from "./chat-storage";
 import { useChatContext } from "./ChatProvider";
 
@@ -52,12 +56,25 @@ function readTurns(key: string): Turn[] {
 
 function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () => void }) {
   const { handlers } = useChatContext();
+  const { me, refresh, setCredits } = useMe();
   const [turns, setTurns] = useState<Turn[]>(() => readTurns(storageKey));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paused, setPaused] = useState<string | null>(null);
+  const chargesCredits = me?.policy.chargesCredits ?? false;
+  const cost = me?.creditsPerChatMessage ?? 0;
+  const credits = me?.credits ?? 0;
+  const short = chargesCredits && credits < cost;
   const list = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const wasShort = useRef(short);
+
+  // Earning the missing credit removes the ad prompt, and the focused ad button with it: carry on in the message box.
+  useEffect(() => {
+    if (wasShort.current && !short) textarea.current?.focus();
+    wasShort.current = short;
+  }, [short]);
 
   useEffect(() => {
     try {
@@ -70,12 +87,13 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
 
   async function send() {
     const content = input.trim();
-    if (!content || busy) return;
+    if (!content || busy || short) return;
     const history: Turn[] = [...turns, { role: "user", content }];
     setTurns(history);
     setInput("");
     setBusy(true);
     setError(null);
+    setPaused(null);
     try {
       await handlers?.flush?.();
       const res = await api.send<ChatResponse>("/api/chat", "POST", {
@@ -92,8 +110,19 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       }
       if (res.bankChanged) await handlers?.reloadBank?.();
       setTurns((t) => [...t, { role: "assistant", content: res.reply, applied, warnings }]);
+      // The top bar's balance after this message's charge.
+      if (chargesCredits) refresh();
     } catch (err) {
-      setError(errorMessage(err));
+      const problem = creditProblem(err);
+      if (problem) {
+        // Claude never saw the message: take it back out of the conversation so it can be sent again later.
+        setTurns(turns);
+        setInput(content);
+        if (problem.kind === "short") setCredits(problem.credits);
+        else setPaused(problem.message);
+      } else {
+        setError(errorMessage(err));
+      }
     } finally {
       setBusy(false);
       textarea.current?.focus();
@@ -156,7 +185,17 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
             {error}
           </p>
         )}
+        {paused && <Banner tone="warn">{paused}</Banner>}
       </div>
+
+      {short && (
+        <div className="grid gap-2 border-t border-rule bg-warn-soft/60 px-3 py-2.5">
+          <p className="text-xs text-warn">
+            {me?.adsAvailable ? "Watch an ad to keep chatting." : "You need more credits to keep chatting."}
+          </p>
+          <RewardedAdButton size="sm" />
+        </div>
+      )}
 
       <form
         className="border-t border-rule p-3"
@@ -182,7 +221,12 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
           disabled={busy}
         />
         <div className="mt-2 flex items-center justify-end gap-2">
-          <Button type="submit" variant="primary" size="sm" disabled={busy || !input.trim()}>
+          {chargesCredits && cost > 0 && (
+            <p className="mr-auto text-xs text-ink-faint">
+              {creditsLabel(cost)} per message · you have {credits}
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="sm" disabled={busy || short || !input.trim()}>
             {busy ? "Sending…" : "Send"}
           </Button>
         </div>

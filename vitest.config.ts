@@ -8,5 +8,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // The first PGlite test in a file opens a database, which can take several seconds under load.
+    testTimeout: 15_000,
   },
 });
