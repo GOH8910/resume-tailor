@@ -316,6 +316,12 @@ describe("parseEnv: privacy contact", () => {
     expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "a)b@example.com" })).toThrow();
   });
 
+  // The browser's email syntax allows both in the local part, where they would start a mailto: query or fragment.
+  it.each(["a?cc=someone@example.com", "a#b@example.com"])("rejects %s, which would change the mailto: link", (address) => {
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: address })).toThrow();
+    expect(() => parseEnv({ EMAIL_FROM: `Resume Tailor <${address}>` })).toThrow("PRIVACY_CONTACT_EMAIL");
+  });
+
   it("refuses a fallback from EMAIL_FROM that is not an email address, naming the setting to fix", () => {
     expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor" })).toThrow("PRIVACY_CONTACT_EMAIL");
     expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor <not an address>" })).toThrow("PRIVACY_CONTACT_EMAIL");

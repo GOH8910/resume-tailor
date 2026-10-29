@@ -26,6 +26,10 @@ export async function registerNode() {
     console.error(`[db] migration at boot failed, retrying every ${MIGRATION_RETRY_MS / 1000} s`, err);
     retryMigration(getDb);
   }
+
+  // Ad sessions keep the client's IP for two days; this blanks older ones even when nobody starts an ad.
+  const { startIpPurge } = await import("@/credits/ip-purge");
+  startIpPurge(getDb);
 }
 
 function retryMigration(getDb: () => Promise<unknown>): void {

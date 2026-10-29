@@ -40,7 +40,10 @@ beforeEach(async () => {
     { id: BOB.id, name: "Bob", email: BOB.email, createdAt: T("2026-10-02T09:00:00Z") },
   ]);
 });
-afterEach(() => close());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await close();
+});
 
 describe("exportStream", () => {
   it("holds everything the account has stored, and no PDFs, tokens or other accounts' data", async () => {
@@ -151,6 +154,23 @@ describe("exportStream", () => {
       bank: null,
       applications: [],
     });
+  });
+
+  it("stops quietly when the download is abandoned while a batch is being read", async () => {
+    const many = Array.from({ length: APPLICATION_BATCH * 2 }, (_, i) => application(`2026-10-01-co${String(i).padStart(2, "0")}-aaaaaaaa`, "Co"));
+    await db.insert(applications).values(many.map((data) => ({ userId: ADA.id, id: data.id, data })));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onEnd = vi.fn();
+    const stream = await exportStream(db, ADA, onEnd, NOW);
+    const reader = stream.getReader();
+
+    // Taking the head lets the stream start reading the first batch; the download is cancelled while it is in flight.
+    await reader.read();
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(onEnd).toHaveBeenCalledOnce();
   });
 
   it("calls onEnd when the download is abandoned part-way", async () => {

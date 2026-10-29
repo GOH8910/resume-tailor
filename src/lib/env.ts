@@ -6,9 +6,12 @@ function blankAsUnset<T extends z.ZodType>(schema: T) {
   return z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), schema);
 }
 
-// The browser's own definition (<input type="email">): it allows a dotless host such as the development default
-// signin@localhost, and no character that could break out of the mailto: link the legal pages make of it.
-const ContactEmail = z.email({ pattern: z.regexes.html5Email });
+// The browser's own definition (<input type="email">), which allows a dotless host such as the development default
+// signin@localhost and no character that ends the [text](mailto:…) link the legal pages write. It does allow ? and #
+// in the local part, where they would start the mailto: link's query or fragment (a?cc=b@example.com), so those are refused.
+const ContactEmail = z
+  .email({ pattern: z.regexes.html5Email })
+  .refine((address) => !/[?#]/.test(address), "must not contain ? or #, which would change the mailto: link");
 
 // z.coerce.boolean() would read the string "false" as true.
 const flag = z

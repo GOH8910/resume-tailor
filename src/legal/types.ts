@@ -8,8 +8,11 @@ export type LegalSection = { heading: string; body: LegalBlock[] };
 
 export type LegalDocument = {
   title: string;
-  /** The day the text last changed (YYYY-MM-DD); shown as "last updated". */
-  updated: string;
+  /**
+   * The day the text last changed (YYYY-MM-DD), shown with "This is not legal advice; last updated". Null for the
+   * self-hosted notice, which is not one of the hosted service's texts.
+   */
+  updated: string | null;
   intro: string;
   sections: LegalSection[];
 };

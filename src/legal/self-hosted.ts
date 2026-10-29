@@ -4,7 +4,7 @@ import type { LegalContext, LegalDocument } from "./types";
 export function selfHostedNotice(title: string, { sourceCodeUrl }: LegalContext): LegalDocument {
   return {
     title,
-    updated: "2026-10-29",
+    updated: null,
     intro:
       "This is a self-hosted copy of Resume Tailor. Whoever runs this server is responsible for your data and sets " +
       "their own terms; the hosted service’s terms and privacy notice do not apply here. The software is open " +

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDb = vi.hoisted(() => vi.fn());
+const startIpPurge = vi.hoisted(() => vi.fn());
 const env = vi.hoisted(() => ({ FREE_MODEL: "claude-haiku-5-5", UNLIMITED_MODEL: "claude-sonnet-5-5" }));
 vi.mock("@/db/client", () => ({ getDb }));
+vi.mock("@/credits/ip-purge", () => ({ startIpPurge }));
 vi.mock("@/lib/env", () => ({ env }));
 
 import { register } from "./instrumentation";
@@ -21,6 +23,7 @@ describe("register", () => {
     vi.doMock("@/lib/env", () => ({ env }));
     vi.resetModules();
     getDb.mockReset();
+    startIpPurge.mockReset();
     Object.assign(env, { FREE_MODEL: "claude-haiku-5-5", UNLIMITED_MODEL: "claude-sonnet-5-5" });
   });
 
@@ -30,6 +33,25 @@ describe("register", () => {
     await register();
 
     expect(getDb).toHaveBeenCalledOnce();
+  });
+
+  it("starts the hourly purge of old ad-session IPs at boot", async () => {
+    getDb.mockResolvedValue({});
+
+    await register();
+
+    expect(startIpPurge).toHaveBeenCalledOnce();
+    expect(startIpPurge).toHaveBeenCalledWith(getDb);
+  });
+
+  it("starts the IP purge even when the boot migration fails", async () => {
+    vi.useFakeTimers();
+    getDb.mockRejectedValue(new Error("connection refused"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await register();
+
+    expect(startIpPurge).toHaveBeenCalledOnce();
   });
 
   it("keeps serving when the boot migration fails, and retries it every 30 s until it succeeds", async () => {
@@ -87,6 +109,7 @@ describe("register", () => {
     expect(exit).toHaveBeenCalledWith(1);
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("[env]"), expect.anything());
     expect(getDb).not.toHaveBeenCalled();
+    expect(startIpPurge).not.toHaveBeenCalled();
   });
 
   it("warns once about a configured model without a price, and keeps booting", async () => {
@@ -116,5 +139,6 @@ describe("register", () => {
     await register();
 
     expect(getDb).not.toHaveBeenCalled();
+    expect(startIpPurge).not.toHaveBeenCalled();
   });
 });

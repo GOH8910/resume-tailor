@@ -53,9 +53,11 @@ export function LegalPage({ document }: { document: LegalDocument }) {
       <article className="break-words">
         <header className="border-b border-rule pb-8">
           <h1 className="text-4xl tracking-tight sm:text-5xl">{document.title}</h1>
-          <p className="mt-3 text-sm text-ink-faint">
-            This is not legal advice; last updated <time dateTime={document.updated}>{longDate(document.updated)}</time>.
-          </p>
+          {document.updated && (
+            <p className="mt-3 text-sm text-ink-faint">
+              This is not legal advice; last updated <time dateTime={document.updated}>{longDate(document.updated)}</time>.
+            </p>
+          )}
           <p className="mt-5 text-lg leading-relaxed text-ink-soft">
             <Inline text={document.intro} />
           </p>

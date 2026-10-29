@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adSessions, creditEvents, user, userPlans } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
-import { CreditsService, type CreditsSettings } from "./service";
+import { CreditsService, type CreditsSettings, forgetOldIps, IP_PURGE_BATCH, oldIpBatch } from "./service";
 
 let close: () => Promise<void>;
 let db: Db;
@@ -32,7 +32,10 @@ beforeEach(async () => {
   ]);
   await db.insert(userPlans).values([{ userId: ADA }, { userId: BOB }, { userId: CAROL }]);
 });
-afterEach(() => close());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await close();
+});
 
 const session = async (id: string) => (await db.select().from(adSessions).where(eq(adSessions.id, id)))[0];
 
@@ -58,6 +61,45 @@ describe("CreditsService ad session IPs", () => {
     expect((await session(old.id)).ip).toBe("");
     expect((await session(recent.id)).ip).toBe(CAFE);
     expect((await session(sessionId)).ip).toBe(HOME);
+  });
+
+  it("blanks old IPs in batches until none is left", async () => {
+    const old = new Date(NOON.getTime() - 49 * 3_600_000);
+    const rows = Array.from({ length: IP_PURGE_BATCH * 2 + 1 }, () => ({ userId: BOB, ip: CAFE, provider: "test", startedAt: old }));
+    await db.insert(adSessions).values(rows);
+
+    expect(await forgetOldIps(db, NOON)).toBe(IP_PURGE_BATCH * 2 + 1);
+    expect(await db.select().from(adSessions).where(eq(adSessions.ip, CAFE))).toEqual([]);
+    expect(await forgetOldIps(db, NOON)).toBe(0);
+  });
+
+  // PGlite has one connection, so a row lock held by another transaction cannot be staged here; this pins the
+  // statement that keeps the purge from waiting on rows a deletion or a grant holds (and from deadlocking with them).
+  it("takes the rows to blank in id order, skipping rows another transaction has locked", () => {
+    const { sql: text } = oldIpBatch(db, NOON).toSQL();
+    expect(text).toMatch(/order by "ad_sessions"\."id" limit \$\d+ for update skip locked$/i);
+  });
+
+  it("starts the ad even when blanking old IPs fails, and logs the failure", async () => {
+    const failure = new Error("canceling statement due to lock timeout");
+    // The purge is the only update an ad start makes.
+    const failingUpdates = new Proxy(db, {
+      get: (target, prop, receiver) =>
+        prop === "update"
+          ? () => {
+              throw failure;
+            }
+          : Reflect.get(target, prop, receiver),
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { sessionId } = await new CreditsService(async () => failingUpdates, SETTINGS).startAdSession(
+      { userId: ADA, ip: HOME, provider: "test" },
+      NOON,
+    );
+
+    expect(await session(sessionId)).toMatchObject({ userId: ADA, status: "started" });
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("[credits]"), failure);
   });
 });
 
@@ -95,6 +137,29 @@ describe("CreditsService ad sessions", () => {
     expect(await session(sessionId)).toMatchObject({ status: "rejected", rejectReason: "watched too briefly" });
     await expect(credits.grantAd({ userId: ADA, sessionId }, later(NOON, 60))).rejects.toMatchObject({ status: 409 });
     expect(await credits.balance(ADA)).toBe(0);
+  });
+
+  it("refuses a grant for a session started more than an hour ago, and marks it rejected as expired", async () => {
+    const credits = service();
+    const fresh = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);
+    const stale = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);
+
+    await expect(credits.grantAd({ userId: ADA, sessionId: fresh.sessionId }, later(NOON, 3600))).resolves.toEqual({ credits: 1 });
+    await expect(credits.grantAd({ userId: ADA, sessionId: stale.sessionId }, later(NOON, 3601))).rejects.toMatchObject({
+      status: 409,
+      message: "Ad session is not pending",
+    });
+    expect(await session(stale.sessionId)).toMatchObject({ status: "rejected", rejectReason: "expired", grantedAt: null });
+    expect(await credits.balance(ADA)).toBe(1);
+  });
+
+  it("refuses a verified callback for an expired session too", async () => {
+    const credits = service();
+    const { sessionId } = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "google" }, NOON);
+    await expect(credits.grantVerifiedAd({ sessionId, transactionId: "tx-late" }, later(NOON, 7200))).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(await session(sessionId)).toMatchObject({ status: "rejected", rejectReason: "expired", transactionId: null });
   });
 
   it("grants a session only once", async () => {

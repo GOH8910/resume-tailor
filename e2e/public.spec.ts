@@ -77,15 +77,17 @@ for (const [path, heading, firstSection] of [
     await expect(page).toHaveURL(new RegExp(`${path}$`));
     await expect(page).toHaveTitle(`${heading} · Resume Tailor`);
     await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
-    await expect(page.getByText(/^This is not legal advice; last updated \d{1,2} [A-Z][a-z]+ \d{4}\.$/)).toBeVisible();
+    const disclaimer = page.getByText(/^This is not legal advice; last updated \d{1,2} [A-Z][a-z]+ \d{4}\.$/);
     const notice = page.getByText(SELF_HOSTED_LEGAL);
     const section = page.getByRole("heading", { level: 2, name: firstSection, exact: true });
     if (selfHosted()) {
       await expect(notice).toBeVisible();
       await expect(notice.getByRole("link", { name: "source" })).toHaveAttribute("href", DEFAULT_SOURCE_CODE_URL);
       await expect(section).toHaveCount(0);
+      await expect(disclaimer).toHaveCount(0);
     } else {
       await expect(section).toBeVisible();
+      await expect(disclaimer).toBeVisible();
       await expect(notice).toHaveCount(0);
     }
   });

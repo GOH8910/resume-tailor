@@ -52,6 +52,8 @@ export async function exportStream(db: Db, account: Account, onEnd: () => void, 
   const first = await pieces.next();
   const encoder = new TextEncoder();
   let ended = false;
+  // Set when the browser abandons the download: a batch still being read then has nowhere to go.
+  let cancelled = false;
   const end = () => {
     if (ended) return;
     ended = true;
@@ -64,6 +66,7 @@ export async function exportStream(db: Db, account: Account, onEnd: () => void, 
     async pull(controller) {
       try {
         const next = await pieces.next();
+        if (cancelled) return;
         if (next.done) {
           end();
           controller.close();
@@ -72,12 +75,14 @@ export async function exportStream(db: Db, account: Account, onEnd: () => void, 
         }
       } catch (err) {
         end();
+        if (cancelled) return;
         // Driver errors carry SQL and bound parameters in their message: log the cause, as handle() does.
         console.error("[account] a data export failed part-way", err instanceof Error && err.cause ? err.cause : err);
         controller.error(err);
       }
     },
     async cancel() {
+      cancelled = true;
       end();
       await pieces.return(undefined);
     },

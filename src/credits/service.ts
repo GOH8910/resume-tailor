@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lt, ne, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lt, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adSessions, creditEvents, userPlans } from "@/db/schema";
 import type { Db } from "@/db/types";
@@ -25,6 +25,16 @@ type CapScope = "account" | "ip";
  * with room to spare; after that the IP is blanked ('').
  */
 export const AD_IP_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+/** Rows one purge statement blanks; the purge repeats until a batch comes back short. */
+export const IP_PURGE_BATCH = 500;
+
+/**
+ * The longest an ad session stays grantable. Far inside AD_IP_RETENTION_MS, so a session's IP is always still there
+ * when it is granted and the per-IP cap never counts a grant under the blanked ('') IP that old sessions share.
+ */
+export const AD_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
+
 type GrantOutcome =
   | { kind: "granted"; userId: string; credits: number }
   | { kind: "not-pending" }
@@ -65,7 +75,12 @@ export class CreditsService {
     now = new Date(),
   ): Promise<{ sessionId: string }> {
     const db = await this.db();
-    await forgetOldIps(db, now);
+    try {
+      await forgetOldIps(db, now);
+    } catch (err) {
+      // The hourly purge (src/credits/ip-purge.ts) catches up; an ad start must not fail on housekeeping.
+      console.error("[credits] blanking old ad-session IPs failed during an ad start", err);
+    }
     const scope = await this.capReached(db, userId, ip, now);
     if (scope) throw limitError(scope, now);
     const [row] = await db.insert(adSessions).values({ userId, ip, provider, startedAt: now }).returning({ id: adSessions.id });
@@ -193,6 +208,10 @@ export class CreditsService {
     if (!session || session.status !== "started" || !userId || (owner !== undefined && userId !== owner)) {
       return { kind: "not-pending" };
     }
+    if (now.getTime() - session.startedAt.getTime() > AD_SESSION_MAX_AGE_MS) {
+      await reject(tx, sessionId, "expired");
+      return { kind: "not-pending" };
+    }
     if (now.getTime() - session.startedAt.getTime() < this.settings.minWatchSeconds * 1000) {
       await reject(tx, sessionId, "watched too briefly");
       return { kind: "too-brief" };
@@ -227,12 +246,34 @@ async function grantedOn(db: Db, who: SQL, now: Date): Promise<number> {
   return row?.granted ?? 0;
 }
 
-/** Blanks the IP of sessions past the retention window; the partial index on rows that still have one keeps it cheap. */
-async function forgetOldIps(db: Db, now: Date): Promise<void> {
-  await db
-    .update(adSessions)
-    .set({ ip: "" })
-    .where(and(lt(adSessions.startedAt, new Date(now.getTime() - AD_IP_RETENTION_MS)), ne(adSessions.ip, "")));
+/**
+ * Blanks the IP of sessions past the retention window, a batch at a time, and returns how many it blanked. Each batch
+ * skips rows another transaction has locked (an account deletion, an ad grant), so the purge never waits on them and
+ * cannot deadlock with them; a skipped row is blanked by a later run. The partial index on rows that still have an
+ * IP keeps each batch cheap.
+ */
+export async function forgetOldIps(db: Db, now: Date): Promise<number> {
+  let blanked = 0;
+  for (;;) {
+    const rows = await db
+      .update(adSessions)
+      .set({ ip: "" })
+      .where(inArray(adSessions.id, oldIpBatch(db, now)))
+      .returning({ id: adSessions.id });
+    blanked += rows.length;
+    if (rows.length < IP_PURGE_BATCH) return blanked;
+  }
+}
+
+/** The next batch of sessions whose IP is due to be blanked, locked in id order (the order a deletion locks them). */
+export function oldIpBatch(db: Db, now: Date) {
+  return db
+    .select({ id: adSessions.id })
+    .from(adSessions)
+    .where(and(lt(adSessions.startedAt, new Date(now.getTime() - AD_IP_RETENTION_MS)), ne(adSessions.ip, "")))
+    .orderBy(adSessions.id)
+    .limit(IP_PURGE_BATCH)
+    .for("update", { skipLocked: true });
 }
 
 function limitError(scope: CapScope, now: Date): AppError {

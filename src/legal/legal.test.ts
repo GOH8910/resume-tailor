@@ -54,6 +54,8 @@ describe.each(Object.entries(DOCUMENTS))("the %s page", (title, build) => {
   it("is replaced by the self-hosted notice on a self-hosted server", () => {
     const notice = build({ ...CONTEXT, selfHosted: true });
     expect(notice.title).toBe(title);
+    // Undated: the "not legal advice; last updated" line belongs to the hosted texts.
+    expect(notice.updated).toBeNull();
     expect(notice.sections).toEqual([]);
     expect(plainText(notice.intro)).toBe(
       "This is a self-hosted copy of Resume Tailor. Whoever runs this server is responsible for your data and sets " +
