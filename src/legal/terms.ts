@@ -1,8 +1,13 @@
 import { SOURCE_CODE_URL } from "@/lib/site";
 import type { LegalContext, LegalDocument } from "./types";
 
-export function termsOfService({ contactEmail }: LegalContext): LegalDocument {
+export function termsOfService({ contactEmail, adsEnabled }: LegalContext): LegalDocument {
   const contact = `[${contactEmail}](mailto:${contactEmail})`;
+  // No promise of ad-earned credits while there are no ads to watch.
+  const earning = adsEnabled
+    ? "It is free: the AI features cost credits, which you earn by watching ads."
+    : "It is free: the AI features cost credits. Credits are earned by watching ads when ads are enabled, and may be " +
+      "granted by the operator.";
   return {
     title: "Terms",
     updated: "2026-10-29",
@@ -14,7 +19,7 @@ export function termsOfService({ contactEmail }: LegalContext): LegalDocument {
         heading: "The service",
         body: [
           "Resume Tailor keeps a bank of your resume content and tailors it to job descriptions with Claude, an AI " +
-            "model made by Anthropic. It is free: the AI features cost credits, which you earn by watching ads.",
+            `model made by Anthropic. ${earning}`,
           "It is provided as it is, with no promise that it is always available, free of errors or fit for any " +
             "particular purpose. Check every resume before you send it: the AI can make mistakes, and you are " +
             "responsible for what you send to employers.",
@@ -45,7 +50,7 @@ export function termsOfService({ contactEmail }: LegalContext): LegalDocument {
         body: [
           "Credits have no cash value. They cannot be bought, sold or transferred, and they end with your account. " +
             "I may change what things cost in credits, and the daily limits, at any time; the current costs are on " +
-            "the [home page](/).",
+            "the [home page](/) or your [Account page](/account).",
         ],
       },
       {

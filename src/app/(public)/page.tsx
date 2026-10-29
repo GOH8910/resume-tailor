@@ -5,6 +5,7 @@ import { getAuth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { modelName } from "@/tailor/model";
 import { Banner } from "@/ui/Banner";
+import { heroFunding } from "@/ui/landing/copy";
 import { CreditsExplainer, SelfHostedNote } from "@/ui/landing/Credits";
 import { Hero } from "@/ui/landing/Hero";
 import { HowItWorks } from "@/ui/landing/HowItWorks";
@@ -25,6 +26,9 @@ export default async function LandingPage({ searchParams }: Props) {
   if (session) redirect("/dashboard");
   // The account page comes here after deleting the account.
   const { deleted } = await searchParams;
+  const selfHosted = env.appMode === "selfhost";
+  // The test provider counts: it plays a fake ad in development and the e2e tests. Production has none or google.
+  const adsAvailable = env.adProvider !== "none";
   return (
     <main className="flex-1">
       {deleted === "1" && (
@@ -32,15 +36,17 @@ export default async function LandingPage({ searchParams }: Props) {
           <Banner tone="info">Your account has been deleted.</Banner>
         </div>
       )}
-      <Hero />
+      <Hero funding={heroFunding({ selfHosted, adsAvailable })} />
       <HowItWorks />
-      {env.appMode === "selfhost" ? (
+      {selfHosted ? (
         <SelfHostedNote />
       ) : (
         <CreditsExplainer
           creditsPerTailor={env.CREDITS_PER_TAILOR}
           creditsPerChatMessage={env.CREDITS_PER_CHAT_MESSAGE}
           model={modelName(env.FREE_MODEL)}
+          adsAvailable={adsAvailable}
+          signupGrantCredits={env.SIGNUP_GRANT_CREDITS}
         />
       )}
       <SignInCallout />

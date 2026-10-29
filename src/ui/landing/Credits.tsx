@@ -1,13 +1,19 @@
-function credits(count: number): string {
-  return `${count} ${count === 1 ? "credit" : "credits"}`;
-}
+import { credits, creditsSource } from "./copy";
 
-type Props = { creditsPerTailor: number; creditsPerChatMessage: number; model: string };
+type Props = {
+  creditsPerTailor: number;
+  creditsPerChatMessage: number;
+  model: string;
+  /** An ad provider is on, so credits can be earned now. */
+  adsAvailable: boolean;
+  signupGrantCredits: number;
+};
 
 /** Hosted mode: what things cost, and why there are ads. */
-export function CreditsExplainer({ creditsPerTailor, creditsPerChatMessage, model }: Props) {
+export function CreditsExplainer({ creditsPerTailor, creditsPerChatMessage, model, adsAvailable, signupGrantCredits }: Props) {
   const prices = [
-    { label: "Watch one ad", value: "+1 credit" },
+    // Listed only while an ad can actually be watched.
+    ...(adsAvailable ? [{ label: "Watch one ad", value: "+1 credit" }] : []),
     { label: "A tailored resume", value: credits(creditsPerTailor) },
     { label: "A chat message", value: credits(creditsPerChatMessage) },
   ];
@@ -19,8 +25,7 @@ export function CreditsExplainer({ creditsPerTailor, creditsPerChatMessage, mode
             How credits work
           </h2>
           <p className="mt-4 max-w-xl text-lg leading-relaxed text-ink-soft">
-            The AI costs credits, and you earn them by watching short ads: one ad is worth about one credit. Free
-            accounts run on {model}.
+            {creditsSource({ adsAvailable, signupGrantCredits })} Free accounts run on {model}.
           </p>
           <p className="mt-8 max-w-xl border-l-2 border-accent pl-4 font-serif text-xl italic leading-snug">
             Each tailor costs me a fraction of a penny in AI usage; ads cover it so nobody has to pay.

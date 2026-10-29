@@ -3,7 +3,8 @@ import { SOURCE_CODE_URL } from "@/lib/site";
 import { buttonClass } from "@/ui/Button";
 import { SampleResume } from "./SampleResume";
 
-export function Hero() {
+/** `funding` ends the paragraph: what pays for the AI on this server (src/ui/landing/copy.ts). */
+export function Hero({ funding }: { funding: string }) {
   return (
     <section
       aria-labelledby="landing-heading"
@@ -16,7 +17,7 @@ export function Hero() {
         <p className="mt-7 max-w-xl text-lg leading-relaxed text-ink-soft">
           I built this for myself while applying. You keep one bank of every bullet you’ve ever written; paste a job
           description and Claude picks the ones that fit and lightly rewords them; you review every change and download
-          a one-page PDF. It’s free: watching an ad pays for the AI. It’s open source, so you can also run it yourself.
+          a one-page PDF. {funding}
         </p>
         <div className="mt-9 flex flex-wrap items-center gap-3">
           <Link href="/signin" className={buttonClass({ variant: "primary" })}>

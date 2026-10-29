@@ -64,6 +64,19 @@ describe("privacyPolicy", () => {
   });
 });
 
+describe("termsOfService", () => {
+  it("promises ad-earned credits only while ads are switched on", () => {
+    const off = texts(termsOfService(CONTEXT)).join("\n");
+    expect(off).toContain("Credits are earned by watching ads when ads are enabled, and may be granted by the operator.");
+    expect(off).not.toContain("which you earn by watching ads");
+    expect(texts(termsOfService({ ...CONTEXT, adsEnabled: true })).join("\n")).toContain("which you earn by watching ads");
+  });
+
+  it("points to where the current costs are shown", () => {
+    expect(links(termsOfService(CONTEXT))).toEqual(expect.arrayContaining(["/", "/account"]));
+  });
+});
+
 describe("cookiePolicy", () => {
   it("says no advertising cookies are set while ads are off", () => {
     expect(texts(cookiePolicy(CONTEXT)).join("\n")).toContain("no advertising cookies are set");

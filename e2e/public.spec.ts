@@ -26,16 +26,24 @@ test("the landing page is public, with the pitch, the sample and a way to sign i
   await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
 });
 
+// The hosted project runs the test ad provider; the wording for a hosted server with no ads yet is unit-tested in
+// src/ui/landing/copy.test.ts.
 test("the landing page explains credits when hosted, and says there are none when self-hosted", async ({ page }) => {
   await page.goto("/");
+  const hero = page.getByRole("region", { name: HEADLINE });
   const credits = page.getByRole("region", { name: "How credits work" });
   if (test.info().project.name === "hosted") {
+    await expect(hero).toContainText("It’s free: watching an ad pays for the AI.");
+    await expect(credits).toContainText("you earn them by watching short ads");
+    await expect(credits.getByText("+1 credit", { exact: true })).toBeVisible();
     // playwright.config.ts sets CREDITS_PER_TAILOR=2; a chat message costs the default, 1.
     await expect(credits.getByText("2 credits", { exact: true })).toBeVisible();
     await expect(credits.getByText("1 credit", { exact: true })).toBeVisible();
     await expect(credits).toContainText("Free accounts run on Claude Haiku 5.5.");
     await expect(page.getByText(SELF_HOSTED)).toHaveCount(0);
   } else {
+    await expect(hero).toContainText("It’s free and open source, so you can also run it yourself.");
+    await expect(hero).not.toContainText(/\bads?\b/);
     await expect(page.getByText(SELF_HOSTED)).toBeVisible();
     await expect(credits).toHaveCount(0);
   }
