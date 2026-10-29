@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Application } from "@/applications/schema";
 import type { Me } from "@/billing/policy";
-import { DEFAULT_MODEL_ID, MODEL_IDS, MODEL_LABELS, type ModelId, modelName } from "@/tailor/model";
+import { MODEL_IDS, MODEL_LABELS, type ModelId, modelName } from "@/tailor/model";
 import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -17,15 +17,27 @@ function formatElapsed(totalSeconds: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-/** Plans that pay in credits run on the model the server picks; the others choose one. */
-function ModelChoice({ me, model, onChange }: { me: Me | null; model: ModelId; onChange: (model: ModelId) => void }) {
+/** "" leaves the choice to the server, which uses the plan's model. */
+type ModelChoiceValue = ModelId | "";
+
+/** Plans that may pick a model get a picker defaulting to the plan's model; the others are told what they run on. */
+function ModelChoice({
+  me,
+  model,
+  onChange,
+}: {
+  me: Me | null;
+  model: ModelChoiceValue;
+  onChange: (model: ModelChoiceValue) => void;
+}) {
   if (!me) return null;
-  if (me.policy.chargesCredits) {
+  if (!me.policy.picksModel) {
     return <p className="text-sm text-ink-soft">Tailoring runs on {modelName(me.policy.model)}</p>;
   }
   return (
     <Field label="Model">
-      <Select value={model} onChange={(e) => onChange(e.target.value as ModelId)}>
+      <Select value={model} onChange={(e) => onChange(e.target.value as ModelChoiceValue)}>
+        <option value="">Default: {modelName(me.policy.model)}</option>
         {MODEL_IDS.map((id) => (
           <option key={id} value={id}>
             {MODEL_LABELS[id]}
@@ -42,7 +54,7 @@ export function TailorForm() {
   const [company, setCompany] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
-  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL_ID);
+  const [model, setModel] = useState<ModelChoiceValue>("");
   const [busy, setBusy] = useState<Mode | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +63,6 @@ export function TailorForm() {
   const errorRef = useRef<HTMLDivElement>(null);
 
   const ready = company.trim().length > 0 && jobDescription.trim().length > 0 && busy === null;
-  const canPickModel = me !== null && !me.policy.chargesCredits;
 
   useEffect(() => {
     mounted.current = true;
@@ -87,7 +98,7 @@ export function TailorForm() {
               company,
               roleTitle,
               jobDescription,
-              model: canPickModel ? model : undefined,
+              model: model || undefined,
             })
           : await api.send<{ application: Application }>("/api/applications", "POST", { company, roleTitle, jobDescription });
       // The AI call can take a minute; don't pull the user back if they left the page meanwhile.

@@ -42,11 +42,23 @@ describe("GET /api/me", () => {
       plan: "free",
       mode: "hosted",
       credits: 5,
-      policy: { model: "claude-haiku-5-5", chargesCredits: true, showsAds: true, limited: true },
+      policy: { model: "claude-haiku-5-5", picksModel: false, chargesCredits: true, showsAds: true, limited: true },
       creditsPerTailor: 3,
       creditsPerChatMessage: 1,
     });
     expect(plans.get).toHaveBeenCalledWith("u1", "free");
+    expect(plans.get).not.toHaveBeenCalledWith("u1");
+  });
+
+  it("heals a missing plan row of an admin account as unlimited on its credits read too", async () => {
+    useEnv({ APP_MODE: "hosted", ADMIN_EMAILS: "ada@example.com" });
+    getSession.mockResolvedValueOnce(ADA);
+    plans.get.mockResolvedValue({ plan: "unlimited", credits: 0 });
+
+    await get();
+
+    expect(plans.get).toHaveBeenCalledTimes(2);
+    for (const call of plans.get.mock.calls) expect(call).toEqual(["u1", "unlimited"]);
   });
 
   it("describes an unlimited account in hosted mode", async () => {
@@ -56,7 +68,7 @@ describe("GET /api/me", () => {
     const body = await (await get()).json();
 
     expect(body.plan).toBe("unlimited");
-    expect(body.policy).toEqual({ model: "claude-sonnet-5-5", chargesCredits: false, showsAds: false, limited: true });
+    expect(body.policy).toEqual({ model: "claude-sonnet-5-5", picksModel: true, chargesCredits: false, showsAds: false, limited: true });
   });
 
   it("describes any account in selfhost mode as unrestricted", async () => {
@@ -67,6 +79,6 @@ describe("GET /api/me", () => {
     const body = await (await get()).json();
 
     expect(body.mode).toBe("selfhost");
-    expect(body.policy).toEqual({ model: "claude-opus-5-5", chargesCredits: false, showsAds: false, limited: false });
+    expect(body.policy).toEqual({ model: "claude-opus-5-5", picksModel: true, chargesCredits: false, showsAds: false, limited: false });
   });
 });

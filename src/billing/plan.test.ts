@@ -7,6 +7,7 @@ describe("policyFor", () => {
   it("charges free accounts credits, shows them ads and runs them on the free model in hosted mode", () => {
     expect(policyFor("free", "hosted", settings)).toEqual({
       model: "claude-haiku-5-5",
+      picksModel: false,
       chargesCredits: true,
       showsAds: true,
       limited: true,
@@ -16,6 +17,7 @@ describe("policyFor", () => {
   it("gives unlimited accounts the unlimited model without credits or ads, but still limits them, in hosted mode", () => {
     expect(policyFor("unlimited", "hosted", settings)).toEqual({
       model: "claude-sonnet-5-5",
+      picksModel: true,
       chargesCredits: false,
       showsAds: false,
       limited: true,
@@ -25,6 +27,7 @@ describe("policyFor", () => {
   it.each(["free", "unlimited"] as const)("treats a %s account in selfhost mode as unrestricted", (plan) => {
     expect(policyFor(plan, "selfhost", settings)).toEqual({
       model: "claude-sonnet-5-5",
+      picksModel: true,
       chargesCredits: false,
       showsAds: false,
       limited: false,
@@ -37,8 +40,13 @@ describe("chooseModel", () => {
   const unlimited = policyFor("unlimited", "hosted", settings);
   const selfhost = policyFor("free", "selfhost", settings);
 
-  it("ignores a requested model for an account that pays in credits", () => {
+  it("ignores a requested model for an account that does not pick its model", () => {
     expect(chooseModel(free, "claude-opus-5-5")).toBe("claude-haiku-5-5");
+  });
+
+  it("decides from picksModel alone, not from whether credits are charged", () => {
+    expect(chooseModel({ ...free, picksModel: true }, "claude-opus-5-5")).toBe("claude-opus-5-5");
+    expect(chooseModel({ ...unlimited, picksModel: false }, "claude-opus-5-5")).toBe("claude-sonnet-5-5");
   });
 
   it("honours a requested model for unlimited and self-hosted accounts", () => {

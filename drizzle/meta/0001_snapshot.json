@@ -1,5 +1,5 @@
 {
-  "id": "cc851055-df22-4762-954a-83a1146b3e2b",
+  "id": "9b945b70-eece-44d0-b50d-568bbfc4644b",
   "prevId": "fce5dc51-5c16-4f34-a9ac-8c6b06812488",
   "version": "7",
   "dialect": "postgresql",
@@ -184,6 +184,10 @@
         "user_plans_plan_check": {
           "name": "user_plans_plan_check",
           "value": "\"user_plans\".\"plan\" in ('free', 'unlimited')"
+        },
+        "user_plans_credits_check": {
+          "name": "user_plans_credits_check",
+          "value": "\"user_plans\".\"credits\" >= 0"
         }
       },
       "isRLSEnabled": false

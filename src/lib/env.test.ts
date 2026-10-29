@@ -245,7 +245,26 @@ describe("parseEnv: modes, plans and credits", () => {
     expect(env.UNLIMITED_MODEL).toBe("claude-opus-5-5");
   });
 
-  it("rejects an empty FREE_MODEL", () => {
-    expect(() => parseEnv({ FREE_MODEL: "" })).toThrow();
+  it.each([
+    ["CREDITS_PER_TAILOR", 2],
+    ["CREDITS_PER_CHAT_MESSAGE", 1],
+    ["AD_CREDITS_PER_ACCOUNT_PER_DAY", 10],
+    ["AD_CREDITS_PER_IP_PER_DAY", 30],
+    ["AD_MIN_WATCH_SECONDS", 7],
+    ["SIGNUP_GRANT_CREDITS", 0],
+    ["FREE_DAILY_BUDGET_GBP", 2],
+    ["USD_TO_GBP", 0.78],
+  ])("reads a blank %s as unset, falling back to %s rather than 0", (key, fallback) => {
+    expect(parseEnv({ [key]: "" })).toMatchObject({ [key]: fallback });
+    expect(parseEnv({ [key]: "  " })).toMatchObject({ [key]: fallback });
+  });
+
+  it.each(["FREE_MODEL", "UNLIMITED_MODEL"])("rejects a blank %s", (key) => {
+    expect(() => parseEnv({ [key]: "" })).toThrow();
+    expect(() => parseEnv({ [key]: "   " })).toThrow();
+  });
+
+  it("trims the model ids", () => {
+    expect(parseEnv({ FREE_MODEL: " claude-haiku-5-5 " }).FREE_MODEL).toBe("claude-haiku-5-5");
   });
 });

@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// A blank value (`KEY=` in a .env file or a deploy config) means unset; z.coerce.number() would read it as 0.
+function blankAsUnset<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), schema);
+}
+
 // z.coerce.boolean() would read the string "false" as true.
 const flag = z
   .enum(["1", "true", "0", "false", ""])
@@ -26,16 +31,16 @@ const Schema = z.object({
   AD_PROVIDER: z.enum(["none", "test", "google"]).default("none"),
   AD_UNIT_PATH: z.string().optional(),
   AD_SSV_ENABLED: flag,
-  FREE_MODEL: z.string().min(1).default("claude-haiku-5-5"),
-  UNLIMITED_MODEL: z.string().min(1).default("claude-sonnet-5-5"),
-  CREDITS_PER_TAILOR: z.coerce.number().int().min(0).default(2),
-  CREDITS_PER_CHAT_MESSAGE: z.coerce.number().int().min(0).default(1),
-  AD_CREDITS_PER_ACCOUNT_PER_DAY: z.coerce.number().int().min(0).default(10),
-  AD_CREDITS_PER_IP_PER_DAY: z.coerce.number().int().min(0).default(30),
-  AD_MIN_WATCH_SECONDS: z.coerce.number().min(0).default(7),
-  SIGNUP_GRANT_CREDITS: z.coerce.number().int().min(0).default(0),
-  FREE_DAILY_BUDGET_GBP: z.coerce.number().min(0).default(2),
-  USD_TO_GBP: z.coerce.number().positive().default(0.78),
+  FREE_MODEL: z.string().trim().min(1).default("claude-haiku-5-5"),
+  UNLIMITED_MODEL: z.string().trim().min(1).default("claude-sonnet-5-5"),
+  CREDITS_PER_TAILOR: blankAsUnset(z.coerce.number().int().min(0).default(2)),
+  CREDITS_PER_CHAT_MESSAGE: blankAsUnset(z.coerce.number().int().min(0).default(1)),
+  AD_CREDITS_PER_ACCOUNT_PER_DAY: blankAsUnset(z.coerce.number().int().min(0).default(10)),
+  AD_CREDITS_PER_IP_PER_DAY: blankAsUnset(z.coerce.number().int().min(0).default(30)),
+  AD_MIN_WATCH_SECONDS: blankAsUnset(z.coerce.number().min(0).default(7)),
+  SIGNUP_GRANT_CREDITS: blankAsUnset(z.coerce.number().int().min(0).default(0)),
+  FREE_DAILY_BUDGET_GBP: blankAsUnset(z.coerce.number().min(0).default(2)),
+  USD_TO_GBP: blankAsUnset(z.coerce.number().positive().default(0.78)),
 });
 
 type Source = Record<string, string | undefined>;

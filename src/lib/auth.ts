@@ -34,6 +34,12 @@ export async function checkMagicLinkAllowed(
   checkSignupAllowed(email, allowed);
 }
 
+/** Sets up a new account: an empty bank named after it, and its starting plan. */
+export async function onUserCreated(user: { id: string; email: string; name: string }): Promise<void> {
+  await banks.createEmpty(user.id, user.name);
+  await plans.ensure(user.id, signupPlan(user.email, env.adminEmails));
+}
+
 function createAuth() {
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
@@ -69,10 +75,7 @@ function createAuth() {
       user: {
         create: {
           before: async (user) => checkSignupAllowed(user.email, env.signupEmails),
-          after: async (user) => {
-            await banks.createEmpty(user.id, user.name);
-            await plans.ensure(user.id, signupPlan(user.email, env.adminEmails));
-          },
+          after: onUserCreated,
         },
       },
     },

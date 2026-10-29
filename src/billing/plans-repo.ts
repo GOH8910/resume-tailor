@@ -11,10 +11,11 @@ export class PlansRepository {
   constructor(private readonly db: () => Promise<Db>) {}
 
   /**
-   * The account's plan and credits. A missing row is created with `plan`, which heals an account whose sign-up
-   * hook failed or that predates plans; an existing row is never changed.
+   * The account's plan and credits. A missing row is created with `plan` (the plan the account would have been
+   * given at sign-up), which heals an account whose sign-up hook failed or that predates plans; an existing row is
+   * never changed.
    */
-  async get(userId: string, plan: Plan = "free"): Promise<AccountPlan> {
+  async get(userId: string, plan: Plan): Promise<AccountPlan> {
     const db = await this.db();
     let row = await this.select(db, userId);
     if (!row) {

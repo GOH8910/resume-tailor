@@ -61,6 +61,10 @@ export const userPlans = pgTable(
     credits: integer("credits").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  // Keeps the Plan type honest for rows written outside the app (a manual upgrade in psql).
-  (t) => [check("user_plans_plan_check", sql`${t.plan} in ('free', 'unlimited')`)],
+  // Keeps the Plan type honest for rows written outside the app (a manual upgrade in psql), and makes an
+  // overdrawing charge fail in the database rather than leave a negative balance.
+  (t) => [
+    check("user_plans_plan_check", sql`${t.plan} in ('free', 'unlimited')`),
+    check("user_plans_credits_check", sql`${t.credits} >= 0`),
+  ],
 );
