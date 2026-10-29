@@ -6,6 +6,7 @@ import { user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import { AppError } from "@/lib/errors";
 import { DEFAULT_LIMITS } from "./limits";
+import type { ModelUsage } from "@/billing/usage-types";
 import type { TailorModel, TailorRequest } from "./model";
 import { buildSystemPrompt } from "./prompt";
 import type { TailorResult } from "./schema";
@@ -25,13 +26,15 @@ const fakeResult: TailorResult = {
   notes: "JD asks for Rust; bank has none.",
 };
 
+const fakeUsage: ModelUsage = { model: "fake-model", inputTokens: 10_000, outputTokens: 2_500 };
+
 class FakeModel implements TailorModel {
   readonly id = "fake-model";
   requests: TailorRequest[] = [];
   constructor(private readonly result: TailorResult) {}
-  async tailor(req: TailorRequest): Promise<TailorResult> {
+  async tailor(req: TailorRequest) {
     this.requests.push(req);
-    return this.result;
+    return { result: this.result, usage: fakeUsage };
   }
 }
 
@@ -46,13 +49,14 @@ beforeEach(async () => {
 afterEach(() => close());
 
 describe("runTailor", () => {
-  it("calls the model with the bank, validates, and saves an application", async () => {
+  it("calls the model with the bank, validates, saves an application and reports the tokens used", async () => {
     const model = new FakeModel(fakeResult);
     const now = () => new Date(2026, 9, 27, 9); // local time: ids use the local date
-    const app = await runTailor(
+    const { application: app, usage } = await runTailor(
       { userId: USER, jobDescription: "We need Go.", company: "Acme Corp", roleTitle: "Backend" },
       { banks, applications, model, now },
     );
+    expect(usage).toEqual(fakeUsage);
     expect(app.id).toMatch(/^2026-10-27-acme-corp-[0-9a-f]{8}$/);
     expect(app.model).toBe("fake-model");
     expect(app.notes).toContain("Rust");

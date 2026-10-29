@@ -5,13 +5,17 @@ const MIGRATION_RETRY_MS = 30_000;
 export async function registerNode() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
+  let env: (typeof import("@/lib/env"))["env"];
   try {
-    await import("@/lib/env");
+    ({ env } = await import("@/lib/env"));
   } catch (err) {
     // A misconfigured release must fail its deploy, not serve errors: unlike a database outage it will not recover.
     console.error("[env] invalid configuration, refusing to start", err);
     return process.exit(1);
   }
+  // Not fatal: an unpriced model is still costed, at the most expensive price.
+  const { warnUnpricedModels } = await import("@/billing/costs");
+  warnUnpricedModels([env.FREE_MODEL, env.UNLIMITED_MODEL]);
 
   const { getDb } = await import("@/db/client");
   try {

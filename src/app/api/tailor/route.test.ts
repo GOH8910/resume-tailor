@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const runTailor = vi.hoisted(() => vi.fn());
+const usage = vi.hoisted(() => ({ isFreeUsagePaused: vi.fn(), record: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans, banks: {}, applications: {} }));
+vi.mock("@/lib/deps", () => ({ plans, usage, banks: {}, applications: {} }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", () => ({ hasApiKey: () => true }));
 vi.mock("@/tailor/tailor", () => ({ runTailor }));
@@ -17,10 +18,12 @@ vi.mock("@/tailor/anthropic-model", () => ({
 }));
 
 import { parseEnv } from "@/lib/env";
+import { AppError } from "@/lib/errors";
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
 const job = { company: "Acme", jobDescription: "We need Go engineers." };
+const USED = { model: "claude-haiku-5-5", inputTokens: 10_000, outputTokens: 2_500 };
 
 function useEnv(source: Record<string, string>) {
   for (const key of Object.keys(env)) delete env[key];
@@ -38,7 +41,9 @@ async function tailorAs(plan: "free" | "unlimited", body: Record<string, unknown
 
 beforeEach(() => {
   vi.resetAllMocks();
-  runTailor.mockResolvedValue({ id: "a1" });
+  runTailor.mockResolvedValue({ application: { id: "a1" }, usage: USED });
+  usage.isFreeUsagePaused.mockResolvedValue({ paused: false });
+  usage.record.mockResolvedValue(undefined);
   useEnv({ APP_MODE: "hosted" });
 });
 
@@ -63,5 +68,68 @@ describe("POST /api/tailor model policy", () => {
     const { res } = await tailorAs("unlimited", { ...job, model: "claude-unknown" });
     expect(res.status).toBe(400);
     expect(runTailor).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/tailor daily budget and usage", () => {
+  it("answers with the application only", async () => {
+    const { res } = await tailorAs("free", job);
+    expect(await res.json()).toEqual({ application: { id: "a1" } });
+  });
+
+  it("refuses a free account with a 402 until the next UTC day once the budget is spent, without calling Claude", async () => {
+    const resumesAt = "2026-10-30T00:00:00.000Z";
+    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "budget", resumesAt });
+    const { res } = await tailorAs("free", job);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({
+      error: `Free tailoring is paused until ${resumesAt} (daily budget reached)`,
+      details: { paused: true, reason: "budget", resumesAt },
+    });
+    expect(runTailor).not.toHaveBeenCalled();
+    expect(usage.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses a free account while the operator has paused free usage", async () => {
+    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    const { res } = await tailorAs("free", job);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "Free tailoring is paused by the operator", details: { paused: true, reason: "manual" } });
+    expect(runTailor).not.toHaveBeenCalled();
+  });
+
+  it("does not hold an unlimited or self-hosted account to the free budget", async () => {
+    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    expect((await tailorAs("unlimited", job)).res.status).toBe(201);
+    useEnv({ APP_MODE: "selfhost" });
+    expect((await tailorAs("free", job)).res.status).toBe(201);
+    expect(usage.isFreeUsagePaused).not.toHaveBeenCalled();
+  });
+
+  it("records the call once, as free usage for a free account", async () => {
+    await tailorAs("free", job);
+    expect(usage.record).toHaveBeenCalledOnce();
+    expect(usage.record).toHaveBeenCalledWith({ userId: "u1", kind: "tailor", usage: USED, free: true });
+  });
+
+  it("records an unlimited account's call as not free", async () => {
+    await tailorAs("unlimited", job);
+    expect(usage.record).toHaveBeenCalledExactlyOnceWith({ userId: "u1", kind: "tailor", usage: USED, free: false });
+  });
+
+  it("still answers when the call cannot be recorded, and logs it", async () => {
+    const failure = new Error("db down");
+    usage.record.mockRejectedValue(failure);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { res } = await tailorAs("free", job);
+    expect(res.status).toBe(201);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("[usage]"), failure);
+  });
+
+  it("records nothing when the tailor fails", async () => {
+    runTailor.mockRejectedValue(new AppError("Claude declined", 502));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await tailorAs("free", job)).res.status).toBe(502);
+    expect(usage.record).not.toHaveBeenCalled();
   });
 });

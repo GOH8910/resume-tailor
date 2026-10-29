@@ -2,6 +2,7 @@ import type { ApplicationRepository } from "@/applications/repository";
 import type { Application, ResumeState } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
 import type { Bank } from "@/bank/schema";
+import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 import { applyBankChanges } from "./apply-bank";
 import type { ChatModel } from "./model";
@@ -29,7 +30,8 @@ export type ChatOutcome = {
 /** Keep the request bounded: Claude sees the bank every time, so old turns matter less. */
 const MAX_TURNS = 20;
 
-export async function runChat(input: ChatInput, deps: ChatDeps): Promise<ChatOutcome> {
+/** One chat turn: what the client sees, and the tokens it used. */
+export async function runChat(input: ChatInput, deps: ChatDeps): Promise<{ outcome: ChatOutcome; usage: ModelUsage }> {
   const messages = input.messages.slice(-MAX_TURNS);
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user" || !last.content.trim()) throw new AppError("The last message must be from the user", 400);
@@ -39,7 +41,7 @@ export async function runChat(input: ChatInput, deps: ChatDeps): Promise<ChatOut
   if (input.applicationId) application = await deps.applications.get(input.userId, input.applicationId);
 
   const system = buildChatSystemPrompt({ bank, application, resume: application ? input.resume : undefined });
-  const result = await deps.model.chat(system, messages);
+  const { result, usage } = await deps.model.chat(system, messages);
 
   const { bank: nextBank, applied, warnings } = applyBankChanges(bank, result.bankChanges);
   const bankChanged = applied.length > 0;
@@ -48,5 +50,5 @@ export async function runChat(input: ChatInput, deps: ChatDeps): Promise<ChatOut
   const resumeChanges = application ? result.resumeChanges : [];
   if (!application && result.resumeChanges.length > 0) warnings.push("Resume changes were ignored because no resume is open");
 
-  return { reply: result.reply.trim(), applied, warnings, bank: nextBank, bankChanged, resumeChanges };
+  return { outcome: { reply: result.reply.trim(), applied, warnings, bank: nextBank, bankChanged, resumeChanges }, usage };
 }

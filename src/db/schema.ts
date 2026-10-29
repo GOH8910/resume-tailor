@@ -1,8 +1,22 @@
 import { sql } from "drizzle-orm";
-import { check, customType, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  customType,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { Application } from "@/applications/schema";
 import type { Bank } from "@/bank/schema";
 import type { Plan } from "@/billing/plan";
+import type { UsageKind } from "@/billing/usage-types";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -68,3 +82,39 @@ export const userPlans = pgTable(
     check("user_plans_credits_check", sql`${t.credits} >= 0`),
   ],
 );
+
+/** One row per Claude call, costed at list prices. Feeds the free-usage daily budget and the admin page. */
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<UsageKind>().notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costGbp: numeric("cost_gbp", { precision: 10, scale: 6, mode: "number" }).notNull(),
+    /** Whether the call was paid for by free credits, so counts against the daily budget. */
+    free: boolean("free").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("usage_events_created_at_idx").on(t.createdAt),
+    index("usage_events_user_id_created_at_idx").on(t.userId, t.createdAt),
+    check("usage_events_kind_check", sql`${t.kind} in ('tailor', 'chat', 'seed')`),
+  ],
+);
+
+/** Operator switches that must survive a restart, one row per key (e.g. `free_paused`). */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});

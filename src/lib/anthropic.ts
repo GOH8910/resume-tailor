@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
+import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 
 const REQUEST_OPTIONS = { timeout: 5 * 60_000, maxRetries: 1 };
@@ -17,12 +18,18 @@ export type StructuredRequest = {
   maxTokens?: number;
 };
 
+export type Structured<T> = { value: T; usage: ModelUsage };
+
 /**
- * One Messages call whose reply must be JSON matching `schema`.
+ * One Messages call whose reply must be JSON matching `schema`, with the tokens it used.
  * Uses create() + manual parse: parse() would throw on truncated or refused output
  * before stop_reason could be checked, hiding the real cause.
  */
-export async function createStructured<S extends z.ZodType>(client: Anthropic, schema: S, request: StructuredRequest): Promise<z.infer<S>> {
+export async function createStructured<S extends z.ZodType>(
+  client: Anthropic,
+  schema: S,
+  request: StructuredRequest,
+): Promise<Structured<z.infer<S>>> {
   const format = zodOutputFormat(schema);
   const response = await client.messages
     .create(
@@ -49,11 +56,23 @@ export async function createStructured<S extends z.ZodType>(client: Anthropic, s
   const text = response.content.find((block) => block.type === "text");
   try {
     if (!text) throw new Error("Claude returned no text block");
-    return format.parse(text.text);
+    return { value: format.parse(text.text), usage: usageOf(request.model, response.usage) };
   } catch (err) {
     console.error("Claude structured output failed to parse", err);
     throw new AppError("Claude returned output that did not match the expected schema. Try again.", 502);
   }
+}
+
+// Booked under the requested id, not response.model: the API may answer with a dated snapshot id that the
+// price table does not list.
+function usageOf(model: string, usage: Anthropic.Usage): ModelUsage {
+  return {
+    model,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    ...(usage.cache_read_input_tokens != null && { cacheReadTokens: usage.cache_read_input_tokens }),
+    ...(usage.cache_creation_input_tokens != null && { cacheWriteTokens: usage.cache_creation_input_tokens }),
+  };
 }
 
 export function toAppError(err: unknown): AppError {

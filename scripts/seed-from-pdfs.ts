@@ -10,14 +10,17 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { type ExtractedBank, mergeBank } from "@/bank/merge";
 import { BankRepository } from "@/bank/repository";
 import type { Bank } from "@/bank/schema";
+import { recordUsageOrLog } from "@/billing/usage";
 import { getDb } from "@/db/client";
 import { findUserIdByEmail } from "@/db/users";
 import { latexEnv } from "@/latex/compile";
+import { createStructured } from "@/lib/anthropic";
+
+const SEED_MODEL = "claude-opus-5-5";
 
 const ExtractedEntrySchema = z.object({
   title: z.string(),
@@ -123,6 +126,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Imported only now: the settings are read on import, and .env.local has just been loaded.
+  const { usage: ledger } = await import("@/lib/deps");
   const repo = new BankRepository(getDb);
   // read() creates an empty bank when the account has none.
   let bank = await repo.read(userId);
@@ -131,18 +136,16 @@ async function main(): Promise<void> {
   for (const pdf of pdfs) {
     console.log(`Extracting ${pdf} ...`);
     const text = execFileSync("pdftotext", ["-layout", pdf, "-"], { encoding: "utf8", env: latexEnv() });
-    const response = await client.messages.parse({
-      model: "claude-opus-5-5",
-      max_tokens: 16000,
+    const { value, usage: used } = await createStructured(client, ExtractedBankSchema, {
+      model: SEED_MODEL,
       system: SYSTEM,
       messages: [{ role: "user", content: `<resume_text>\n${text}\n</resume_text>` }],
-      output_config: { effort: "medium", format: zodOutputFormat(ExtractedBankSchema) },
+      effort: "medium",
     });
-    if (!response.parsed_output) {
-      throw new Error(`Claude returned no structured output for ${pdf} (stop_reason=${response.stop_reason})`);
-    }
+    // The operator runs this, so it is never free usage.
+    await recordUsageOrLog(ledger, { userId, kind: "seed", usage: used, free: false });
     const before = countBullets(bank);
-    bank = mergeBank(bank, toExtracted(response.parsed_output));
+    bank = mergeBank(bank, toExtracted(value));
     console.log(`  +${countBullets(bank) - before} new bullets`);
   }
 

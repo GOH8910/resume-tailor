@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDb = vi.hoisted(() => vi.fn());
+const env = vi.hoisted(() => ({ FREE_MODEL: "claude-haiku-5-5", UNLIMITED_MODEL: "claude-sonnet-5-5" }));
 vi.mock("@/db/client", () => ({ getDb }));
-vi.mock("@/lib/env", () => ({ env: {} }));
+vi.mock("@/lib/env", () => ({ env }));
 
 import { register } from "./instrumentation";
 
@@ -16,9 +17,11 @@ describe("register", () => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
-    vi.doUnmock("@/lib/env");
+    // Replaces the throwing env of the invalid-configuration test; unmocking would load the real settings.
+    vi.doMock("@/lib/env", () => ({ env }));
     vi.resetModules();
     getDb.mockReset();
+    Object.assign(env, { FREE_MODEL: "claude-haiku-5-5", UNLIMITED_MODEL: "claude-sonnet-5-5" });
   });
 
   it("migrates at boot", async () => {
@@ -84,6 +87,27 @@ describe("register", () => {
     expect(exit).toHaveBeenCalledWith(1);
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("[env]"), expect.anything());
     expect(getDb).not.toHaveBeenCalled();
+  });
+
+  it("warns once about a configured model without a price, and keeps booting", async () => {
+    getDb.mockResolvedValue({});
+    env.UNLIMITED_MODEL = "claude-mystery-9";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await register();
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/claude-mystery-9.*claude-opus-5-5/));
+    expect(getDb).toHaveBeenCalledOnce();
+  });
+
+  it("does not warn when both configured models are priced", async () => {
+    getDb.mockResolvedValue({});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await register();
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("does nothing during the production build", async () => {

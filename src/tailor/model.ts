@@ -1,3 +1,4 @@
+import type { ModelUsage } from "@/billing/usage-types";
 import type { TailorResult } from "./schema";
 
 export const MODEL_IDS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] as const;
@@ -28,5 +29,5 @@ export type TailorRequest = { system: string; user: string };
 
 export interface TailorModel {
   readonly id: string;
-  tailor(request: TailorRequest): Promise<TailorResult>;
+  tailor(request: TailorRequest): Promise<{ result: TailorResult; usage: ModelUsage }>;
 }

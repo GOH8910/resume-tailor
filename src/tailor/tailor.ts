@@ -3,6 +3,7 @@ import type { ApplicationRepository } from "@/applications/repository";
 import { fromTailorResult, fullStateFromBank } from "@/applications/resume-state";
 import type { Application } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
+import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 import { DEFAULT_LIMITS, type TailorLimits } from "./limits";
 import type { TailorModel } from "./model";
@@ -36,12 +37,12 @@ function newApplication(fields: Omit<Application, "id" | "createdAt">, now: Date
   return { id: newApplicationId(fields.company, now), createdAt: now.toISOString(), ...fields };
 }
 
-/** Ask Claude for a selection, validate it against the bank, and save the application. */
-export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<Application> {
+/** Ask Claude for a selection, validate it against the bank, and save the application. Also returns the tokens used. */
+export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<{ application: Application; usage: ModelUsage }> {
   const { jobDescription, company, roleTitle } = cleanInput(input);
   const limits = deps.limits ?? DEFAULT_LIMITS;
   const bank = await deps.banks.read(input.userId);
-  const raw = await deps.model.tailor({
+  const { result: raw, usage } = await deps.model.tailor({
     system: buildSystemPrompt(limits),
     user: buildUserMessage(bank, jobDescription, company, roleTitle),
   });
@@ -51,7 +52,7 @@ export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<A
     { company, roleTitle, jobDescription, model: deps.model.id, warnings, notes: result.notes, resume: fromTailorResult(bank, result) },
     now,
   );
-  return deps.applications.save(input.userId, application);
+  return { application: await deps.applications.save(input.userId, application), usage };
 }
 
 /** No-AI path: start from the whole bank and let the user prune. */

@@ -41,14 +41,24 @@ const request = { system: "sys", user: "usr" };
 afterEach(() => vi.restoreAllMocks());
 
 describe("AnthropicTailorModel", () => {
-  it("returns the parsed result and sends effort high with no thinking parameter", async () => {
+  it("returns the parsed result with its usage and sends effort high with no thinking parameter", async () => {
     const { model, requests } = stubbedModel(200, textMessage(JSON.stringify(validResult), "end_turn"));
-    await expect(model.tailor(request)).resolves.toEqual(validResult);
+    await expect(model.tailor(request)).resolves.toEqual({
+      result: validResult,
+      usage: { model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 },
+    });
     const sent = requests[0] as Record<string, unknown> & { output_config: { effort: string } };
     expect(sent.model).toBe("claude-opus-5-5");
     expect(sent.max_tokens).toBe(16000);
     expect(sent.output_config.effort).toBe("high");
     expect(sent).not.toHaveProperty("thinking");
+  });
+
+  it("reports cache reads and writes when the API counts them", async () => {
+    const usage = { input_tokens: 900, output_tokens: 300, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0 };
+    const { model } = stubbedModel(200, textMessage(JSON.stringify(validResult), "end_turn", { usage }));
+    const { usage: reported } = await model.tailor(request);
+    expect(reported).toEqual({ model: "claude-opus-5-5", inputTokens: 900, outputTokens: 300, cacheReadTokens: 5000, cacheWriteTokens: 0 });
   });
 
   it("reports truncation as an output-token problem, not a parse failure", async () => {
