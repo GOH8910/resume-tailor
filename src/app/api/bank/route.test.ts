@@ -85,14 +85,32 @@ describe("PUT /api/bank", () => {
     expect(banks.write).toHaveBeenCalledOnce();
   });
 
-  it("refuses a bank over 300,000 characters of JSON with a 413", async () => {
-    const bullets = Array.from({ length: 600 }, (_, i) => ({ id: `b${i}`, text: "x".repeat(500) }));
-    const big = { ...emptyBank("Ada"), experience: [{ id: "e1", title: "Engineer", start: "", end: "", bullets }] };
+  const bankOf = (text: string, count: number) => ({
+    ...emptyBank("Ada"),
+    experience: [
+      { id: "e1", title: "Engineer", start: "", end: "", bullets: Array.from({ length: count }, (_, i) => ({ id: `b${i}`, text })) },
+    ],
+  });
+
+  it("refuses a bank over 300 KB of JSON with a 413", async () => {
+    const big = bankOf("x".repeat(500), 600);
     expect(JSON.stringify(big).length).toBeGreaterThan(300_000);
     const res = await put(big);
     expect(res.status).toBe(413);
-    expect((await res.json()).error).toBe("The bank is too large to save: keep it under 300,000 characters");
+    expect((await res.json()).error).toBe("The bank is too large to save: keep it under 300 KB");
     expect(banks.write).not.toHaveBeenCalled();
+  });
+
+  it("counts the bank in UTF-8 bytes, not characters", async () => {
+    // "é" is one character and two bytes: about 200,000 characters, about 380,000 bytes.
+    const accented = bankOf("é".repeat(300), 600);
+    const json = JSON.stringify(accented);
+    expect(json.length).toBeLessThan(300_000);
+    expect(Buffer.byteLength(json, "utf8")).toBeGreaterThan(300_000);
+    expect((await put(accented)).status).toBe(413);
+    // The same bank with half the bullets is under 300 KB.
+    expect((await put(bankOf("é".repeat(300), 300))).status).toBe(200);
+    expect(banks.write).toHaveBeenCalledOnce();
   });
 
   it("answers the 61st save in 10 minutes with a 429 in hosted mode", async () => {

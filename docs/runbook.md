@@ -131,7 +131,7 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   compile 30/10 min, bank saves 60/10 min, new resumes 30/10 min, ad starts 20/hour; magic links 5/hour and
   sign-in verifications 20/hour per IP (Better Auth, production only). A refusal is a 429 with
   `details.retryAfter` and a `Retry-After` header. At most 200 saved resumes per account (409), JSON bodies up
-  to 1 MB and banks up to 300,000 characters (413). Beyond 2 running and 8 waiting compiles, the API answers 503
+  to 1 MB and banks up to 300 KB of JSON in UTF-8 bytes (413). Beyond 2 running and 8 waiting compiles, the API answers 503
   with `Retry-After: 10` and the review screen retries once.
 - **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
   `COMPILE_CONCURRENCY` in `fly.toml` to at most N.

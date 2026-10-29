@@ -137,7 +137,7 @@ allowances (`securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
 - Request size, in every mode: 1 MB JSON body cap in `readJson` (413, counted while reading); field caps in
   the request schemas (stored data is read uncapped): job description 20k chars, company and role title 200,
   bullet 600, summary 2k, chat message 4k (Claude's replies in the history 16k), at most 20 messages per chat
-  request, bank 300,000 characters serialised (413), applications per account 200 (409).
+  request, bank 300 KB serialised (UTF-8 bytes; 413), applications per account 200 (409).
 - Compile queue: at most 8 waiting; beyond that 503 `{ details: { retryAfter: 10 } }` with `Retry-After: 10`;
   the review screen says "Server busy, retrying in 10 s" and retries once.
 - One TeX uid and group per compile slot (`tex1`/`texrun1`, `tex2`/`texrun2`; `LATEX_RUN_AS` is the user-name

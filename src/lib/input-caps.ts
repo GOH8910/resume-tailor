@@ -17,8 +17,8 @@ export const MAX_CHARS = {
 /** Messages per chat request: the client sends the most recent ones. */
 export const MAX_CHAT_MESSAGES = 20;
 
-/** The bank as JSON, in characters. */
-export const MAX_BANK_JSON_CHARS = 300_000;
+/** The bank serialised as JSON, in UTF-8 bytes (300 KB). */
+export const MAX_BANK_JSON_BYTES = 300_000;
 
 /** Saved resumes (applications) per account. */
 export const MAX_APPLICATIONS = 200;

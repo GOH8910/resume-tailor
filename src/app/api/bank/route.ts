@@ -2,7 +2,7 @@ import { BankInputSchema } from "@/bank/schema";
 import { banks } from "@/lib/deps";
 import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
-import { MAX_BANK_JSON_CHARS } from "@/lib/input-caps";
+import { MAX_BANK_JSON_BYTES } from "@/lib/input-caps";
 import { limitUser } from "@/lib/limits";
 
 export async function GET(request: Request) {
@@ -17,8 +17,9 @@ export async function PUT(request: Request) {
     const user = await requireUser(request);
     limitUser("bankWrite", user);
     const body = await readJson(request);
-    if (JSON.stringify(body).length > MAX_BANK_JSON_CHARS) {
-      throw new AppError(`The bank is too large to save: keep it under ${MAX_BANK_JSON_CHARS.toLocaleString("en")} characters`, 413);
+    // Bytes, not string length: a character outside ASCII takes up to 4 bytes to store.
+    if (Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_BANK_JSON_BYTES) {
+      throw new AppError(`The bank is too large to save: keep it under ${MAX_BANK_JSON_BYTES / 1000} KB`, 413);
     }
     const parsed = BankInputSchema.safeParse(body);
     if (!parsed.success) throw new AppError("Bank does not match the schema", 400, parsed.error.issues);

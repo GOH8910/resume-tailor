@@ -77,9 +77,10 @@ export const ChatMessageSchema = z
     role: z.enum(["user", "assistant"]),
     content: z.string(),
   })
-  .refine(({ role, content }) => content.length <= (role === "user" ? MAX_CHARS.chatMessage : MAX_CHARS.chatReply), {
-    path: ["content"],
-    message: `A message can be at most ${MAX_CHARS.chatMessage} characters`,
+  .superRefine(({ role, content }, ctx) => {
+    const max = role === "user" ? MAX_CHARS.chatMessage : MAX_CHARS.chatReply;
+    if (content.length <= max) return;
+    ctx.addIssue({ code: "custom", path: ["content"], message: `A message can be at most ${max.toLocaleString("en")} characters` });
   });
 
 /** The conversation a chat request carries: the client sends only the most recent messages. */

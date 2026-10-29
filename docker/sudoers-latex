@@ -1,6 +1,6 @@
 # The app (user node) may run commands as the unprivileged compile-slot users tex1, tex2, ... (the Dockerfile fills
-# in @TEXUSERS@ from COMPILE_SLOTS), and only through GNU timeout, which the app uses to stop TeX: node cannot signal
-# those users' processes itself. The Dockerfile also fills in the TeX Live binary folder for the image's architecture
+# in the list on the last line from its COMPILE_SLOTS build arg), and only through GNU timeout, which the app uses to
+# stop TeX: node cannot signal those users' processes itself. The Dockerfile also fills in the TeX Live binary folder for the image's architecture
 # at the start of secure_path.
 # !use_pty: SIGTERM from the app reaches sudo, which relays it to timeout. umask: TeX's files come out group-readable
 # (each compile folder is setgid to its slot's group, which node is in) and nothing is world-readable.
