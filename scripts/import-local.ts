@@ -11,7 +11,7 @@ import { applications, banks } from "@/lib/deps";
 const USAGE = `Usage: npm run import:local -- --email <email> --from <dir> [--replace] [--dry-run]
 
   --email     the account to import into; sign in on the site once first
-  --from      a profile folder of the local app, e.g. data/edward (bank.json + applications/)
+  --from      a profile folder of the local app, e.g. data/<slug> (bank.json + applications/)
   --replace   overwrite a bank that already has content (by default it is kept)
   --dry-run   validate, count and report what would happen to the bank; write nothing
 

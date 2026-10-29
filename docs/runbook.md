@@ -1,8 +1,56 @@
-# Runbook: phase 1
+# Runbook
+
+How to run the hosted service: Fly.io for the app, Neon for Postgres, Resend for sign-in emails, Anthropic for the AI.
+To run a private copy instead, see the README's "Self-host" section.
 
 Placeholders: `<domain>` is the public host name (e.g. `resume.example.com`), `<you>` your email address,
 `<app>` the Fly app name (`resume-tailor` in `fly.toml`), `<slug>` the name of your old local data folder
-(e.g. `edward` for `data/edward`).
+(e.g. `ada` for `data/ada`).
+
+## Phase 2a launch checklist
+
+For an app already running phase 1. A new deployment does sections 1 to 6 first, setting these secrets with the rest
+in section 3.
+
+1. [ ] **Set the new secrets before deploying this version.** `--stage` stores them without restarting the running
+   machine; the deploy picks them up.
+
+   ```bash
+   fly secrets set --stage \
+     ADMIN_EMAILS='<you>' \
+     PRIVACY_CONTACT_EMAIL='privacy@<domain>' \
+     SIGNUP_GRANT_CREDITS=4 \
+     FREE_DAILY_BUDGET_GBP=2
+   # Optional: where the public pages link the source code (default: the upstream repository)
+   fly secrets set --stage SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
+   fly secrets list
+   ```
+
+   - `ADMIN_EMAILS` must be in place before your account's first request on the new version: that request creates
+     its plan, unlimited only if the email is listed then. Otherwise use **Set a plan** on `/admin`.
+   - `PRIVACY_CONTACT_EMAIL` is required: without it the new machine refuses to boot, and the blue-green deploy keeps
+     the old one serving.
+   - `SIGNUP_GRANT_CREDITS=4` gives each new account two tailors on Haiku (at the default `CREDITS_PER_TAILOR=2`)
+     while there are no ads (`AD_PROVIDER` stays `none`). `FREE_DAILY_BUDGET_GBP` caps what free accounts can spend per UTC day (default 2).
+   - Keep `SIGNUP_EMAILS` for a private run. Removing it opens sign-up (step 6).
+2. [ ] **Test the image.** `bash scripts/smoke-image.sh` must print no FAIL, and run
+   `docker build --platform linux/amd64 .` once (section 4).
+3. [ ] **Deploy and check.** `fly deploy`, then `fly status` (one machine) and
+   `curl -sS 'https://<domain>/api/health?deep=1'`, which must print `{"ok":true,"db":"ok","latexmk":"ok"}`. Sign in:
+   `/account` should say Unlimited, and `/admin` should load.
+4. [ ] **Read the legal pages** (`/privacy`, `/terms`, `/cookies`) against the notes under "The legal pages are
+   templates" in section 7. Confirm the terms' liability cap of £50 (`src/legal/terms.ts`). Consider having them
+   reviewed by someone qualified.
+5. [ ] **Check the PDF preview in Firefox and Safari** once: the tests only run Chromium.
+6. [ ] **Open sign-up** with `fly secrets unset SIGNUP_EMAILS`. For the first week, look at `/admin` daily: the free
+   spend against the budget, credits granted and spent, and ad sessions by status, rejected ones especially.
+7. [ ] **Phase 2b, ads.** Apply for Google Ad Manager with the live landing, privacy and terms pages; create a
+   rewarded ad unit; set up Privacy & messaging for UK and EEA consent. Then wire the Google provider (the phase 2b
+   code), deploy it, and set `SIGNUP_GRANT_CREDITS` back to 0.
+
+Developers with a local database from before this phase: migration 0002 was regenerated during development, so an
+old `data/pglite` no longer matches the migrations. Delete `data/pglite` once (this erases the local accounts and
+banks); the next start creates it again.
 
 ## 1. One-time accounts
 
@@ -46,6 +94,9 @@ fly secrets set \
   RESEND_API_KEY='re_...' \
   ANTHROPIC_API_KEY='sk-ant-...' \
   PRIVACY_CONTACT_EMAIL='privacy@<domain>' \
+  ADMIN_EMAILS='<you>' \
+  SIGNUP_GRANT_CREDITS=4 \
+  FREE_DAILY_BUDGET_GBP=2 \
   SIGNUP_EMAILS='<you>,friend@example.com'
 # Optional, both or neither:
 fly secrets set GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...'
@@ -63,6 +114,10 @@ fly secrets set SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
 - `PRIVACY_CONTACT_EMAIL` is the address the privacy, terms and cookies pages give for questions and data requests
   (a bare address, in a mailbox you read). It is required in hosted production: without it the machine refuses to
   boot, naming it. Self-hosted servers and development fall back to the address in `EMAIL_FROM`.
+- `ADMIN_EMAILS` (comma-separated) get the unlimited plan when their account is first used, and the `/admin` page.
+  `SIGNUP_GRANT_CREDITS` is what a new account starts with: 4 until ads are live, then 0. `FREE_DAILY_BUDGET_GBP`
+  pauses free accounts' AI calls for the rest of the UTC day once their costed usage reaches it. `.env.example`
+  documents the other plan, credit and ad settings and their defaults.
 - `fly.toml` already sets `PORT`, `HOSTNAME`, `COMPILE_CONCURRENCY`, `EMAIL_TRANSPORT=resend`,
   `LATEX_RUN_AS` and `COMPILE_ROOT`. Do not set them as secrets.
 - A missing or invalid required value makes the new machine exit at boot (`[env] invalid configuration` in
@@ -183,8 +238,9 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   attached, for the audit, the per-IP ad cap and the budget (the ledger without its resume references, the ad
   sessions without their IPs except today's grants). A person who cannot sign in can be deleted in psql with
   `delete from "user" where email = '…';`, which cascades the same way but keeps those references and IPs.
-- **IP retention**: ad sessions keep the client's IP (a /64 for IPv6) for 48 hours, for the per-IP daily ad cap;
-  each new ad start blanks the older ones. Better Auth's session rows also hold an IP and user agent per signed-in
+- **IP retention**: ad sessions keep the client's IP (a /64 for IPv6) for 48 hours, for the per-IP daily ad cap.
+  The server blanks older ones at boot, every hour and at each ad start, skipping any row another request holds
+  (the next run gets it). A session can only be granted within an hour of starting. Better Auth's session rows also hold an IP and user agent per signed-in
   browser; a row goes when that browser signs out or the account is deleted.
 - **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
   UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
@@ -251,7 +307,9 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 - The magic-link throttle (5 links per address per hour) is in memory: per process, and reset by every
   restart and deploy.
 
-## 10. Phase 2 reminders
+## 10. Later phases
 
+- Phase 2b (ads): the Google provider, consent, server-side verification and the report-only CSP rollout. The
+  spec's "Phases" section lists what moved there.
 - Before Lemon Squeezy webhooks go live, add `/api/webhooks/` to the `PUBLIC` list in `src/proxy.ts`:
   webhook calls carry no session cookie.

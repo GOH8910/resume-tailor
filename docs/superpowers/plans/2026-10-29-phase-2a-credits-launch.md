@@ -11,7 +11,7 @@
 Spec: `docs/superpowers/specs/2026-10-29-ads-credits-launch-design.md`. Phase 1 context: `docs/superpowers/specs/2026-10-28-hosted-resume-tailor-design.md`, `docs/runbook.md`.
 
 **Conventions for every task**
-- Branch `feat/phase-2-ads-launch` in the worktree `/Users/edwardgoh/Desktop/resume-hosted`. Never touch `/Users/edwardgoh/Desktop/resume` (the owner's dev server on port 3000). Never `pkill`; stop only your own PIDs. Dev servers on port 3001 with `BETTER_AUTH_URL=http://localhost:3001`; PGlite is single-process.
+- Branch `feat/phase-2-ads-launch` in a separate git worktree. Never touch the owner's main checkout (their dev server on port 3000). Never `pkill`; stop only your own PIDs. Dev servers on port 3001 with `BETTER_AUTH_URL=http://localhost:3001`; PGlite is single-process.
 - Commit with a plain `git commit -m "type: ..."` on its own (the pre-commit guard rejects any command containing `git commit` plus a `-n`-style flag anywhere in its text). No attribution trailers.
 - Gate before each commit: `npx tsc --noEmit && npx eslint src e2e scripts && npx vitest run`; `npm run test:e2e` where the task touches UI or routes; `bash scripts/smoke-image.sh` for Task 5/6.
 - TDD for logic. Keep files focused (< 400 lines). Comments only for non-obvious whys. Read `node_modules/next/dist/docs/` before using a Next API.
@@ -207,7 +207,7 @@ Instances in `src/lib/limits.ts`: tailor 10/h per user, chat 30/10 min, compile 
 
 **Files:** `src/app/(public)/page.tsx` (landing), `src/app/(public)/privacy/page.tsx`, `terms`, `cookies` (markdown-ish static TSX or `.md` rendered with a tiny component), `src/app/(app)/dashboard/page.tsx` (moved from `(app)/page.tsx`), `src/proxy.ts` PUBLIC (`/`, `/cookies`, `/api/ads/ssv`), `src/ui/TopBar.tsx` links, `src/ui/signin/*` default `next` → `/dashboard`, `src/app/(public)/signin/page.tsx` redirect target, e2e expectations, `public/sample-resume.png` (render `data/example` to PNG with `pdftoppm` at build time of the task; commit the PNG, ~150 KB).
 
-- [ ] Landing content (Edward's voice; keep it short, no marketing fluff): headline "Job hunting is hard. Tailor your resume to every job in minutes."; one paragraph: built this for myself, free to use, ads pay for the AI, open source so you can self-host; "How it works" three steps; the sample image; "Credits" explainer (1 ad ≈ 1 credit, 2 credits per tailored resume, Haiku model); sign-in CTA; footer links: GitHub, Privacy, Terms, Cookies. Signed-in visitors to `/` → `redirect("/dashboard")`.
+- [ ] Landing content (the owner's voice; keep it short, no marketing fluff): headline "Job hunting is hard. Tailor your resume to every job in minutes."; one paragraph: built this for myself, free to use, ads pay for the AI, open source so you can self-host; "How it works" three steps; the sample image; "Credits" explainer (1 ad ≈ 1 credit, 2 credits per tailored resume, Haiku model); sign-in CTA; footer links: GitHub, Privacy, Terms, Cookies. Signed-in visitors to `/` → `redirect("/dashboard")`.
 - [ ] Privacy/terms/cookies: template-grade text naming the processors (Anthropic, Neon, Fly.io, Resend, Google Ad Manager), what is stored (bank, applications, PDFs, ledger, usage tokens; no resume content in logs), retention (until deletion), rights (export/delete on the account page), contact email from `env.EMAIL_FROM`'s domain (`PRIVACY_CONTACT_EMAIL` setting), ads and consent (phase 2b wording included but marked as applying when ads are enabled), UK GDPR basis. Mark clearly in the runbook that these are templates to be checked.
 - [ ] Commit `feat: landing, privacy, terms and cookies pages; dashboard at /dashboard`.
 
@@ -215,10 +215,17 @@ Instances in `src/lib/limits.ts`: tailor 10/h per user, chat 30/10 min, compile 
 
 ### Task 9: Open source, docs, runbook, final checks
 
-**Files:** `LICENSE` (AGPL-3.0 text, copyright "2026 Edward Goh" — confirm the name to print with the owner; use "the Resume Tailor contributors" if unsure), `CONTRIBUTING.md`, `SECURITY.md`, `README.md` (self-host section: `APP_MODE=selfhost`, own key, Docker one-liner, or `npm run dev`; hosted section pointing to the runbook; "why ads" paragraph), `docs/runbook.md` (new settings, launch checklist: set `SIGNUP_GRANT_CREDITS`, `FREE_DAILY_BUDGET_GBP`, `ADMIN_EMAILS`, remove `SIGNUP_EMAILS`; Ad Manager application steps for 2b; what to watch on `/admin`), `.env.example`, `scripts/smoke-image.sh` (landing public, headers, per-slot users), plan/spec touch-ups.
+**Files:** `LICENSE` (the verbatim AGPL-3.0 text; the copyright line, with the owner's name, goes in the README's Licence section), `CONTRIBUTING.md`, `SECURITY.md`, `README.md` (self-host section: `APP_MODE=selfhost`, own key, Docker one-liner, or `npm run dev`; hosted section pointing to the runbook; "why ads" paragraph), `docs/runbook.md` (new settings, launch checklist: set `SIGNUP_GRANT_CREDITS`, `FREE_DAILY_BUDGET_GBP`, `ADMIN_EMAILS`, remove `SIGNUP_EMAILS`; Ad Manager application steps for 2b; what to watch on `/admin`), `.env.example`, `scripts/smoke-image.sh` (landing public, headers, per-slot users), plan/spec touch-ups.
 
-- [ ] Replace `data/edward` mentions with `data/<slug>` across docs; grep for the owner's name outside `LICENSE` and the specs' author lines.
+- [ ] Replace personal `data/` folder names with `data/<slug>` across docs; grep for the owner's name outside `LICENSE` and the specs' author lines.
 - [ ] Full gates: unit, e2e (hosted + selfhost projects), smoke image. Push `feat/phase-2-ads-launch` and report the compare URL.
 - [ ] Commit `docs: AGPL-3.0 licence, self-host guide, contributing and security policy`.
 
 Phase 2a exit: on a fresh deploy with `SIGNUP_GRANT_CREDITS=4`, `AD_PROVIDER=none`, `ADMIN_EMAILS` set, a stranger signs up, gets 4 credits, tailors twice on Haiku, hits the credit wall with an honest "ads coming soon" message, exports and deletes their account; the owner sees the spend on `/admin`; the repository carries the licence and self-host guide.
+
+**Exit status (2026-10-29):** built on `feat/phase-2-ads-launch` and covered by the unit tests and both e2e projects
+(hosted with the test ad provider, and selfhost); the repository carries the licence, self-host guide, contributing
+guide and security policy. Still open: the run on the live site, which is the runbook's "Phase 2a launch checklist".
+Moved to phase 2b (listed in the spec's "Phases"): the Google provider and consent, the SSV ad-unit check, refetching
+the SSV keys on an unknown key id, verified grants without the minimum watch time, and the report-only CSP rollout
+with a `/api/csp-report` endpoint.

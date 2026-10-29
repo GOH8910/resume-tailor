@@ -49,7 +49,7 @@ app the key is the signed-in user's id, taken from the session on the server. Co
   an Account link and Sign out instead of the profile picker.
 - `/api/profiles` is deleted. `scripts/seed-from-pdfs.ts` takes `--email` instead of `--profile`.
 - A one-off `scripts/import-local.ts` copies `data/<slug>/bank.json` and its applications into the
-  database for a given email, so Edward's existing bank moves over.
+  database for a given email, so the owner's existing bank moves over.
 
 ### Storage
 
@@ -204,9 +204,9 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
 
 ## Phases
 
-1. **Foundation (private beta for Edward).** Drizzle + PGlite/Neon, Better Auth with file-based dev magic links,
+1. **Foundation (private beta for the owner).** Drizzle + PGlite/Neon, Better Auth with file-based dev magic links,
    identity replaces profiles, import script, Dockerfile, Fly.io deploy on the real domain with
-   Google sign-in and magic links working. Exit: Edward tailors and downloads a resume on the live
+   Google sign-in and magic links working. Exit: the owner tailors and downloads a resume on the live
    site from his imported bank.
 2. **Launch.** Plans and usage limits, Lemon Squeezy checkout and webhooks, account page with export
    and delete, privacy and terms pages, landing page, security headers and CSP, runbook. Exit: a
@@ -214,7 +214,7 @@ sign-in button. Pages `/signin` (Google button, email field) and `/signin/check-
 3. **Growth.** Plan-gated `AdSlot` and consent banner, cookieless analytics (Plausible or Umami),
    onboarding hints, email receipt for tailors if wanted.
 
-## Things only Edward can do
+## Things only the owner can do
 
 - Buy a domain and point it at Fly.io; verify it in Resend for sending.
 - Create the Google OAuth client (consent screen, redirect URL).

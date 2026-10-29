@@ -76,7 +76,7 @@ Tables (Drizzle, migration added to `drizzle/`):
 | Table | Columns | Notes |
 | --- | --- | --- |
 | `credit_events` | id (uuid), user_id (fk set null), kind (`ad` / `signup` / `tailor` / `chat` / `admin` / `refund`), amount (int, signed), ref (text, null: ad session id, application id, or the refunded charge's row id), created_at | Append-only ledger. The balance is `sum(amount)`; `user_plans.credits` caches it and is updated in the same transaction. Kept anonymised when the account is deleted. |
-| `ad_sessions` | id (uuid), user_id (fk set null), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks name the session in `custom_data`; the unique transaction_id stops a replayed callback. Kept when the account is deleted, so the per-IP cap still counts it. `ip` is blanked (`''`) once the row is 48 hours old, at the next ad start; the cap only counts today. |
+| `ad_sessions` | id (uuid), user_id (fk set null), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks name the session in `custom_data`; the unique transaction_id stops a replayed callback. Kept when the account is deleted, so the per-IP cap still counts it. `ip` is blanked (`''`) once the row is 48 hours old, at boot, every hour and at each ad start (in batches that skip rows another transaction holds); the cap only counts today. A session can be granted only within an hour of starting (later: rejected "expired", 409 "not pending"), so a grant never counts against the blanked IP. |
 | `usage_events` | id, user_id (fk), kind (`tailor` / `chat` / `seed`), model, input_tokens, output_tokens, cost_gbp (numeric), created_at | Every Claude call. Feeds the budget and the admin page. |
 
 Flow for a free account:
@@ -218,7 +218,7 @@ demotes an account later.
 
 ## Public pages
 
-- `/` landing page (public): the pitch in Edward's words ("job hunting is hard; I built this for
+- `/` landing page (public): the pitch in the operator's words ("job hunting is hard; I built this for
   myself; it's free, ads pay for it; you can self-host it"), how it works in three steps, a sample
   PDF image, the ads explanation ("one ad ≈ one credit, two credits per tailored resume"), sign-in
   button, links to GitHub, privacy, terms and cookies. In selfhost mode the credits explanation is one line
@@ -238,7 +238,7 @@ demotes an account later.
 
 - `LICENSE` (AGPL-3.0), `README.md` with a "Self-host" section (`APP_MODE=selfhost`, own Anthropic
   key, Docker image or `npm run dev`, no ads), `CONTRIBUTING.md` (short), `SECURITY.md` (how to report;
-  no bounty). `docs/` keeps the specs and runbook; personal paths like `data/edward` become
+  no bounty). `docs/` keeps the specs and runbook; personal data paths become
   `data/<slug>`.
 - Nothing in the repo may depend on the operator's identity except through environment variables.
 
@@ -274,16 +274,28 @@ All existing phase 1 error semantics stay.
   and CSP (with the Google allowances behind a flag), open-source files, README. Exit: a stranger can
   sign up on the live site, receive the signup grant, tailor, hit the credit wall, export and delete
   their account; the test provider proves the earn flow end to end.
+  - [x] Built on `feat/phase-2-ads-launch`, with the licence, self-host guide, contributing guide and security
+    policy in the repository.
+  - [x] Proven by the tests: the sign-up grant, charging and refunds, the credit wall and the daily budget (unit and
+    route tests), the test provider's earn flow, export, deletion and the admin page (the hosted e2e project), and
+    a self-hosted server with no credits or ads (the selfhost e2e project).
+  - [ ] On the live site: a stranger's full run, following the runbook's "Phase 2a launch checklist".
 - **2b:** Google Ad Manager provider, Privacy & messaging consent, SSV; switch `SIGNUP_GRANT_CREDITS`
-  to 0. Needs Edward's Ad Manager account approved and an ad unit created.
+  to 0. Needs the operator's Ad Manager account approved and an ad unit created. Moved here from 2a:
+  - the Google provider (`src/ads/google.tsx`) and Privacy & messaging consent;
+  - SSV: checking that a callback names our rewarded ad unit, refetching the key list when a callback names a
+    `key_id` the cached list lacks, and granting verified rewards without the minimum watch time (the network has
+    verified the view);
+  - the CSP rollout for ads: enforce the loose ad policy, send the tight host lists as
+    `Content-Security-Policy-Report-Only` to a `/api/csp-report` endpoint, then tighten once the reports are clean.
 
-## Things only Edward can do
+## Things only the operator can do
 
 - Apply for Google Ad Manager (needs an AdSense account and the live site with the landing, privacy
   and terms pages up); create the rewarded ad unit; set up Privacy & messaging; copy the ad unit path
   and, if used, the SSV key configuration.
 - Decide `SIGNUP_GRANT_CREDITS` at launch and `FREE_DAILY_BUDGET_GBP`.
-- Add `LICENSE` acceptance to the repository settings if desired; write the landing copy in his own
+- Add `LICENSE` acceptance to the repository settings if desired; write the landing copy in their own
   words (a draft is provided).
 
 ## Risks

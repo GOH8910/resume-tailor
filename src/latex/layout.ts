@@ -17,7 +17,7 @@ export const LayoutSchema = z.object({
 export type Margins = z.infer<typeof MarginsSchema>;
 export type Layout = z.infer<typeof LayoutSchema>;
 
-/** Measured from CV_Edward.pdf. */
+/** Measured from the CV the template was modelled on. */
 export const DEFAULT_LAYOUT: Layout = {
   fontSize: null,
   margins: { top: 0.8, bottom: 0.8, left: 0.75, right: 0.75 },

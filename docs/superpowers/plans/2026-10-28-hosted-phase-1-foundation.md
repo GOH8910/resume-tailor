@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the local, single-machine Resume Tailor into a signed-in, Postgres-backed web app that runs in one Docker container on Fly.io, so Edward can use his imported bank on the live site.
+**Goal:** Turn the local, single-machine Resume Tailor into a signed-in, Postgres-backed web app that runs in one Docker container on Fly.io, so the owner can use their imported bank on the live site.
 
 **Architecture:** Repositories keep their method signatures but are keyed by the signed-in user's id instead of a profile slug, and are backed by Postgres through Drizzle (PGlite when `DATABASE_URL` is unset, so dev and tests need no services). Better Auth provides Google sign-in and email magic links; the session is read on the server, the client never sends an identity. One Dockerfile bundles Node and a minimal TeX Live; migrations run when the server boots.
 
@@ -745,7 +745,7 @@ git commit -m "feat: sign-in replaces profiles across the API and UI"
 
 ---
 
-### Task 5: Import Edward's local data; seed script by email
+### Task 5: Import the owner's local data; seed script by email
 
 **Files:**
 - Create: `scripts/import-local.ts`, `src/db/users.ts`
@@ -767,13 +767,13 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
 
 - [ ] **Step 2: `scripts/import-local.ts`**
 
-Usage: `npx tsx --tsconfig tsconfig.json scripts/import-local.ts --email ed@example.com --from data/edward`. Reads `bank.json` (validate with `BankSchema`), writes it with `banks.write(userId, bank)` only if the user's bank is still empty or `--replace` is given; for each `applications/*.json` runs `applications.save`, and for a sibling `.pdf` runs `savePdf` with `countPdfPages`. Prints a count. Exits 1 with a clear message if the email has not signed in yet. The usage text says to stop the dev server first when using PGlite.
+Usage: `npx tsx --tsconfig tsconfig.json scripts/import-local.ts --email ed@example.com --from data/<slug>`. Reads `bank.json` (validate with `BankSchema`), writes it with `banks.write(userId, bank)` only if the user's bank is still empty or `--replace` is given; for each `applications/*.json` runs `applications.save`, and for a sibling `.pdf` runs `savePdf` with `countPdfPages`. Prints a count. Exits 1 with a clear message if the email has not signed in yet. The usage text says to stop the dev server first when using PGlite.
 
 - [ ] **Step 3: Seed script**
 
 `scripts/seed-from-pdfs.ts`: `--profile` → `--email`, resolve the user id with `findUserIdByEmail`, and build the child-process env with `latexEnv()` so `pdftotext` is found from any terminal (fixes the earlier ENOENT).
 
-- [ ] **Step 4: Run it for real** (dev server stopped): import `data/edward` for Edward's email, start the server, confirm the dashboard lists the three applications with PDFs. Commit:
+- [ ] **Step 4: Run it for real** (dev server stopped): import `data/<slug>` for the owner's email, start the server, confirm the dashboard lists the three applications with PDFs. Commit:
 
 ```bash
 git add scripts src/db/users.ts README.md
@@ -1031,4 +1031,4 @@ git commit -m "test: sign-in aware smoke tests and the phase 1 runbook"
 git push -u origin feat/hosted-saas
 ```
 
-Phase 1 exit: Edward signs in on the live domain, sees his imported applications, tailors a new one and downloads the PDF.
+Phase 1 exit: the owner signs in on the live domain, sees their imported applications, tailors a new one and downloads the PDF.
