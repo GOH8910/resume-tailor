@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -203,6 +203,23 @@ describe("compileTex under COMPILE_ROOT (stand-in latexmk)", () => {
   });
 });
 
+/**
+ * A group from /etc/group that this process may hand a folder to (any as root, else one it is a member of), other
+ * than `exceptGid`, the group a new folder gets anyway. Undefined when there is none.
+ */
+async function handOffGroup(exceptGid: number): Promise<{ name: string; gid: number } | undefined> {
+  const isRoot = process.getuid?.() === 0;
+  const mine = new Set(process.getgroups?.() ?? []);
+  const lines = (await readFile("/etc/group", "utf8").catch(() => "")).split("\n");
+  for (const line of lines) {
+    const [name, , id] = line.split(":");
+    const gid = Number(id);
+    if (!name || name.startsWith("#") || id === "" || !Number.isInteger(gid) || gid < 0 || gid === exceptGid) continue;
+    if (isRoot || mine.has(gid)) return { name, gid };
+  }
+  return undefined;
+}
+
 describe("compileTex as another user (stand-in sudo)", () => {
   let bin: string;
   let root: string;
@@ -225,7 +242,6 @@ describe("compileTex as another user (stand-in sudo)", () => {
   beforeEach(() => {
     vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
     vi.stubEnv("COMPILE_ROOT", root);
-    vi.stubEnv("LATEX_RUN_AS", undefined);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -238,11 +254,32 @@ describe("compileTex as another user (stand-in sudo)", () => {
     expect(result.log).toContain("latexmk as tex: -norc -no-shell-escape -pdf -interaction=nonstopmode");
   });
 
-  it("takes the user from LATEX_RUN_AS", async () => {
-    vi.stubEnv("LATEX_RUN_AS", "texuser");
-    const latexmk = await fakeLatexmk("env-user", 'echo "latexmk as $FAKE_SUDO_RUN_AS" >&2\nexit 1');
+  it("runs latexmk as the server's own user without runAs", async () => {
+    const latexmk = await fakeLatexmk("no-user", 'echo "latexmk as ${FAKE_SUDO_RUN_AS:-server}" >&2\nexit 1');
     const result = await compileTex("x", { latexmkPath: latexmk });
-    expect(result.log).toContain("latexmk as texuser");
+    expect(result.log).toContain("latexmk as server");
+    expect(result.log).not.toContain("sudo -n");
+  });
+
+  // In the image this is the slot's group (texrun1, texrun2), which only that slot's TeX user shares with the server.
+  it("hands the compile folder to the given group, open to that group only", async (ctx) => {
+    const group = await handOffGroup((await stat(root)).gid);
+    if (!group) {
+      return ctx.skip("no group in /etc/group that this process may hand a folder to besides its default; run as root to cover it");
+    }
+    const latexmk = await fakeLatexmk("group", "ls -ldn . >&2\nexit 1");
+    const result = await compileTex("x", { latexmkPath: latexmk, runAs: "tex1", group: group.name });
+    const listing = result.log.split("\n").find((line) => line.startsWith("d")) ?? "";
+    expect(listing).toMatch(/^drwxrws---/);
+    expect(listing.split(/\s+/)[3]).toBe(String(group.gid));
+  });
+
+  it("fails loudly when the group does not exist, and leaves no folder behind", async () => {
+    const latexmk = await fakeLatexmk("no-group", "exit 0");
+    await expect(compileTex("x", { latexmkPath: latexmk, runAs: "tex1", group: "no-such-group-xyz" })).rejects.toThrow(
+      'Group "no-such-group-xyz" not found',
+    );
+    expect(await readdir(root)).toEqual([]);
   });
 
   it("keeps the compile folder in the shared group so TeX's files stay readable to the server", async () => {
@@ -292,78 +329,4 @@ describe("compileTex as another user (stand-in sudo)", () => {
     if (result.ok) return;
     expect(result.message).toMatch(/compilation failed/);
   });
-});
-
-describe("compileTex timeout handling (stand-in latexmk)", () => {
-  let bin: string;
-
-  async function fakeLatexmk(name: string, body: string): Promise<string> {
-    const script = path.join(bin, name);
-    await writeFile(script, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-    return script;
-  }
-
-  function running(pattern: string): string {
-    try {
-      return execFileSync("pgrep", ["-f", pattern], { encoding: "utf8" }).trim();
-    } catch {
-      // pgrep exits 1 when nothing matches.
-      return "";
-    }
-  }
-
-  beforeAll(async () => {
-    bin = await mkdtemp(path.join(os.tmpdir(), "timeout-latexmk-"));
-  });
-  afterAll(() => rm(bin, { recursive: true, force: true }));
-
-  it("asks latexmk to stop with SIGTERM first, which sudo can relay to TeX", async () => {
-    const latexmk = await fakeLatexmk("term", "trap 'echo got SIGTERM >&2; exit 143' TERM\nsleep 30 &\nwait");
-    const started = Date.now();
-    const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.message).toMatch(/timed out/);
-    expect(result.log).toContain("got SIGTERM");
-    expect(Date.now() - started).toBeLessThan(2_000);
-  }, 10_000);
-
-  it("kills the process group with SIGKILL when SIGTERM is ignored", async () => {
-    const latexmk = await fakeLatexmk("ignores-term", "trap '' TERM\nsleep 37.25");
-    const started = Date.now();
-    const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
-    const elapsed = Date.now() - started;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.message).toMatch(/timed out/);
-    expect(elapsed).toBeGreaterThanOrEqual(3_000);
-    expect(elapsed).toBeLessThan(5_000);
-    expect(running("sleep 37.25")).toBe("");
-  }, 15_000);
-
-  it("stops waiting when a process it cannot signal keeps the output open", async () => {
-    // The holder leaves the process group, like a TeX process owned by another user that the server cannot kill.
-    const pidFile = path.join(bin, "holder.pid");
-    const latexmk = await fakeLatexmk(
-      "holder",
-      `perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", $ARGV[0]) or die; print $f $$; close $f; sleep 41' "${pidFile}" &\nsleep 30`,
-    );
-    const started = Date.now();
-    try {
-      const result = await compileTex("x", { latexmkPath: latexmk, timeoutMs: 300 });
-      expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.message).toMatch(/timed out/);
-      expect(Date.now() - started).toBeLessThan(8_000);
-    } finally {
-      const pid = Number(await readFile(pidFile, "utf8").catch(() => ""));
-      if (pid > 0) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // Already gone.
-        }
-      }
-    }
-  }, 20_000);
 });

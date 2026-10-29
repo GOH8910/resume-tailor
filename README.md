@@ -146,5 +146,5 @@ See `docs/runbook.md`.
 - `src/import` import from the local app's `data/<profile>/` folders
 - `scripts/` seed, import, migrate, and the image smoke test
 - `templates/resume.tex` the LaTeX template (swap in your own, keep `%%CONTENT%%`)
-- `Dockerfile`, `docker/` (TeX Live profile, sudoers rule for the `tex` user), `fly.toml`
+- `Dockerfile`, `docker/` (TeX Live profile, sudoers rule for the per-slot TeX users `tex1`, `tex2`), `fly.toml`
 - `e2e/` Playwright tests

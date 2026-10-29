@@ -108,6 +108,21 @@ describe("parseEnv", () => {
     expect(() => parseEnv(production({ COMPILE_ROOT: "/var/lib/compile" }))).not.toThrow();
   });
 
+  it("takes LATEX_RUN_AS as a user-name prefix, refusing anything that could not start a user name", () => {
+    expect(() => parseEnv({ LATEX_RUN_AS: "tex", COMPILE_ROOT: "/c" })).not.toThrow();
+    for (const bad of ["Tex", "1tex", "tex user", "tex;id", "../tex"]) {
+      expect(() => parseEnv({ LATEX_RUN_AS: bad, COMPILE_ROOT: "/c" })).toThrow("LATEX_RUN_AS must be a user-name prefix");
+    }
+    expect(parseEnv({ LATEX_RUN_AS: "" }).LATEX_RUN_AS).toBeUndefined();
+  });
+
+  it("reads COMPILE_CONCURRENCY as a whole number of at least 1, default 2", () => {
+    expect(parseEnv({}).COMPILE_CONCURRENCY).toBe(2);
+    expect(parseEnv({ COMPILE_CONCURRENCY: "" }).COMPILE_CONCURRENCY).toBe(2);
+    expect(parseEnv({ COMPILE_CONCURRENCY: "3" }).COMPILE_CONCURRENCY).toBe(3);
+    for (const bad of ["0", "-1", "1.5", "abc"]) expect(() => parseEnv({ COMPILE_CONCURRENCY: bad })).toThrow();
+  });
+
   it("parses SIGNUP_EMAILS into a lowercased, trimmed set", () => {
     const env = parseEnv({ SIGNUP_EMAILS: " Ada@Example.com, bob@example.com ,," });
     expect(env.signupEmails).toEqual(new Set(["ada@example.com", "bob@example.com"]));

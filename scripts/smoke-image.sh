@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the production image and checks it end to end against a throwaway Postgres: health, sign-in, a real
-# compile, and that TeX runs as a separate user who cannot read the server's secrets or data.
+# compile, that TeX runs as separate users (one per compile slot) who cannot read the server's secrets or data or
+# each other's compile folders, and that a burst of compiles beyond the queue's limit is turned away with a 503.
 # Usage: scripts/smoke-image.sh   (needs Docker, curl and Node; builds for this machine's architecture)
 # SMOKE_SKIP_BUILD=1 reuses an existing resume-tailor:smoke image. SMOKE_PORT picks the host port.
 set -euo pipefail
@@ -40,9 +41,16 @@ json() {
     process.stdout.write(typeof v === "string" ? v : JSON.stringify(v ?? null));' "$1" "$2"
 }
 in_app() { docker exec "$APP" sh -c "$1"; }
-as_tex() { docker exec -u tex "$APP" sh -c "$1"; }
+# as USER COMMAND: runs COMMAND in the app container as USER (tex1, tex2: the TeX users of compile slots 1 and 2).
+as() { docker exec -u "$1" "$APP" sh -c "$2"; }
 # The API checks that Origin matches Host on every /api request.
 api() { curl -sS -b "$JAR" -c "$JAR" -H "Origin: $BASE" "$@"; }
+# Posts $WORK/compile.json to /api/compile; saves body and headers as $WORK/<name>.body/.headers, prints the status.
+# Reads the cookie jar without writing it back, so many can run at once.
+compile_as() {
+  curl -sS -b "$JAR" -H "Origin: $BASE" -D "$WORK/$1.headers" -o "$WORK/$1.body" -w '%{http_code}' \
+    -H 'Content-Type: application/json' --data-binary @"$WORK/compile.json" "$BASE/api/compile" || true
+}
 # One line per process in the app container: its command line.
 processes() { in_app 'for f in /proc/[0-9]*/cmdline; do tr "\0" " " < "$f" 2>/dev/null; echo; done'; }
 
@@ -88,6 +96,8 @@ if [[ "$health" != *'"ok":true'* ]]; then
   exit 1
 fi
 pass "deep health check"
+# The probe runs latexmk through sudo as the last compile slot's user (tex2), so this also proves that user exists.
+check "health probe runs latexmk as the last slot's user" test "$(echo "$health" | grep -o '"latexmk":"[^"]*"')" = '"latexmk":"ok"'
 
 # --- Sign in, save a bank, compile ---
 code=$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
@@ -132,29 +142,39 @@ check "compile folders were cleaned up" test -z "$(in_app 'ls -A /var/lib/compil
 server_pid=$(in_app 'for p in /proc/[0-9]*; do case "$(tr "\0" " " < "$p/cmdline" 2>/dev/null)" in next-server*|"node server.js"*) basename "$p";; esac; done' | head -1 || true)
 check "found the server process (pid ${server_pid:-none})" test -n "$server_pid"
 check "control: node can read the server's environment" in_app "grep -qz '^BETTER_AUTH_SECRET=' /proc/$server_pid/environ"
-refused "tex cannot read the server's environment" as_tex "cat /proc/$server_pid/environ"
-refused "tex cannot read /proc/1/environ" as_tex 'cat /proc/1/environ'
-refused "tex cannot list /app/data" as_tex 'ls /app/data'
-refused "tex cannot read the app's code" as_tex 'ls /app'
-refused "tex cannot list other compile folders" as_tex 'ls /var/lib/compile'
-
-check "sudo runs commands as tex" test "$(in_app 'sudo -n -u tex /usr/bin/timeout 5 id -un' || true)" = tex
-check "sudo passes openout_any=p to tex" in_app 'openout_any=p sudo -n -u tex /usr/bin/timeout 5 env | grep -qx openout_any=p'
-refused "sudo keeps the server's secrets from tex" in_app \
-  'sudo -n -u tex /usr/bin/timeout 5 env | grep -q -e DATABASE_URL -e BETTER_AUTH_SECRET -e ANTHROPIC_API_KEY'
-refused "sudo lets node run only GNU timeout as tex" in_app 'sudo -n -u tex env'
+for user in tex1 tex2; do
+  refused "$user cannot read the server's environment" as "$user" "cat /proc/$server_pid/environ"
+  refused "$user cannot read /proc/1/environ" as "$user" 'cat /proc/1/environ'
+  refused "$user cannot list /app/data" as "$user" 'ls /app/data'
+  refused "$user cannot read the app's code" as "$user" 'ls /app'
+  refused "$user cannot list the compile folders" as "$user" 'ls /var/lib/compile'
+  check "sudo runs commands as $user" test "$(in_app "sudo -n -u $user /usr/bin/timeout 5 id -un" || true)" = "$user"
+done
+check "sudo passes openout_any=p to tex1" in_app 'openout_any=p sudo -n -u tex1 /usr/bin/timeout 5 env | grep -qx openout_any=p'
+refused "sudo keeps the server's secrets from tex1" in_app \
+  'sudo -n -u tex1 /usr/bin/timeout 5 env | grep -q -e DATABASE_URL -e BETTER_AUTH_SECRET -e ANTHROPIC_API_KEY'
+refused "sudo lets node run only GNU timeout as tex1" in_app 'sudo -n -u tex1 env'
 refused "sudo does not let node become root" in_app 'sudo -n true'
+refused "sudo does not let node run as a user outside the slots" in_app 'sudo -n -u nobody /usr/bin/timeout 5 id'
 
-status=$(in_app 'sudo -n -u tex /usr/bin/timeout 2 sleep 10; echo $?' || true)
-check "GNU timeout stops a tex command (exit $status)" test "$status" = 124
+# A compile folder as compileTex makes it for slot 1: created by node, handed to group texrun1, setgid 2770.
+slot1_dir=$(in_app 'd=$(mktemp -d /var/lib/compile/smoke-XXXXXX) && chgrp texrun1 "$d" && chmod 2770 "$d" && echo "$d"' || true)
+check "control: tex1 can work in its slot's folder" as tex1 "cd $slot1_dir && touch from-tex1"
+refused "tex2 cannot enter slot 1's folder" as tex2 "cd $slot1_dir"
+refused "tex2 cannot read slot 1's files" as tex2 "cat $slot1_dir/from-tex1"
+check "node can read what tex1 wrote there" in_app "test -r $slot1_dir/from-tex1"
+in_app "rm -rf $slot1_dir" || true
+
+status=$(in_app 'sudo -n -u tex1 /usr/bin/timeout 2 sleep 10; echo $?' || true)
+check "GNU timeout stops a tex1 command (exit $status)" test "$status" = 124
 check "no sleep process is left behind" test -z "$(processes | grep '^sleep 10' || true)"
 
 # The same command line the app uses, on documents that try to escape or never finish.
 tex_run() {
   docker exec -i "$APP" sh -s "$1" "$2" <<'SH'
-d=$(mktemp -d /var/lib/compile/smoke-XXXXXX) && chmod 2770 "$d" && cd "$d" || exit 99
+d=$(mktemp -d /var/lib/compile/smoke-XXXXXX) && chgrp texrun1 "$d" && chmod 2770 "$d" && cd "$d" || exit 99
 printf '%s\n' "$2" > doc.tex
-openout_any=p sudo -n -u tex -- /usr/bin/timeout -k 3 "$1" latexmk -norc -no-shell-escape -pdf \
+openout_any=p sudo -n -u tex1 -- /usr/bin/timeout -k 3 "$1" latexmk -norc -no-shell-escape -pdf \
   -interaction=nonstopmode -halt-on-error doc.tex >/dev/null 2>&1
 status=$?
 echo "$status $(grep -c "I can't write on file" doc.log 2>/dev/null)"
@@ -170,6 +190,58 @@ loop='\documentclass{article}\begin{document}\def\x{\x}\x\end{document}'
 read -r status _ <<<"$(tex_run 3s "$loop" || true)"
 check "GNU timeout stops a TeX loop (exit $status)" test "$status" = 124
 check "no TeX process is left behind" test -z "$(processes | grep -e '^pdflatex' -e 'latexmk' || true)"
+
+# --- Concurrent compiles run as different slot users ---
+# Records the real uid of every TeX process (not sudo, which runs as root for node) until told to stop.
+watch_tex_uids() {
+  docker exec "$APP" sh -c 'rm -f /tmp/smoke-stop; until [ -e /tmp/smoke-stop ]; do
+    for p in /proc/[0-9]*; do
+      # stderr first: a process that exits mid-scan makes the redirection itself fail.
+      case "$(tr "\0" " " 2>/dev/null < "$p/cmdline")" in
+        sudo*|*smoke-stop*) ;;
+        *latexmk*|pdflatex*) awk "/^Uid:/ { print \$2 }" "$p/status" 2>/dev/null ;;
+      esac
+    done
+  done | sort -u'
+}
+watch_tex_uids > "$WORK/tex-uids" &
+watcher=$!
+sleep 1
+pids=()
+for i in 1 2 3; do compile_as "burst-$i" > "$WORK/burst-$i.code" & pids+=($!); done
+wait "${pids[@]}"
+in_app 'touch /tmp/smoke-stop'
+wait "$watcher" || true
+codes=$(for i in 1 2 3; do cat "$WORK/burst-$i.code"; echo; done | tr '\n' ' ')
+check "three concurrent compiles all succeed (HTTP $codes)" test "$codes" = "200 200 200 "
+expected_uids=$(in_app 'id -u tex1; id -u tex2' | sort -u | tr '\n' ' ')
+seen_uids=$(tr '\n' ' ' < "$WORK/tex-uids")
+check "TeX ran as tex1 and tex2, and as no one else (uids seen: ${seen_uids:-none})" test "$seen_uids" = "$expected_uids"
+check "compile folders were cleaned up after the burst" test -z "$(in_app 'ls -A /var/lib/compile')"
+
+# --- The compile queue turns a burst away once 8 are waiting ---
+# COMPILE_CONCURRENCY 2 running + 8 waiting: of 14 at once, at least one must be refused, and only with a 503.
+pids=()
+for i in $(seq 14); do compile_as "flood-$i" > "$WORK/flood-$i.code" & pids+=($!); done
+wait "${pids[@]}"
+ok=0
+busy=0
+busy_ok=0
+for i in $(seq 14); do
+  case "$(cat "$WORK/flood-$i.code")" in
+    200) ok=$((ok + 1)) ;;
+    503)
+      busy=$((busy + 1))
+      if grep -qi '^retry-after: 10' "$WORK/flood-$i.headers" && [ "$(json "$WORK/flood-$i.body" details.retryAfter)" = 10 ]; then
+        busy_ok=$((busy_ok + 1))
+      fi
+      ;;
+  esac
+done
+check "a burst of 14 compiles: $ok succeeded, $busy turned away, none failed otherwise" test $((ok + busy)) = 14 -a "$ok" -ge 10
+check "the queue turned at least one away with a 503" test "$busy" -ge 1
+check "every 503 carries Retry-After: 10 and details.retryAfter" test "$busy_ok" = "$busy"
+check "compile folders were cleaned up after the flood" test -z "$(in_app 'ls -A /var/lib/compile')"
 
 echo
 if [ "$FAILURES" -gt 0 ]; then

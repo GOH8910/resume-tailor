@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
 import { applications } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { AppError } from "@/lib/errors";
@@ -28,6 +28,12 @@ export class ApplicationRepository {
       .where(eq(applications.userId, userId))
       .orderBy(desc(sql`${applications.data}->>'createdAt' collate "C"`), desc(applications.id));
     return rows.map((r) => ({ ...r, hasPdf: Boolean(r.hasPdf) }));
+  }
+
+  async count(userId: string): Promise<number> {
+    const db = await this.db();
+    const [row] = await db.select({ n: count() }).from(applications).where(eq(applications.userId, userId));
+    return row?.n ?? 0;
   }
 
   async get(userId: string, id: string): Promise<Application> {

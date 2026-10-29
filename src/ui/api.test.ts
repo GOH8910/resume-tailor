@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError } from "./api";
+import { api, ApiError, retryAfterOf } from "./api";
 
 function respond(status: number, body: unknown) {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(body, { status })));
@@ -29,5 +29,21 @@ describe("api", () => {
   it("throws on a 401 without a window (server rendering)", async () => {
     respond(401, { error: "Sign in to continue" });
     await expect(api.get("/api/bank")).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe("retryAfterOf", () => {
+  it("reads details.retryAfter from a 429 or a 503", () => {
+    expect(retryAfterOf(new ApiError("Too many tailor requests", 429, { retryAfter: 360 }))).toBe(360);
+    expect(retryAfterOf(new ApiError("Server busy", 503, { retryAfter: 10 }))).toBe(10);
+    expect(retryAfterOf(new ApiError("Server busy", 503, { retryAfter: 2.2 }))).toBe(3);
+  });
+
+  it("is null for anything else", () => {
+    expect(retryAfterOf(new ApiError("The AI service is not configured on this server", 503, null))).toBeNull();
+    expect(retryAfterOf(new ApiError("Daily ad limit", 429, { reason: "account", resetsAt: "x" }))).toBeNull();
+    expect(retryAfterOf(new ApiError("Not enough credits", 402, { retryAfter: 5 }))).toBeNull();
+    expect(retryAfterOf(new ApiError("Too many", 429, { retryAfter: "5" }))).toBeNull();
+    expect(retryAfterOf(new Error("network"))).toBeNull();
   });
 });

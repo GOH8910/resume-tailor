@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { ResumeStateSchema } from "@/applications/schema";
+import { ResumeStateInputSchema } from "@/applications/schema";
 import { applications } from "@/lib/deps";
 import { handle, readJson, requireUser } from "@/lib/http";
 
 type Context = { params: Promise<{ id: string }> };
 
-const UpdateSchema = z.object({ resume: ResumeStateSchema });
+const UpdateSchema = z.object({ resume: ResumeStateInputSchema });
 
 export async function GET(request: Request, { params }: Context) {
   return handle(async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "./errors";
-import { clientIp, handle, requireUser } from "./http";
+import { clientIp, handle, ipKey, MAX_BODY_BYTES, readJson, requireUser } from "./http";
 
 // The real instance opens the database; these tests only need getSession.
 const getSession = vi.hoisted(() => vi.fn());
@@ -43,6 +43,77 @@ describe("handle", () => {
     });
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe("Application not found");
+  });
+
+  it("sets Retry-After from details.retryAfter, so 429s and 503s say when to come back", async () => {
+    const res = await handle(async () => {
+      throw new AppError("Too many tailor requests, try again in 7 s", 429, { retryAfter: 7 });
+    });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("7");
+    expect(await res.json()).toEqual({ error: "Too many tailor requests, try again in 7 s", details: { retryAfter: 7 } });
+  });
+
+  it("sets no Retry-After without a numeric details.retryAfter", async () => {
+    const res = await handle(async () => {
+      throw new AppError("Not enough credits", 402, { credits: 0, needed: 2 });
+    });
+    expect(res.headers.get("Retry-After")).toBeNull();
+  });
+});
+
+describe("readJson", () => {
+  const post = (body: BodyInit, headers: Record<string, string> = {}) =>
+    new Request("http://localhost/api/bank", { method: "PUT", body, headers });
+
+  it("parses a JSON body", async () => {
+    expect(await readJson(post(JSON.stringify({ a: 1 })))).toEqual({ a: 1 });
+  });
+
+  it("ignores a leading byte-order mark, like request.json()", async () => {
+    expect(await readJson(post("\uFEFF" + JSON.stringify({ a: 1 })))).toEqual({ a: 1 });
+  });
+
+  it("answers 400 for an empty or malformed body", async () => {
+    await expect(readJson(post(""))).rejects.toMatchObject({ status: 400, message: "Request body must be valid JSON" });
+    await expect(readJson(post("{"))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("accepts a body of exactly the limit", async () => {
+    const body = JSON.stringify("x".repeat(98));
+    expect(body.length).toBe(100);
+    expect(await readJson(post(body), 100)).toBe("x".repeat(98));
+  });
+
+  it("refuses a declared content-length over the limit with a 413, before reading", async () => {
+    const req = post("{}", { "content-length": String(MAX_BODY_BYTES + 1) });
+    await expect(readJson(req)).rejects.toMatchObject({ status: 413, message: "Request body too large" });
+    expect(req.bodyUsed).toBe(false);
+  });
+
+  it("counts the bytes it reads rather than trusting the header", async () => {
+    const body = JSON.stringify("x".repeat(99));
+    await expect(readJson(post(body), 100)).rejects.toMatchObject({ status: 413 });
+    await expect(readJson(post(body, { "content-length": "2" }), 100)).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("counts bytes, not characters", async () => {
+    // 50 two-byte characters plus the quotes: 52 characters, 102 bytes.
+    await expect(readJson(post(JSON.stringify("é".repeat(50))), 100)).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("reads a streamed body in chunks and stops at the limit", async () => {
+    const chunk = new TextEncoder().encode("[" + "1,".repeat(40));
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(chunk);
+      },
+    });
+    const req = new Request("http://localhost/api/bank", { method: "PUT", body: stream, duplex: "half" } as RequestInit);
+    await expect(readJson(req, 200)).rejects.toMatchObject({ status: 413 });
+    expect(pulled).toBeLessThan(10);
   });
 });
 
@@ -97,5 +168,32 @@ describe("clientIp", () => {
   it("is 'unknown' without either header", () => {
     expect(from({})).toBe("unknown");
     expect(from({ "fly-client-ip": " ", "x-forwarded-for": "" })).toBe("unknown");
+  });
+
+  it("buckets an IPv6 client by its /64, the block one subscriber usually gets", () => {
+    expect(from({ "fly-client-ip": "2001:db8:1:2:aaaa::1" })).toBe("2001:db8:1:2::/64");
+    expect(from({ "x-forwarded-for": "2001:db8:1:2:bbbb::2" })).toBe("2001:db8:1:2::/64");
+  });
+});
+
+describe("ipKey", () => {
+  it("leaves IPv4 addresses and non-addresses as they are", () => {
+    expect(ipKey("203.0.113.1")).toBe("203.0.113.1");
+    expect(ipKey("unknown")).toBe("unknown");
+    expect(ipKey("not:an:address")).toBe("not:an:address");
+  });
+
+  it("keeps the first four hextets of an IPv6 address, normalised", () => {
+    expect(ipKey("2001:db8:1:2:3:4:5:6")).toBe("2001:db8:1:2::/64");
+    expect(ipKey("2001:0DB8:0001:0002:ffff::1")).toBe("2001:db8:1:2::/64");
+    expect(ipKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipKey("::1")).toBe("0:0:0:0::/64");
+    expect(ipKey("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+    expect(ipKey("64:ff9b::203.0.113.1")).toBe("64:ff9b:0:0::/64");
+  });
+
+  it("unwraps an IPv4-mapped IPv6 address to the IPv4 address", () => {
+    expect(ipKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(ipKey("::FFFF:cb00:7109")).toBe("203.0.113.9");
   });
 });

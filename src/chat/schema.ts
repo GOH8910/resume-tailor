@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_CHARS, MAX_CHAT_MESSAGES } from "@/lib/input-caps";
 
 // Claude's structured reply for the chat box. The API limits schemas to 16 union-typed
 // fields, so nothing here is nullable: an unused string is "", an unused array is [].
@@ -71,10 +72,18 @@ export const ChatResultSchema = z.object({
   resumeChanges: z.array(ResumeChangeSchema),
 });
 
-export const ChatMessageSchema = z.object({
-  role: z.enum(["user", "assistant"]),
-  content: z.string(),
-});
+export const ChatMessageSchema = z
+  .object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string(),
+  })
+  .refine(({ role, content }) => content.length <= (role === "user" ? MAX_CHARS.chatMessage : MAX_CHARS.chatReply), {
+    path: ["content"],
+    message: `A message can be at most ${MAX_CHARS.chatMessage} characters`,
+  });
+
+/** The conversation a chat request carries: the client sends only the most recent messages. */
+export const ChatMessagesSchema = z.array(ChatMessageSchema).min(1).max(MAX_CHAT_MESSAGES);
 
 export type BankChange = z.infer<typeof BankChangeSchema>;
 export type ResumeChange = z.infer<typeof ResumeChangeSchema>;

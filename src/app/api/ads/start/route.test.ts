@@ -10,6 +10,7 @@ vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<objec
 
 import { parseEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
+import { clearLimits } from "@/lib/limits";
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
@@ -30,6 +31,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   credits.startAdSession.mockResolvedValue({ sessionId: SESSION_ID });
   useEnv({ APP_MODE: "hosted", AD_PROVIDER: "test" });
+  clearLimits();
 });
 
 describe("POST /api/ads/start", () => {
@@ -68,5 +70,21 @@ describe("POST /api/ads/start", () => {
     const res = await startAs("free");
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "Daily ad limit reached", details });
+  });
+});
+
+describe("POST /api/ads/start limits", () => {
+  it("answers the 21st start in an hour with a 429, opening no session", async () => {
+    for (let i = 0; i < 20; i++) expect((await startAs("free")).status).toBe(200);
+    credits.startAdSession.mockClear();
+    const res = await startAs("free");
+    expect(res.status).toBe(429);
+    expect((await res.json()).details).toEqual({ retryAfter: 180 });
+    expect(credits.startAdSession).not.toHaveBeenCalled();
+  });
+
+  it("keys the per-IP caps on an IPv6 client's /64", async () => {
+    await startAs("free", { "fly-client-ip": "2001:db8:1:2:aaaa::1" });
+    expect(credits.startAdSession).toHaveBeenCalledWith(expect.objectContaining({ ip: "2001:db8:1:2::/64" }));
   });
 });

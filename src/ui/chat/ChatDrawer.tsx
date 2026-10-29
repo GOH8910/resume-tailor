@@ -3,15 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { Bank } from "@/bank/schema";
 import type { ChatMessage, ResumeChange } from "@/chat/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { creditProblem, creditsLabel } from "@/ui/ads/messages";
 import { RewardedAdButton } from "@/ui/ads/RewardedAdButton";
-import { api, errorMessage } from "@/ui/api";
+import { api, errorMessage, retryAfterOf } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { FOCUS_RING } from "@/ui/Button";
+import { useCountdown } from "@/ui/countdown";
 import { useMe } from "@/ui/useMe";
 import { chatStorageKey } from "./chat-storage";
 import { useChatContext } from "./ChatProvider";
+import { recentMessages } from "./recent-messages";
 
 type Turn = ChatMessage & { applied?: string[]; warnings?: string[] };
 
@@ -66,6 +69,10 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
   const [paused, setPaused] = useState<string | null>(null);
   // The server's numbers from a 402, shown until the balance covers the cost again.
   const [shortBy, setShortBy] = useState<{ credits: number; needed: number } | null>(null);
+  // The wait a 429 asked for, kept for the screen-reader text while the countdown runs.
+  const [limitedFor, setLimitedFor] = useState<number | null>(null);
+  const countdown = useCountdown();
+  const limited = countdown.secondsLeft > 0;
   const chargesCredits = me?.policy.chargesCredits ?? false;
   const cost = me?.creditsPerChatMessage ?? 0;
   const credits = me?.credits ?? 0;
@@ -92,7 +99,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
 
   async function send() {
     const content = input.trim();
-    if (!content || busy || short) return;
+    if (!content || busy || short || limited) return;
     const history: Turn[] = [...turns, { role: "user", content }];
     setTurns(history);
     setInput("");
@@ -105,7 +112,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       const res = await api.send<ChatResponse>("/api/chat", "POST", {
         applicationId: handlers?.applicationId,
         resume: handlers?.getResume?.() ?? undefined,
-        messages: history.map(({ role, content: text }) => ({ role, content: text })),
+        messages: recentMessages(history),
       });
       let applied = res.applied;
       let warnings = res.warnings;
@@ -118,11 +125,17 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       setTurns((t) => [...t, { role: "assistant", content: res.reply, applied, warnings }]);
       if (res.credits !== undefined) setCredits(res.credits);
     } catch (err) {
+      const wait = retryAfterOf(err);
       const problem = creditProblem(err);
-      if (problem) {
+      if (wait !== null || problem) {
         // Claude never saw the message: take it back out of the conversation so it can be sent again later.
         setTurns(turns);
         setInput(content);
+      }
+      if (wait !== null) {
+        setLimitedFor(wait);
+        countdown.start(wait);
+      } else if (problem) {
         if (problem.kind === "short") {
           setCredits(problem.credits);
           setShortBy({ credits: problem.credits, needed: problem.needed });
@@ -197,6 +210,14 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
           </p>
         )}
         {paused && <Banner tone="warn">{paused}</Banner>}
+        {limited && (
+          <Banner tone="warn">
+            <span className="sr-only">Too many requests, try again in {limitedFor} seconds.</span>
+            <span aria-hidden="true">
+              Too many requests, try again in <span className="tabular-nums">{countdown.secondsLeft}</span> s
+            </span>
+          </Banner>
+        )}
       </div>
 
       {short && (
@@ -228,6 +249,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
             }
           }}
           rows={3}
+          maxLength={MAX_CHARS.chatMessage}
           placeholder="Type or paste here. Enter to send, Shift+Enter for a new line."
           aria-label="Message"
           className="w-full resize-none rounded-md border border-rule bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
@@ -239,7 +261,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
               {creditsLabel(cost)} per message · you have {credits}
             </p>
           )}
-          <Button type="submit" variant="primary" size="sm" disabled={busy || short || !input.trim()}>
+          <Button type="submit" variant="primary" size="sm" disabled={busy || short || limited || !input.trim()}>
             {busy ? "Sending…" : "Send"}
           </Button>
         </div>

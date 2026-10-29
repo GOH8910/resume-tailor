@@ -5,9 +5,10 @@ const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const runTailor = vi.hoisted(() => vi.fn());
 const usage = vi.hoisted(() => ({ isFreeUsagePaused: vi.fn(), record: vi.fn() }));
 const credits = vi.hoisted(() => ({ charge: vi.fn(), refund: vi.fn() }));
+const applications = vi.hoisted(() => ({ count: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications: {} }));
+vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
 vi.mock("@/tailor/tailor", async (importOriginal) => ({ ...(await importOriginal<object>()), runTailor }));
@@ -22,6 +23,7 @@ import { attachUsage } from "@/billing/usage-error";
 import { ModelCallError } from "@/lib/anthropic";
 import { parseEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
+import { clearLimits } from "@/lib/limits";
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
@@ -49,7 +51,57 @@ beforeEach(() => {
   usage.record.mockResolvedValue(undefined);
   credits.charge.mockResolvedValue({ credits: 0, eventId: "charge-1" });
   credits.refund.mockResolvedValue({ credits: 2 });
+  applications.count.mockResolvedValue(0);
   useEnv({ APP_MODE: "hosted" });
+  clearLimits();
+});
+
+describe("POST /api/tailor limits", () => {
+  it("answers the 11th tailor in an hour with a 429 and the wait, before any work", async () => {
+    for (let i = 0; i < 10; i++) expect((await tailorAs("free", job)).res.status).toBe(201);
+    vi.clearAllMocks();
+    const { res } = await tailorAs("unlimited", job);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("360");
+    expect(await res.json()).toEqual({ error: "Too many tailor requests, try again in 360 s", details: { retryAfter: 360 } });
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(runTailor).not.toHaveBeenCalled();
+  });
+
+  it("does not limit a self-hosted server", async () => {
+    useEnv({ APP_MODE: "selfhost" });
+    for (let i = 0; i < 12; i++) expect((await tailorAs("free", job)).res.status).toBe(201);
+  });
+
+  it("refuses a 201st saved resume with a 409 before charging", async () => {
+    applications.count.mockResolvedValue(200);
+    const { res } = await tailorAs("free", job);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("You have 200 saved resumes; delete some first");
+    expect(applications.count).toHaveBeenCalledWith("u1");
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(runTailor).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["jobDescription", 20_000],
+    ["company", 200],
+    ["roleTitle", 200],
+  ])("refuses a %s over %i characters with a 400 before charging", async (field, max) => {
+    expect((await tailorAs("free", { ...job, [field]: "x".repeat(max) })).res.status).toBe(201);
+    const { res } = await tailorAs("free", { ...job, [field]: "x".repeat(max + 1) });
+    expect(res.status).toBe(400);
+    expect(credits.charge).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a body over 1 MB with a 413", async () => {
+    getSession.mockResolvedValueOnce(ADA);
+    plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+    const body = JSON.stringify({ ...job, jobDescription: "x".repeat(1_000_001) });
+    const res = await POST(new Request("http://localhost/api/tailor", { method: "POST", body }));
+    expect(res.status).toBe(413);
+    expect(runTailor).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/tailor model policy", () => {

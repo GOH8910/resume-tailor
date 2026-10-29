@@ -124,8 +124,17 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 - **Rotate a secret**: `fly secrets set NAME='new value'` restarts the machine with it. For API keys, create
   the new key, set it, then revoke the old one. A new `BETTER_AUTH_SECRET` signs everyone out.
 - **Health**: `/api/health` (Fly, every 30 s) checks that the process answers and latexmk runs. latexmk runs
-  the way compiles do, through sudo as `tex`, so a broken sudo rule shows as `"latexmk":"error: …"` with a
-  503. `?deep=1` also runs `select 1` against the database.
+  the way compiles do, through sudo as the last compile slot's user (`tex2` by default), so a broken sudo rule,
+  or a `COMPILE_CONCURRENCY` above the TeX users in the image, shows as `"latexmk":"error: …"` with a 503 and
+  fails the deploy. `?deep=1` also runs `select 1` against the database.
+- **Limits** (hosted mode, in memory, reset by a restart): per account, tailor 10/hour, chat 30/10 min,
+  compile 30/10 min, bank saves 60/10 min, new resumes 30/10 min, ad starts 20/hour; magic links 5/hour and
+  sign-in verifications 20/hour per IP (Better Auth, production only). A refusal is a 429 with
+  `details.retryAfter` and a `Retry-After` header. At most 200 saved resumes per account (409), JSON bodies up
+  to 1 MB and banks up to 300,000 characters (413). Beyond 2 running and 8 waiting compiles, the API answers 503
+  with `Retry-After: 10` and the review screen retries once.
+- **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
+  `COMPILE_CONCURRENCY` in `fly.toml` to at most N.
 - **Deploys during a compile**: `kill_timeout = 65` lets a stopping machine finish a compile (up to 60 s).
 - **Migrations** run at boot through the pool, so every statement is bounded by its 10 s `query_timeout`.
   `npm run db:migrate` uses the same pool and limit. A future migration that needs longer must be applied
@@ -154,8 +163,11 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 
 ## 9. Residual risks
 
-- Both compile slots run as the same `tex` user. If LaTeX escaping ever failed, one compile could read a
-  concurrent compile's folder through `/proc`. Per-slot users are planned before public launch.
+- Each compile slot runs TeX as its own user (`tex1`, `tex2`) in a folder only that user and the server can
+  enter, so one running compile cannot reach another's files. Compiles that run one after the other in the same
+  slot share a user; each removes its folder when it ends, so nothing of an earlier one is left to read.
+- The rate limits are in memory on one machine; a restart or deploy resets them, and a second machine would
+  double them.
 - With `SIGNUP_EMAILS` unset, sign-up is open to anyone.
 - The magic-link throttle (5 links per address per hour) is in memory: per process, and reset by every
   restart and deploy.

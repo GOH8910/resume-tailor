@@ -4,6 +4,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { moveItem } from "@/applications/edit";
 import { newId } from "@/bank/ids";
 import { type Bullet, type Entry, SECTION_LABELS, type SectionKey } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { Button } from "@/ui/Button";
 import { Field, TextArea, TextInput } from "@/ui/Field";
 import { ReorderControls } from "@/ui/ReorderControls";
@@ -177,6 +178,7 @@ function BulletText({ label, text, pinned, autoFocus, onChange }: BulletTextProp
         className="block resize-none"
         aria-label={label}
         autoFocus={autoFocus}
+        maxLength={MAX_CHARS.bullet}
         value={text}
         placeholder="New bullet"
         onChange={(e) => onChange(e.target.value)}

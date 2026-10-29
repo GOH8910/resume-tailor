@@ -127,15 +127,22 @@ allowances (`securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
 
 ## Limits and hardening (hosted mode)
 
-- Burst limits, in-memory per machine (`src/lib/rate-limit.ts`, token buckets keyed by user id or
-  IP): tailor 10/hour, chat 30/10 min, compile 30/10 min, bank writes 60/10 min, ad start 20/hour,
-  magic link 5/hour per IP (spec'd in phase 1, not yet enforced beyond Better Auth's 5/min).
-  Responses: 429 with `retryAfter` seconds; the UI shows a countdown.
-- Request size: 1 MB JSON body cap in `readJson`; field caps in the zod schemas: job description
-  20k chars, bullet 600, summary 2k, bank 300 KB serialised, applications per account 200.
-- Compile queue: at most 8 waiting; beyond that 503 with `Retry-After: 10`.
-- One TeX uid and group per compile slot (`tex1`, `tex2`; `COMPILE_CONCURRENCY` ≤ number of users
-  created in the image), closing the phase 1 residual risk.
+- Burst limits, in-memory per machine (`src/lib/rate-limit.ts` token buckets, named in `src/lib/limits.ts`,
+  keyed by user id), applied in hosted mode only: tailor 10/hour, chat 30/10 min, compile 30/10 min, bank
+  writes 60/10 min, new resumes 30/10 min, ad start 20/hour. Magic links 5/hour and verifications 20/hour per
+  IP through Better Auth's `rateLimit.customRules` (production only), alongside the per-email throttle.
+  Responses: 429 `{ error, details: { retryAfter } }` (seconds) plus a `Retry-After` header; the tailor form
+  and the chat show a countdown.
+- Per-IP keys (the ad caps): IPv6 addresses count by their /64.
+- Request size, in every mode: 1 MB JSON body cap in `readJson` (413, counted while reading); field caps in
+  the request schemas (stored data is read uncapped): job description 20k chars, company and role title 200,
+  bullet 600, summary 2k, chat message 4k (Claude's replies in the history 16k), at most 20 messages per chat
+  request, bank 300,000 characters serialised (413), applications per account 200 (409).
+- Compile queue: at most 8 waiting; beyond that 503 `{ details: { retryAfter: 10 } }` with `Retry-After: 10`;
+  the review screen says "Server busy, retrying in 10 s" and retries once.
+- One TeX uid and group per compile slot (`tex1`/`texrun1`, `tex2`/`texrun2`; `LATEX_RUN_AS` is the user-name
+  prefix; `COMPILE_CONCURRENCY` ≤ the `COMPILE_SLOTS` users created in the image, asserted at build time and by
+  the health probe, which runs as the last slot's user), closing the phase 1 residual risk.
 - Fly runs one machine (`--ha=false`); all in-memory limits assume it.
 
 ## Account page
@@ -170,7 +177,7 @@ and a manual "pause free usage" toggle (`settings` table, one row).
 Every error body is `{ error, details }` (`handle()` in `src/lib/http.ts`), so the 402s are
 `{ error: "Not enough credits", details: { credits, needed } }` when credits are short and
 `{ error, details: { paused: true, reason, resumesAt } }` while free usage is paused (checked before any
-charge). Limits → 429 with `retryAfter`; the daily ad cap → 429 `{ error, details: { reason: "account" | "ip",
+charge). Limits → 429 `{ error, details: { retryAfter } }` with a `Retry-After` header; the daily ad cap → 429 `{ error, details: { reason: "account" | "ip",
 resetsAt } }`; ad grant rejected → 409 with a reason the UI can show ("ad closed too early" →
 `details.reason: "watched too briefly"`, or "Ad session is not pending"). Claude failure after charging → the
 charge is refunded in the same request, any usage Anthropic billed is still recorded, and the client gets the

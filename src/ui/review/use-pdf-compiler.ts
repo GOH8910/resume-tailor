@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ResumeState } from "@/applications/schema";
 import { ApiError, compilePdf, errorMessage } from "@/ui/api";
+import { retryOnceWhenBusy } from "./busy-retry";
 import { createLatestRunner } from "./latest-runner";
 
 export type Preview = { url: string; pages: number };
@@ -11,7 +12,8 @@ type Compile = (state: ResumeState) => void;
 /**
  * Owns the PDF preview for one application. `compile` can be called as often as edits land: compiles
  * run one at a time and a burst collapses into the latest state. The previous preview stays on screen
- * until the new one is ready, and a failed compile keeps it while showing the LaTeX error.
+ * until the new one is ready, and a failed compile keeps it while showing the LaTeX error. When the server's
+ * compile queue is full it says so and tries once more after the wait the server asked for.
  */
 export function usePdfCompiler(applicationId: string) {
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -26,7 +28,12 @@ export function usePdfCompiler(applicationId: string) {
     runner.current = createLatestRunner<ResumeState>(async (state) => {
       setCompiling(true);
       try {
-        const { blob, pages } = await compilePdf(state, applicationId);
+        const { blob, pages } = await retryOnceWhenBusy(
+          () => compilePdf(state, applicationId),
+          (seconds) => {
+            if (active) setProblem({ message: `Server busy, retrying in ${seconds} s` });
+          },
+        );
         if (!active) return;
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         previewUrl = URL.createObjectURL(blob);

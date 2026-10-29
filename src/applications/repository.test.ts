@@ -115,4 +115,13 @@ describe("ApplicationRepository", () => {
     expect((await repo.get(USER, OLDER)).company).toBe("Acme");
     expect((await repo.get(OTHER, OLDER)).company).toBe("Globex");
   });
+
+  it("counts one user's applications only", async () => {
+    expect(await repo.count(USER)).toBe(0);
+    await repo.save(USER, app(OLDER, "2026-10-01T00:00:00.000Z"));
+    await repo.save(USER, app(NEWER, "2026-10-02T00:00:00.000Z"));
+    await repo.save(OTHER, app(OLDER, "2026-10-01T00:00:00.000Z"));
+    expect(await repo.count(USER)).toBe(2);
+    expect(await repo.count(OTHER)).toBe(1);
+  });
 });

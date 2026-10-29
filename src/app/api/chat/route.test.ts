@@ -22,6 +22,7 @@ import { attachUsage } from "@/billing/usage-error";
 import { ModelCallError } from "@/lib/anthropic";
 import { parseEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
+import { clearLimits } from "@/lib/limits";
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
@@ -50,6 +51,27 @@ beforeEach(() => {
   credits.charge.mockResolvedValue({ credits: 0, eventId: "charge-1" });
   credits.refund.mockResolvedValue({ credits: 1 });
   useEnv({ APP_MODE: "hosted" });
+  clearLimits();
+});
+
+describe("POST /api/chat limits", () => {
+  it("answers the 31st message in 10 minutes with a 429 before charging", async () => {
+    for (let i = 0; i < 30; i++) expect((await chatAs("free", { messages })).res.status).toBe(200);
+    vi.clearAllMocks();
+    const { res } = await chatAs("free", { messages });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "Too many chat requests, try again in 20 s", details: { retryAfter: 20 } });
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(runChat).not.toHaveBeenCalled();
+  });
+
+  it("refuses a message over 4,000 characters and a conversation over 20 messages before charging", async () => {
+    const long = [{ role: "user", content: "x".repeat(4_001) }];
+    expect((await chatAs("free", { messages: long })).res.status).toBe(400);
+    const many = Array.from({ length: 21 }, () => ({ role: "user", content: "hi" }));
+    expect((await chatAs("free", { messages: many })).res.status).toBe(400);
+    expect(credits.charge).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/chat model policy", () => {

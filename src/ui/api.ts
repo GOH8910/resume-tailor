@@ -55,6 +55,13 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
 
+/** The seconds a 429 (rate limit) or 503 (server busy) asks the client to wait, from details.retryAfter, or null. */
+export function retryAfterOf(err: unknown): number | null {
+  if (!(err instanceof ApiError) || (err.status !== 429 && err.status !== 503)) return null;
+  const value = (err.details as { retryAfter?: unknown } | null | undefined)?.retryAfter;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.ceil(value) : null;
+}
+
 export type CompiledPdf = { blob: Blob; pages: number };
 
 /** Compiles the resume state to a PDF. Throws ApiError (details = LaTeX log) on failure. */

@@ -1,22 +1,23 @@
 import { z } from "zod";
-import { ResumeStateSchema } from "@/applications/schema";
+import { ResumeStateInputSchema } from "@/applications/schema";
 import { chooseModel } from "@/billing/plan";
 import { currentPolicy } from "@/billing/policy";
 import { AnthropicChatModel } from "@/chat/anthropic-chat-model";
 import { checkChatMessages, runChat } from "@/chat/chat";
-import { ChatMessageSchema } from "@/chat/schema";
+import { ChatMessagesSchema } from "@/chat/schema";
 import { runPaidCall } from "@/credits/money-path";
 import { hasApiKey } from "@/lib/anthropic";
 import { applications, banks, credits, usage } from "@/lib/deps";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
+import { limitUser } from "@/lib/limits";
 import { MODEL_IDS } from "@/tailor/model";
 
 const ChatRequestSchema = z.object({
   applicationId: z.string().optional(),
-  resume: ResumeStateSchema.optional(),
-  messages: z.array(ChatMessageSchema).min(1),
+  resume: ResumeStateInputSchema.optional(),
+  messages: ChatMessagesSchema,
   // Honoured only for plans that do not pay in credits; see chooseModel.
   model: z.enum(MODEL_IDS).optional(),
 });
@@ -24,6 +25,7 @@ const ChatRequestSchema = z.object({
 export async function POST(request: Request) {
   return handle(async () => {
     const user = await requireUser(request);
+    limitUser("chat", user);
     if (!hasApiKey()) {
       throw new AppError("The AI service is not configured on this server", 503);
     }

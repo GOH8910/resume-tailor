@@ -9,6 +9,7 @@ import { type Bank, SECTION_KEYS } from "@/bank/schema";
 import { applyResumeChanges } from "@/chat/apply-resume";
 import type { ResumeChange } from "@/chat/schema";
 import { resolveLayout } from "@/latex/layout";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
@@ -272,6 +273,7 @@ function ApplicationReview({ applicationId }: Props) {
           <Field label="Summary paragraph">
             <TextArea
               rows={4}
+              maxLength={MAX_CHARS.summary}
               value={resume.summary}
               onChange={(e) => {
                 const summary = e.target.value;

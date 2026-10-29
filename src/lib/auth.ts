@@ -6,6 +6,7 @@ import { magicLink } from "better-auth/plugins";
 import { getDbSync } from "@/db/client";
 import { signupPlan } from "@/billing/plan";
 import * as schema from "@/db/schema";
+import { signInRateRules } from "./auth-rate-limit";
 import { banks, credits, plans } from "./deps";
 import { sendMagicLinkEmail } from "./email";
 import { env } from "./env";
@@ -49,6 +50,7 @@ function createAuth() {
     database: drizzleAdapter(getDbSync(), { provider: "pg", schema }),
     // Fly's proxy puts the real client IP in fly-client-ip; the rate limiter keys on it.
     advanced: { ipAddress: { ipAddressHeaders: ["fly-client-ip", "x-forwarded-for"] } },
+    rateLimit: { customRules: signInRateRules() },
     socialProviders:
       env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
         ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } }

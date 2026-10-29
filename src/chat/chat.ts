@@ -5,6 +5,7 @@ import type { Bank } from "@/bank/schema";
 import { attachUsage } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
+import { MAX_CHAT_MESSAGES } from "@/lib/input-caps";
 import { applyBankChanges } from "./apply-bank";
 import type { ChatModel } from "./model";
 import { buildChatSystemPrompt } from "./prompt";
@@ -28,9 +29,6 @@ export type ChatOutcome = {
   resumeChanges: ResumeChange[];
 };
 
-/** Keep the request bounded: Claude sees the bank every time, so old turns matter less. */
-const MAX_TURNS = 20;
-
 /** Refuses (400) a conversation that does not end with a user message. Routes call it before charging. */
 export function checkChatMessages(messages: ChatMessage[]): void {
   const last = messages[messages.length - 1];
@@ -39,7 +37,8 @@ export function checkChatMessages(messages: ChatMessage[]): void {
 
 /** One chat turn: what the client sees, and the tokens it used. */
 export async function runChat(input: ChatInput, deps: ChatDeps): Promise<{ outcome: ChatOutcome; usage: ModelUsage }> {
-  const messages = input.messages.slice(-MAX_TURNS);
+  // The route already caps the request; a caller that skips the route (tests, scripts) is held to the same bound.
+  const messages = input.messages.slice(-MAX_CHAT_MESSAGES);
   checkChatMessages(messages);
 
   const bank = await deps.banks.read(input.userId);

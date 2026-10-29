@@ -24,8 +24,11 @@ const Schema = z.object({
   EMAIL_FROM: z.string().default("Resume Tailor <signin@localhost>"),
   SIGNUP_EMAILS: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
-  LATEX_RUN_AS: z.string().optional(),
+  // A prefix: compile slot n (from 1) runs TeX as user `${LATEX_RUN_AS}${n}`, in a folder of group `${LATEX_RUN_AS}run${n}`.
+  LATEX_RUN_AS: blankAsUnset(z.string().regex(/^[a-z_][a-z0-9_-]*$/, "LATEX_RUN_AS must be a user-name prefix such as tex").optional()),
   COMPILE_ROOT: z.string().optional(),
+  // With LATEX_RUN_AS, at most the number of TeX users the image creates (the Dockerfile's COMPILE_SLOTS).
+  COMPILE_CONCURRENCY: blankAsUnset(z.coerce.number().int().min(1).default(2)),
   APP_MODE: z.enum(["hosted", "selfhost"]).optional(),
   ADMIN_EMAILS: z.string().optional(),
   AD_PROVIDER: z.enum(["none", "test", "google"]).default("none"),

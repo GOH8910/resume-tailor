@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SkillCategorySchema } from "@/bank/schema";
+import { CappedBulletTextSchema, CappedSummarySchema, SkillCategorySchema } from "@/bank/schema";
 import { LayoutSchema } from "@/latex/layout";
 import { APPLICATION_ID } from "./ids";
 
@@ -24,6 +24,21 @@ export const ResumeStateSchema = z.object({
   skills: z.array(SkillCategorySchema),
   /** Page margins and font size for this resume; absent means the bank default. */
   layout: LayoutSchema.optional(),
+});
+
+const CappedResumeEntrySchema = ResumeEntrySchema.extend({
+  bullets: z.array(ResumeBulletSchema.extend({ text: CappedBulletTextSchema })),
+});
+
+/**
+ * A resume as a client may send it (review edits, preview compiles, chat context): ResumeStateSchema with caps on
+ * the text the user edits. `original` is the bank's text, which may predate the caps. Stored resumes are uncapped.
+ */
+export const ResumeStateInputSchema = ResumeStateSchema.extend({
+  summary: CappedSummarySchema,
+  education: z.array(CappedResumeEntrySchema),
+  experience: z.array(CappedResumeEntrySchema),
+  projects: z.array(CappedResumeEntrySchema),
 });
 
 export const ApplicationSchema = z.object({
