@@ -31,11 +31,16 @@ export type ChatOutcome = {
 /** Keep the request bounded: Claude sees the bank every time, so old turns matter less. */
 const MAX_TURNS = 20;
 
+/** Refuses (400) a conversation that does not end with a user message. Routes call it before charging. */
+export function checkChatMessages(messages: ChatMessage[]): void {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user" || !last.content.trim()) throw new AppError("The last message must be from the user", 400);
+}
+
 /** One chat turn: what the client sees, and the tokens it used. */
 export async function runChat(input: ChatInput, deps: ChatDeps): Promise<{ outcome: ChatOutcome; usage: ModelUsage }> {
   const messages = input.messages.slice(-MAX_TURNS);
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== "user" || !last.content.trim()) throw new AppError("The last message must be from the user", 400);
+  checkChatMessages(messages);
 
   const bank = await deps.banks.read(input.userId);
   let application: Application | undefined;

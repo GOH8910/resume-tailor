@@ -89,6 +89,8 @@ describe("CreditsService ad sessions", () => {
     expect(await credits.balance(ADA)).toBe(1);
   });
 
+  // PGlite has one connection and runs transactions one after another, so this checks the logic (the second
+  // grant sees the session already granted), not Postgres row locking under real parallelism.
   it("grants a session once when two grants race", async () => {
     const credits = service();
     const { sessionId } = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);
@@ -179,6 +181,20 @@ describe("CreditsService daily ad caps", () => {
     expect(await credits.balance(ADA)).toBe(2);
   });
 
+  it("re-checks the IP cap when granting, across accounts", async () => {
+    const credits = service({ perIpPerDay: 1 });
+    const ada = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);
+    const bob = await credits.startAdSession({ userId: BOB, ip: HOME, provider: "test" }, NOON);
+
+    await credits.grantAd({ userId: ADA, sessionId: ada.sessionId }, later(NOON, 7));
+    await expect(credits.grantAd({ userId: BOB, sessionId: bob.sessionId }, later(NOON, 7))).rejects.toMatchObject({
+      status: 429,
+      details: { reason: "ip", resetsAt: "2026-10-30T00:00:00.000Z" },
+    });
+    expect(await session(bob.sessionId)).toMatchObject({ status: "rejected", rejectReason: "daily limit reached" });
+    expect(await credits.balance(BOB)).toBe(0);
+  });
+
   it("refuses every ad when a cap is 0", async () => {
     await expect(service({ perIpPerDay: 0 }).startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON)).rejects.toMatchObject({
       status: 429,
@@ -216,7 +232,10 @@ describe("CreditsService.grantVerifiedAd", () => {
     const first = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "google" }, NOON);
     const second = await credits.startAdSession({ userId: BOB, ip: CAFE, provider: "google" }, NOON);
     await credits.grantVerifiedAd({ sessionId: first.sessionId, transactionId: "tx-1" }, later(NOON, 30));
-    await expect(credits.grantVerifiedAd({ sessionId: second.sessionId, transactionId: "tx-1" }, later(NOON, 30))).rejects.toThrow();
+    // The SSV route recognises this shape (drizzle's wrapper, the driver's error as its cause) as a replay.
+    await expect(credits.grantVerifiedAd({ sessionId: second.sessionId, transactionId: "tx-1" }, later(NOON, 30))).rejects.toMatchObject({
+      cause: { code: "23505", constraint: "ad_sessions_transaction_id_unique" },
+    });
     expect(await session(second.sessionId)).toMatchObject({ status: "started" });
     expect(await credits.balance(BOB)).toBe(0);
   });

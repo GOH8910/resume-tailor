@@ -62,7 +62,10 @@ export function createSsvKeyFetcher(fetchImpl: Fetch = (url, init) => fetch(url,
   async function load(url: string): Promise<SsvKey[]> {
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`Could not fetch the SSV keys from ${url}: HTTP ${res.status}`);
-    return KeysSchema.parse(await res.json()).keys;
+    const parsed = KeysSchema.safeParse(await res.json());
+    // A plain Error, not the ZodError, so handle() answers 500 (the network retries) rather than a client 400.
+    if (!parsed.success) throw new Error(`${url} is not a valid SSV keys document: ${parsed.error.message}`);
+    return parsed.data.keys;
   }
 
   return function fetchSsvKeys(url: string, now = Date.now()): Promise<SsvKey[]> {

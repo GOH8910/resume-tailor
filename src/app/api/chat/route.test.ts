@@ -10,7 +10,7 @@ vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
 vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications: {} }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
-vi.mock("@/chat/chat", () => ({ runChat }));
+vi.mock("@/chat/chat", async (importOriginal) => ({ ...(await importOriginal<object>()), runChat }));
 // The real class builds an Anthropic client, which needs an API key.
 vi.mock("@/chat/anthropic-chat-model", () => ({
   AnthropicChatModel: class {
@@ -125,6 +125,15 @@ describe("POST /api/chat credits", () => {
     expect(res.status).toBe(200);
     expect(credits.charge).toHaveBeenCalledExactlyOnceWith({ userId: "u1", amount: 2, kind: "chat", ref: "app-1" });
     expect(credits.charge.mock.invocationCallOrder[0]).toBeLessThan(runChat.mock.invocationCallOrder[0]);
+  });
+
+  it("refuses a conversation that does not end with a user message with a 400 before charging or calling Claude", async () => {
+    const { res } = await chatAs("free", { messages: [...messages, { role: "assistant", content: "Done" }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("The last message must be from the user");
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(credits.refund).not.toHaveBeenCalled();
+    expect(runChat).not.toHaveBeenCalled();
   });
 
   it("answers a short balance with a 402 naming the balance and the cost, without calling Claude", async () => {

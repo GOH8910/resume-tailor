@@ -117,6 +117,8 @@ describe("CreditsService.refund", () => {
 });
 
 describe("CreditsService.grantSignup", () => {
+  // PGlite has one connection and runs transactions one after another, so the parallel pair checks the logic
+  // (the second grant sees the first's row), not Postgres row locking under real parallelism.
   it("grants the starting credits once, however often it runs", async () => {
     await credits.grantSignup(ADA, 4);
     await credits.grantSignup(ADA, 4);
@@ -152,6 +154,39 @@ describe("CreditsService.history", () => {
       { id: expect.any(String), kind: "chat", amount: -1, ref: "app-1", createdAt: new Date("2026-10-29T12:00:00Z") },
       { id: expect.any(String), kind: "tailor", amount: -2, ref: null, createdAt: new Date("2026-10-29T11:00:00Z") },
     ]);
+  });
+});
+
+describe("CreditsService.history ties", () => {
+  it("breaks ties between rows written at the same instant by id, descending, so pages are stable", async () => {
+    const at = new Date("2026-10-29T12:00:00Z");
+    await credits.grantSignup(ADA, 5, at);
+    await credits.charge({ userId: ADA, amount: 1, kind: "chat" }, at);
+    await credits.charge({ userId: ADA, amount: 1, kind: "chat" }, at);
+    const ids = (await credits.history(ADA, 10)).map((row) => row.id);
+    expect(ids).toEqual([...ids].sort().reverse());
+  });
+});
+
+describe("the ledger invariant", () => {
+  it("keeps the cached balance equal to the sum of the account's ledger rows through every kind of change", async () => {
+    const noon = new Date("2026-10-29T12:00:00Z");
+    const watched = new Date("2026-10-29T12:00:07Z");
+    const cachedBalance = async () => (await db.select().from(userPlans).where(eq(userPlans.userId, ADA)))[0].credits;
+    const steps: Array<() => Promise<unknown>> = [
+      () => credits.grantSignup(ADA, 2),
+      async () => credits.grantAd({ userId: ADA, ...(await credits.startAdSession({ userId: ADA, ip: "203.0.113.1", provider: "test" }, noon)) }, watched),
+      async () => credits.grantAd({ userId: ADA, ...(await credits.startAdSession({ userId: ADA, ip: "203.0.113.1", provider: "test" }, noon)) }, watched),
+      () => credits.charge({ userId: ADA, amount: 3, kind: "tailor" }),
+      () => credits.charge({ userId: ADA, amount: 5, kind: "chat" }).catch((err: unknown) => expect(err).toMatchObject({ status: 402 })),
+      () => credits.refund({ userId: ADA, amount: 3, ref: "charge" }),
+    ];
+    for (const step of steps) {
+      await step();
+      expect(await cachedBalance()).toBe(await ledgerSum(ADA));
+    }
+    expect(await cachedBalance()).toBe(4);
+    expect((await ledger(ADA)).map((row) => row.kind).sort()).toEqual(["ad", "ad", "refund", "signup", "tailor"]);
   });
 });
 

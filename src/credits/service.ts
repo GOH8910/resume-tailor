@@ -150,7 +150,7 @@ export class CreditsService {
       .select({ id: creditEvents.id, kind: creditEvents.kind, amount: creditEvents.amount, ref: creditEvents.ref, createdAt: creditEvents.createdAt })
       .from(creditEvents)
       .where(eq(creditEvents.userId, userId))
-      .orderBy(desc(creditEvents.createdAt))
+      .orderBy(desc(creditEvents.createdAt), desc(creditEvents.id))
       .limit(limit);
   }
 

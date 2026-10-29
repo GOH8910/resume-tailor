@@ -11,7 +11,7 @@ import type { ModelUsage } from "@/billing/usage-types";
 import type { TailorModel, TailorRequest } from "./model";
 import { buildSystemPrompt } from "./prompt";
 import type { TailorResult } from "./schema";
-import { createManualApplication, runTailor } from "./tailor";
+import { cleanTailorInput, createManualApplication, runTailor } from "./tailor";
 
 let close: () => Promise<void>;
 let banks: BankRepository;
@@ -73,6 +73,17 @@ describe("runTailor", () => {
     const deps = { banks, applications, model: new FakeModel(fakeResult) };
     await expect(runTailor({ userId: USER, jobDescription: " ", company: "Acme" }, deps)).rejects.toMatchObject({ status: 400 });
     await expect(runTailor({ userId: USER, jobDescription: "x", company: " " }, deps)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("cleanTailorInput", () => {
+  it("trims the fields and defaults the role title", () => {
+    expect(cleanTailorInput({ jobDescription: " JD ", company: " Acme " })).toEqual({ jobDescription: "JD", company: "Acme", roleTitle: "" });
+  });
+
+  it("refuses a blank job description or company with a 400", () => {
+    expect(() => cleanTailorInput({ jobDescription: " ", company: "Acme" })).toThrow("Job description is required");
+    expect(() => cleanTailorInput({ jobDescription: "JD", company: "" })).toThrow("Company is required");
   });
 });
 

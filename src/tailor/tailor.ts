@@ -26,7 +26,8 @@ export type TailorDeps = {
   now?: () => Date;
 };
 
-function cleanInput(input: TailorInput) {
+/** The trimmed request, or a 400. Routes call it before charging, so a bad request costs nothing. */
+export function cleanTailorInput(input: Pick<TailorInput, "jobDescription" | "company" | "roleTitle">) {
   const jobDescription = input.jobDescription.trim();
   const company = input.company.trim();
   if (!jobDescription) throw new AppError("Job description is required", 400);
@@ -40,7 +41,7 @@ function newApplication(fields: Omit<Application, "id" | "createdAt">, now: Date
 
 /** Ask Claude for a selection, validate it against the bank, and save the application. Also returns the tokens used. */
 export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<{ application: Application; usage: ModelUsage }> {
-  const { jobDescription, company, roleTitle } = cleanInput(input);
+  const { jobDescription, company, roleTitle } = cleanTailorInput(input);
   const limits = deps.limits ?? DEFAULT_LIMITS;
   const bank = await deps.banks.read(input.userId);
   const { result: raw, usage } = await deps.model.tailor({
@@ -66,7 +67,7 @@ export async function createManualApplication(
   input: TailorInput,
   deps: Pick<TailorDeps, "banks" | "applications" | "now">,
 ): Promise<Application> {
-  const { jobDescription, company, roleTitle } = cleanInput(input);
+  const { jobDescription, company, roleTitle } = cleanTailorInput(input);
   const bank = await deps.banks.read(input.userId);
   const now = (deps.now ?? (() => new Date()))();
   const application = newApplication(

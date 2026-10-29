@@ -9,7 +9,7 @@ import { createManualApplication } from "@/tailor/tailor";
 import { usageFromError } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
-import { runChat } from "./chat";
+import { checkChatMessages, runChat } from "./chat";
 import type { ChatModel } from "./model";
 import { type ChatResult, EMPTY_BANK_CHANGE, EMPTY_RESUME_CHANGE } from "./schema";
 
@@ -88,5 +88,19 @@ describe("runChat", () => {
   it("rejects a conversation that does not end with a user message", async () => {
     const model = new FakeModel({ reply: "", bankChanges: [], resumeChanges: [] });
     await expect(runChat({ userId: USER, messages: [{ role: "assistant", content: "?" }] }, { banks, applications, model })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("checkChatMessages", () => {
+  it("accepts a conversation that ends with a user message", () => {
+    expect(() => checkChatMessages([{ role: "assistant", content: "Hi" }, { role: "user", content: "Go on" }])).not.toThrow();
+  });
+
+  it.each([
+    [[]],
+    [[{ role: "assistant" as const, content: "?" }]],
+    [[{ role: "user" as const, content: "   " }]],
+  ])("refuses %j with a 400", (messages) => {
+    expect(() => checkChatMessages(messages)).toThrow(expect.objectContaining({ status: 400 }));
   });
 });

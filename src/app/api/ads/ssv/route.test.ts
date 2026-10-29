@@ -72,6 +72,20 @@ describe("/api/ads/ssv", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("Ad session is not pending"));
   });
 
+  it("answers 200 to a reward whose transaction id another session already used, and logs it", async () => {
+    const duplicate = Object.assign(new Error("duplicate key value"), { code: "23505", constraint: "ad_sessions_transaction_id_unique" });
+    credits.grantVerifiedAd.mockRejectedValue(new Error("Failed query: update ad_sessions", { cause: duplicate }));
+    expect((await GET(new Request(callbackUrl(REWARD)))).status).toBe(200);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("ignored: transaction_id already used"));
+  });
+
+  it("answers 500 to any other database failure", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const other = Object.assign(new Error("duplicate key value"), { code: "23505", constraint: "credit_events_pkey" });
+    credits.grantVerifiedAd.mockRejectedValue(new Error("Failed query: insert into credit_events", { cause: other }));
+    expect((await GET(new Request(callbackUrl(REWARD)))).status).toBe(500);
+  });
+
   it("answers 500 when it could not check the callback, so the network can retry", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     fetchSsvKeys.mockRejectedValue(new Error("keys unreachable"));

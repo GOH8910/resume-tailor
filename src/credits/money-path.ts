@@ -28,9 +28,9 @@ export type PaidCall<T> = {
  * the caller always gets the call's own result or error.
  */
 export async function runPaidCall<T>({ user, policy, kind, cost, ref, call }: PaidCall<T>, deps: PaidCallDeps): Promise<T> {
-  const free = policy.chargesCredits;
+  const paidWithCredits = policy.chargesCredits;
   let chargeId: string | null = null;
-  if (free) {
+  if (paidWithCredits) {
     await ensureFreeUsageOpen(deps.usage, policy);
     if (cost > 0) chargeId = (await deps.credits.charge({ userId: user.id, amount: cost, kind, ref })).eventId;
   }
@@ -40,11 +40,11 @@ export async function runPaidCall<T>({ user, policy, kind, cost, ref, call }: Pa
     result = await call();
   } catch (err) {
     const billed = usageFromError(err);
-    if (billed) await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: billed, free });
+    if (billed) await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: billed, free: paidWithCredits });
     if (chargeId) await refundOrLog(deps.credits, { userId: user.id, amount: cost, ref: chargeId });
     throw err;
   }
-  await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: result.usage, free });
+  await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: result.usage, free: paidWithCredits });
   return result.value;
 }
 

@@ -1,5 +1,6 @@
 import { generateKeyPairSync, type KeyObject, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 import { createSsvKeyFetcher, type SsvKey, verifySsv } from "./ssv";
 
 function keyPair(namedCurve: string) {
@@ -79,6 +80,15 @@ describe("createSsvKeyFetcher", () => {
     expect(fetch).toHaveBeenCalledOnce();
     await fetchKeys(URL_A, 24 * 3_600_000);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  // A ZodError would reach the client as a 400; this is our failure, so it must be a 500 the network retries.
+  it("fails with a plain error when the keys document has the wrong shape", async () => {
+    const fetchKeys = createSsvKeyFetcher(vi.fn(async () => new Response(JSON.stringify({ keys: [{ keyId: 1 }] }))));
+    const err = await fetchKeys(URL_A, 0).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ZodError);
+    expect((err as Error).message).toContain("not a valid SSV keys document");
   });
 
   it("does not cache a failed fetch", async () => {

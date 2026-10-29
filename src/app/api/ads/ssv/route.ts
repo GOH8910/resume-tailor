@@ -32,11 +32,18 @@ async function receive(request: Request): Promise<Response> {
     try {
       await credits.grantVerifiedAd({ sessionId, transactionId });
     } catch (err) {
+      if (isTransactionIdReused(err)) return ignored(`transaction_id already used (${transactionId})`);
       if (!(err instanceof AppError)) throw err;
       return ignored(`session ${sessionId}: ${err.message}`);
     }
     return new Response(null, { status: 200 });
   });
+}
+
+/** Postgres' unique violation on ad_sessions.transaction_id; drizzle wraps the driver's error as `cause`. */
+function isTransactionIdReused(err: unknown): boolean {
+  const cause = err instanceof Error ? (err.cause as { code?: unknown; constraint?: unknown } | undefined) : undefined;
+  return cause?.code === "23505" && cause.constraint === "ad_sessions_transaction_id_unique";
 }
 
 function ignored(reason: string): Response {

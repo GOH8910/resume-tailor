@@ -9,7 +9,7 @@ import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
 import { AnthropicTailorModel } from "@/tailor/anthropic-model";
 import { MODEL_IDS } from "@/tailor/model";
-import { runTailor } from "@/tailor/tailor";
+import { cleanTailorInput, runTailor } from "@/tailor/tailor";
 
 const TailorRequestSchema = z.object({
   jobDescription: z.string(),
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       throw new AppError("The AI service is not configured on this server", 503);
     }
     const body = TailorRequestSchema.parse(await readJson(request));
+    cleanTailorInput(body);
     const policy = currentPolicy(user.plan);
     const model = new AnthropicTailorModel(chooseModel(policy, body.model));
     const application = await runPaidCall(

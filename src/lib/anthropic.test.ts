@@ -51,6 +51,13 @@ describe("createStructured", () => {
     expect(usageFromError(err)).toEqual(USED);
   });
 
+  it("keeps the usage out of anything serialised from the error", async () => {
+    const err = await failure({ stop_reason: "max_tokens" });
+    expect(Object.keys(err as object)).not.toContain("usage");
+    expect(JSON.stringify(err)).not.toContain("inputTokens");
+    expect(usageFromError(err)).toEqual(USED);
+  });
+
   it("carries no usage when the call itself failed", async () => {
     const err = await failure(new Error("socket hang up"));
     expect(err).toBeInstanceOf(AppError);

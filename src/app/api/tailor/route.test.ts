@@ -10,7 +10,7 @@ vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
 vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications: {} }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
-vi.mock("@/tailor/tailor", () => ({ runTailor }));
+vi.mock("@/tailor/tailor", async (importOriginal) => ({ ...(await importOriginal<object>()), runTailor }));
 // The real class builds an Anthropic client, which needs an API key.
 vi.mock("@/tailor/anthropic-model", () => ({
   AnthropicTailorModel: class {
@@ -147,6 +147,18 @@ describe("POST /api/tailor credits", () => {
     expect(credits.charge).toHaveBeenCalledExactlyOnceWith({ userId: "u1", amount: 3, kind: "tailor", ref: undefined });
     expect(credits.charge.mock.invocationCallOrder[0]).toBeLessThan(runTailor.mock.invocationCallOrder[0]);
     expect(credits.refund).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ ...job, jobDescription: "  " }, "Job description is required"],
+    [{ ...job, company: "" }, "Company is required"],
+  ])("refuses an invalid request with a 400 before charging or calling Claude", async (body, error) => {
+    const { res } = await tailorAs("free", body);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(error);
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(credits.refund).not.toHaveBeenCalled();
+    expect(runTailor).not.toHaveBeenCalled();
   });
 
   it("answers a short balance with a 402 naming the balance and the cost, without calling Claude", async () => {

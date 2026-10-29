@@ -3,7 +3,7 @@ import { ResumeStateSchema } from "@/applications/schema";
 import { chooseModel } from "@/billing/plan";
 import { currentPolicy } from "@/billing/policy";
 import { AnthropicChatModel } from "@/chat/anthropic-chat-model";
-import { runChat } from "@/chat/chat";
+import { checkChatMessages, runChat } from "@/chat/chat";
 import { ChatMessageSchema } from "@/chat/schema";
 import { runPaidCall } from "@/credits/money-path";
 import { hasApiKey } from "@/lib/anthropic";
@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       throw new AppError("The AI service is not configured on this server", 503);
     }
     const body = ChatRequestSchema.parse(await readJson(request));
+    checkChatMessages(body.messages);
     const policy = currentPolicy(user.plan);
     const model = new AnthropicChatModel(chooseModel(policy, body.model));
     const outcome = await runPaidCall(

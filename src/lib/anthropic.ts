@@ -4,6 +4,8 @@ import type { z } from "zod";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 
+// A retry after a client-side timeout can be billed by Anthropic a second time, and only the call that answered
+// is recorded in usage_events. Accepted: one extra call at most, on a rare path.
 const REQUEST_OPTIONS = { timeout: 5 * 60_000, maxRetries: 1 };
 
 export function hasApiKey(): boolean {
@@ -25,13 +27,13 @@ export type Structured<T> = { value: T; usage: ModelUsage };
  * `usage` is for booking the cost on the server; `handle()` sends only the message.
  */
 export class ModelCallError extends AppError {
-  constructor(
-    message: string,
-    status: number,
-    readonly usage: ModelUsage,
-  ) {
+  declare readonly usage: ModelUsage;
+
+  constructor(message: string, status: number, usage: ModelUsage) {
     super(message, status);
     this.name = "ModelCallError";
+    // Not enumerable, like attachUsage: nothing serialised from the error carries it.
+    Object.defineProperty(this, "usage", { value: usage, enumerable: false });
   }
 }
 
