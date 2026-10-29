@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { seedExampleBank, signIn, uniqueEmail } from "./helpers";
+import type { Page } from "@playwright/test";
+import { expect, seedExampleBank, signIn, test, uniqueEmail } from "./helpers";
 
 // Stand-ins for the hosted limits' answers: the shape the routes send (details.retryAfter), with short waits.
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the production image and checks it end to end against a throwaway Postgres: health, sign-in, a real
 # compile, that TeX runs as separate users (one per compile slot) who cannot read the server's secrets or data or
-# each other's compile folders, and that a burst of compiles beyond the queue's limit is turned away with a 503.
+# each other's compile folders, that a burst of compiles beyond the queue's limit is turned away with a 503, and that
+# pages and API responses carry the security headers and a per-request Content-Security-Policy nonce.
 # Usage: scripts/smoke-image.sh   (needs Docker, curl and Node; builds for this machine's architecture)
 # SMOKE_SKIP_BUILD=1 reuses an existing resume-tailor:smoke image. SMOKE_PORT picks the host port.
 set -euo pipefail
@@ -51,6 +52,24 @@ compile_as() {
   curl -sS -b "$JAR" -H "Origin: $BASE" -D "$WORK/$1.headers" -o "$WORK/$1.body" -w '%{http_code}' \
     -H 'Content-Type: application/json' --data-binary @"$WORK/compile.json" "$BASE/api/compile" || true
 }
+# has_header FILE PATTERN: the curl -D dump FILE has a header line matching PATTERN (case-insensitive).
+has_header() { grep -qi "^$2" "$1"; }
+# The nonce in the Content-Security-Policy of the curl -D dump $1.
+csp_nonce() { tr -d '\r' < "$1" | grep -i '^content-security-policy:' | grep -o "'nonce-[^']*'" | head -1; }
+# Every <script> and <style> tag in the page $2 carries the nonce from its response headers $1, and no element has a
+# style="" attribute (which no nonce can allow). curl runs no JavaScript, so this checks the markup only; the e2e
+# suites fail on any violation the browser itself reports.
+markup_carries_nonce() {
+  node -e 'const fs = require("fs");
+    const nonce = /^content-security-policy:.*\x27nonce-([^\x27]+)\x27/im.exec(fs.readFileSync(process.argv[1], "utf8"))?.[1];
+    const html = fs.readFileSync(process.argv[2], "utf8");
+    const tags = html.match(/<(script|style)\b[^>]*>/g) ?? [];
+    const bad = tags.filter((tag) => !tag.includes(`nonce="${nonce}"`));
+    if (/<[^>]+\sstyle="/.test(html)) bad.push("a style=\"\" attribute");
+    if (!nonce) bad.push("no nonce in the policy");
+    if (tags.length === 0) bad.push("no <script> tags: not a rendered page?");
+    if (bad.length > 0) { console.error(bad.slice(0, 3).join("\n")); process.exit(1); }' "$1" "$2"
+}
 # One line per process in the app container: its command line.
 processes() { in_app 'for f in /proc/[0-9]*/cmdline; do tr "\0" " " < "$f" 2>/dev/null; echo; done'; }
 
@@ -99,6 +118,26 @@ pass "deep health check"
 # The probe runs latexmk through sudo as the last compile slot's user (tex2), so this also proves that user exists.
 check "health probe runs latexmk as the last slot's user" test "$(echo "$health" | grep -o '"latexmk":"[^"]*"')" = '"latexmk":"ok"'
 
+# --- Security headers and the content security policy ---
+curl -sS -D "$WORK/signin.headers" -o "$WORK/signin.html" "$BASE/signin" || true
+curl -sS -D "$WORK/health.headers" -o /dev/null "$BASE/api/health" || true
+for dump in signin health; do
+  file="$WORK/$dump.headers"
+  check "$dump: CSP allows scripts by nonce and 'strict-dynamic'" \
+    has_header "$file" "content-security-policy: .*script-src 'self' 'nonce-[A-Za-z0-9+/=]*' 'strict-dynamic'"
+  refused "$dump: CSP script-src has no 'unsafe-inline' or 'unsafe-eval'" \
+    has_header "$file" "content-security-policy: .*script-src[^;]*'unsafe-"
+  check "$dump: CSP forbids framing" has_header "$file" "content-security-policy: .*frame-ancestors 'none'"
+  check "$dump: Strict-Transport-Security" has_header "$file" "strict-transport-security: max-age=31536000; includeSubDomains"
+  check "$dump: X-Content-Type-Options: nosniff" has_header "$file" "x-content-type-options: nosniff"
+  check "$dump: X-Frame-Options: DENY" has_header "$file" "x-frame-options: DENY"
+  check "$dump: Referrer-Policy" has_header "$file" "referrer-policy: strict-origin-when-cross-origin"
+  check "$dump: Permissions-Policy" has_header "$file" "permissions-policy: camera=(), microphone=(), geolocation=()"
+done
+check "each response gets its own nonce" test "$(csp_nonce "$WORK/signin.headers")" != "$(csp_nonce "$WORK/health.headers")"
+check "every <script> and <style> on /signin carries the nonce, and nothing uses style=\"\"" \
+  markup_carries_nonce "$WORK/signin.headers" "$WORK/signin.html"
+
 # --- Sign in, save a bank, compile ---
 code=$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
   -d "{\"email\":\"$EMAIL\",\"callbackURL\":\"/\"}" "$BASE/api/auth/sign-in/magic-link" || true)
@@ -108,6 +147,12 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -c "$JAR" "$link" || tr
 check "sign-in link redirects (HTTP $code)" test "$code" = 302
 api -o "$WORK/session.json" "$BASE/api/auth/get-session" || true
 check "session belongs to $EMAIL" test "$(json "$WORK/session.json" user.email)" = "$EMAIL"
+curl -sS -b "$JAR" -D "$WORK/dashboard.headers" -o "$WORK/dashboard.html" "$BASE/" || true
+check "every <script> and <style> on the dashboard carries the nonce" \
+  markup_carries_nonce "$WORK/dashboard.headers" "$WORK/dashboard.html"
+# Signed in, or the proxy would redirect it to /signin.
+curl -sS -b "$JAR" -D "$WORK/missing.headers" -o "$WORK/missing.html" "$BASE/no-such-page" || true
+check "the 404 page carries the nonce too (rendered per request)" markup_carries_nonce "$WORK/missing.headers" "$WORK/missing.html"
 
 code=$(api -o "$WORK/bank.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
   --data-binary @data/example/bank.json "$BASE/api/bank" || true)

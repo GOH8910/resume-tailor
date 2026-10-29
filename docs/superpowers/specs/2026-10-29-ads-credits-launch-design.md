@@ -117,13 +117,31 @@ Consent: Google's Privacy & messaging script is loaded with the GPT on the pages
 (tailor, review, bank). Its consent state is what the GPT reads; we do not store consent ourselves.
 The cookie notice page explains it.
 
-Security headers (`next.config.ts` headers): HSTS, nosniff, `X-Frame-Options: DENY`, Referrer-Policy,
-Permissions-Policy. CSP via `src/proxy.ts` with a per-request nonce for our scripts; the Google
-allowances (`securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
-`fundingchoicesmessages.google.com`, `tpc.googlesyndication.com`, `*.googlesyndication.com`,
-`*.doubleclick.net`, `www.googletagservices.com`, `frame-src` for the ad iframes) are added only in
-`hosted` mode with Google configured, from one list in `src/ads/csp.ts`. Read the Next CSP guide in
-`node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md` before implementing.
+Security headers (`next.config.ts` headers, every path): `Strict-Transport-Security: max-age=31536000;
+includeSubDomains` (production builds only), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+CSP via `src/proxy.ts` with a per-request nonce (`Buffer.from(crypto.randomUUID()).toString("base64")`), set on the
+response and on the request (`Content-Security-Policy` and `x-nonce`) so Next puts it on its scripts; the root
+layout calls `connection()` so every page renders per request and gets it. `buildCsp` in `src/ads/csp.ts` produces:
+
+- `default-src 'self'`
+- `script-src 'self' 'nonce-…' 'strict-dynamic'` (+ `'unsafe-eval'` under `next dev`)
+- `style-src 'self' 'nonce-…'` in production; `'self' 'unsafe-inline'` under `next dev`, whose overlay injects
+  `<style>` elements without the nonce. Production pages emit no inline styles (checked with `next build && next
+  start`; Next's default 404 page, which does, is replaced by `src/app/not-found.tsx`).
+- `img-src 'self' blob: data:`, `font-src 'self'`, `connect-src 'self'`
+- `frame-src 'self' blob:` (the PDF preview iframe)
+- `object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
+- `upgrade-insecure-requests` outside `next dev`
+
+With `AD_PROVIDER=google` in `hosted` mode (`env.adProvider`), one list in `src/ads/csp.ts` adds the Google hosts:
+`script-src` gets `securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
+`fundingchoicesmessages.google.com` and `www.googletagservices.com` (read only by CSP2 browsers; elsewhere
+`'strict-dynamic'` trusts the tag that our nonce'd code inserts); `frame-src`, `img-src` and `connect-src` get
+`*.doubleclick.net`, `*.googlesyndication.com` and `fundingchoicesmessages.google.com`. Phase 2b ships these as
+Report-Only first. Zod's eval probe is switched off in the browser (`src/instrumentation-client.ts`, `jitless`) so it
+does not report a violation. Read the Next CSP guide in
+`node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md` before changing the policy.
 
 ## Limits and hardening (hosted mode)
 

@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { seedExampleBank, signIn, uniqueEmail } from "./helpers";
+import type { Page } from "@playwright/test";
+import { expect, seedExampleBank, signIn, test, uniqueEmail } from "./helpers";
 
 // The hosted project (playwright.config.ts): APP_MODE=hosted, the test ad provider with a 1 s minimum watch,
 // 2 credits per tailor, no sign-up grant, and no Anthropic key, so tailoring itself answers 503.

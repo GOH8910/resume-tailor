@@ -138,6 +138,16 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)
   is held to the editors' caps, so the API never refuses to save data it stored. Beyond 2 running and 8 waiting
   compiles, the API answers 503 with `Retry-After: 10` and the review screen retries once.
+- **Security headers**: every response carries `Strict-Transport-Security` (production builds only),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`
+  (`next.config.ts`), and a `Content-Security-Policy` with a fresh nonce per request (`src/proxy.ts`, built by
+  `src/ads/csp.ts`). Scripts run only with that nonce or when a nonce'd script loads them (`'strict-dynamic'`);
+  styles only from our stylesheets; frames only our own and the PDF preview's `blob:`; nothing may frame the site.
+  The nonce reaches Next's scripts only while a page renders, so the root layout renders every page per request.
+  If a page breaks after a dependency upgrade (blank areas, buttons that do nothing), open the browser console:
+  a refused script, style or frame is reported there as a Content Security Policy violation, naming the directive.
+  The e2e suites fail on any violation. Phase 2b adds the Google ad hosts to the policy; ship them first as
+  `Content-Security-Policy-Report-Only` to see what Google's tag loads before enforcing them.
 - **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
   `COMPILE_CONCURRENCY` in `fly.toml` to at most N.
 - **Deploys during a compile**: `kill_timeout = 65` lets a stopping machine finish a compile (up to 60 s).

@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { signIn, uniqueEmail } from "./helpers";
+import { expect, signIn, test, uniqueEmail } from "./helpers";
 
 // The selfhost project (playwright.config.ts): no plans, credits or ads.
 

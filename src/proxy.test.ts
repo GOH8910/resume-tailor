@@ -1,7 +1,10 @@
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { config, proxy } from "./proxy";
+
+const env = vi.hoisted(() => ({ NODE_ENV: "production", adProvider: "none" }));
+vi.mock("@/lib/env", () => ({ env }));
 
 const SESSION = "better-auth.session_token=abc.def";
 
@@ -84,5 +87,66 @@ describe("proxy matcher", () => {
 
   it.each(["/_next/static/chunks/app.js", "/favicon.ico", "/robots.txt"])("skips %s", (url) => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
+  });
+});
+
+describe("proxy content security policy", () => {
+  afterEach(() => Object.assign(env, { NODE_ENV: "production", adProvider: "none" }));
+
+  const csp = (res: Response) => res.headers.get("content-security-policy") ?? "";
+  const nonceIn = (policy: string) => /'nonce-([^']+)'/.exec(policy)?.[1];
+  // NextResponse.next({ request: { headers } }) hands the rewritten request headers to Next in these.
+  const forwarded = (res: Response, name: string) => res.headers.get(`x-middleware-request-${name}`);
+
+  it("sends a policy with a fresh nonce on every page", () => {
+    const first = csp(proxy(request("/signin")));
+    const second = csp(proxy(request("/signin")));
+    expect(first).toContain("frame-ancestors 'none'");
+    expect(nonceIn(first)).toBeTruthy();
+    expect(nonceIn(second)).toBeTruthy();
+    expect(nonceIn(first)).not.toBe(nonceIn(second));
+  });
+
+  it("makes the nonce from a random UUID, base64-encoded", () => {
+    const nonce = nonceIn(csp(proxy(request("/signin")))) ?? "";
+    expect(Buffer.from(nonce, "base64").toString()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it("hands Next the same policy and nonce on the request, so it can put the nonce on its scripts", () => {
+    const res = proxy(request("/bank", { cookie: SESSION }));
+    expect(passesThrough(res)).toBe(true);
+    expect(forwarded(res, "content-security-policy")).toBe(csp(res));
+    expect(forwarded(res, "x-nonce")).toBe(nonceIn(csp(res)));
+  });
+
+  it("replaces a nonce or policy the client sent", () => {
+    const res = proxy(request("/signin", { "x-nonce": "chosen-by-attacker", "content-security-policy": "script-src *" }));
+    expect(forwarded(res, "x-nonce")).not.toBe("chosen-by-attacker");
+    expect(forwarded(res, "content-security-policy")).toBe(csp(res));
+  });
+
+  it("sends the policy on redirects and refusals too", () => {
+    expect(csp(proxy(request("/bank")))).toContain("default-src 'self'");
+    expect(csp(proxy(request("/api/bank")))).toContain("default-src 'self'");
+    expect(csp(proxy(request("/api/bank", { origin: "https://evil.example" })))).toContain("default-src 'self'");
+  });
+
+  it("uses the production policy outside development", () => {
+    const policy = csp(proxy(request("/signin")));
+    expect(policy).not.toContain("'unsafe-eval'");
+    expect(policy).toContain("upgrade-insecure-requests");
+    expect(policy).not.toContain("doubleclick");
+  });
+
+  it("allows eval and does not upgrade to https under next dev", () => {
+    env.NODE_ENV = "development";
+    const policy = csp(proxy(request("/signin")));
+    expect(policy).toContain("'unsafe-eval'");
+    expect(policy).not.toContain("upgrade-insecure-requests");
+  });
+
+  it("adds the Google ad hosts when the Google provider is on", () => {
+    env.adProvider = "google";
+    expect(csp(proxy(request("/signin")))).toContain("https://securepubads.g.doubleclick.net");
   });
 });

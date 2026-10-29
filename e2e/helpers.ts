@@ -1,6 +1,35 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
+
+/**
+ * Playwright's `test`, failing any test in which the browser reported a Content-Security-Policy violation.
+ * `cspViolations` lists them; a test that provokes one on purpose takes it out with `cspViolations.splice(0)`.
+ * The listener runs in every page and frame of the test's browser context and reports to Node, so a navigation does
+ * not lose what came before it. Contexts a test opens itself (`browser.newContext()`) are not watched.
+ */
+export const test = base.extend<{ cspViolations: string[] }>({
+  cspViolations: [
+    async ({ context }, use) => {
+      const violations: string[] = [];
+      await context.exposeBinding("__reportCspViolation", ({ page }, text: string) => {
+        violations.push(`${page.url()}: ${text}`);
+      });
+      await context.addInitScript(() => {
+        document.addEventListener("securitypolicyviolation", (event) => {
+          const { __reportCspViolation: report } = window as unknown as { __reportCspViolation: (text: string) => void };
+          // blockedURI is a URL, or "inline" or "eval".
+          report(`${event.effectiveDirective} blocked ${event.blockedURI} (${event.sourceFile}:${event.lineNumber})`);
+        });
+      });
+      await use(violations);
+      expect(violations, "Content-Security-Policy violations").toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+
+export { expect };
 
 /** The running project's data folder (playwright.config.ts), where its server writes sign-in links. */
 function dataDir(): string {

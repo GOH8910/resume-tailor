@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { seedExampleBank, signIn, uniqueEmail } from "./helpers";
+import { expect, seedExampleBank, signIn, test, uniqueEmail } from "./helpers";
 
 // The data folder starts empty on every run: playwright.config.ts clears it before starting the server.
 
@@ -7,6 +6,21 @@ test("signed-out visitor is sent to sign in", async ({ page }) => {
   await page.goto("/bank/experience");
   await expect(page).toHaveURL(/\/signin\?next=%2Fbank%2Fexperience$/);
   expect((await page.request.get("/api/bank")).status()).toBe(401);
+});
+
+test("the content security policy refuses injected inline code, and the e2e check sees it", async ({ page, cspViolations }) => {
+  const response = await page.goto("/signin");
+  expect(response?.headers()["content-security-policy"]).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
+  // Markup injected the way an XSS payload arrives: an inline handler, which no nonce covers.
+  const ran = await page.evaluate(() => {
+    document.body.insertAdjacentHTML("beforeend", '<button id="injected" onclick="window.injectedRan = true">x</button>');
+    document.getElementById("injected")?.click();
+    return (window as unknown as { injectedRan?: boolean }).injectedRan === true;
+  });
+  expect(ran).toBe(false);
+  await expect.poll(() => cspViolations.length).toBe(1);
+  // Taken out, so the fixture's own check at the end of the test passes.
+  expect(cspViolations.splice(0)).toEqual([expect.stringContaining("script-src-attr blocked inline")]);
 });
 
 test("bank editor adds a bullet and persists it", async ({ page }) => {
