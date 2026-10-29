@@ -12,7 +12,7 @@ function request(path: string, headers: Record<string, string> = {}): NextReques
 const passesThrough = (res: Response) => res.headers.get("x-middleware-next") === "1";
 
 describe("proxy", () => {
-  it.each(["/signin", "/signin?next=%2Fbank", "/api/auth/get-session", "/api/health", "/privacy", "/terms"])(
+  it.each(["/signin", "/signin?next=%2Fbank", "/api/auth/get-session", "/api/health", "/privacy", "/terms", "/api/ads/ssv?key_id=1"])(
     "lets %s through without a session",
     (path) => {
       expect(passesThrough(proxy(request(path)))).toBe(true);
@@ -28,6 +28,11 @@ describe("proxy", () => {
   it("keeps the query string in ?next=", () => {
     const res = proxy(request("/tailor?company=acme"));
     expect(new URL(res.headers.get("location") ?? "").searchParams.get("next")).toBe("/tailor?company=acme");
+  });
+
+  it("keeps the other ads endpoints behind sign-in", () => {
+    expect(proxy(request("/api/ads/start")).status).toBe(401);
+    expect(proxy(request("/api/ads/ssv/extra")).status).toBe(401);
   });
 
   it("answers a signed-out API request with a 401 instead of a redirect", async () => {

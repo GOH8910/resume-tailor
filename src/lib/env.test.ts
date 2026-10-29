@@ -188,6 +188,18 @@ describe("parseEnv: modes, plans and credits", () => {
     expect(() => parseEnv({ AD_SSV_ENABLED: "yes please" })).toThrow();
   });
 
+  it("defaults the SSV keys URL to Google's published verifier keys, and reads a blank one as unset", () => {
+    const google = "https://www.gstatic.com/admob/reward/verifier-keys.json";
+    expect(parseEnv({}).AD_SSV_KEYS_URL).toBe(google);
+    expect(parseEnv({ AD_SSV_KEYS_URL: " " }).AD_SSV_KEYS_URL).toBe(google);
+    expect(parseEnv({ AD_SSV_KEYS_URL: "https://keys.example/k.json" }).AD_SSV_KEYS_URL).toBe("https://keys.example/k.json");
+  });
+
+  // Whoever controls the key list can sign their own reward callbacks.
+  it.each(["http://keys.example/k.json", "not a url"])("rejects AD_SSV_KEYS_URL=%s", (value) => {
+    expect(() => parseEnv({ AD_SSV_KEYS_URL: value })).toThrow();
+  });
+
   it("falls back to the documented credit, limit, budget and model defaults", () => {
     const env = parseEnv({});
     expect(env).toMatchObject({

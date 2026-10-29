@@ -32,6 +32,17 @@ export async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+/**
+ * The client's address for per-IP caps. Fly's proxy sets fly-client-ip; the first x-forwarded-for entry is whatever
+ * the client sent, so it only stands in where no such proxy runs (local and other hosts).
+ */
+export function clientIp(request: Request): string {
+  const fly = request.headers.get("fly-client-ip")?.trim();
+  if (fly) return fly;
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || "unknown";
+}
+
 export type CurrentUser = { id: string; email: string; name: string; plan: Plan };
 
 /** The signed-in user and their plan for an API request, or a 401. */

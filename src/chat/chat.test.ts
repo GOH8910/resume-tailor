@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplicationRepository } from "@/applications/repository";
 import { fullStateFromBank } from "@/applications/resume-state";
 import { BankRepository } from "@/bank/repository";
 import { user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import { createManualApplication } from "@/tailor/tailor";
+import { usageFromError } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
+import { AppError } from "@/lib/errors";
 import { runChat } from "./chat";
 import type { ChatModel } from "./model";
 import { type ChatResult, EMPTY_BANK_CHANGE, EMPTY_RESUME_CHANGE } from "./schema";
@@ -66,6 +68,21 @@ describe("runChat", () => {
     expect(outcome.resumeChanges).toEqual([]);
     expect(outcome.warnings[0]).toContain("no resume is open");
     expect(model.systems[0]).not.toContain("<resume>");
+  });
+
+  it("rethrows a failure to save the bank after the model answered, tagged with the tokens it used", async () => {
+    const failure = new AppError("Could not save", 500);
+    vi.spyOn(banks, "write").mockRejectedValue(failure);
+    const model = new FakeModel({
+      reply: "Added it.",
+      bankChanges: [{ ...EMPTY_BANK_CHANGE, kind: "addSkills", category: "Cloud", texts: ["AWS"] }],
+      resumeChanges: [],
+    });
+    const err = await runChat({ userId: USER, messages: [{ role: "user", content: "I know AWS" }] }, { banks, applications, model }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBe(failure);
+    expect(usageFromError(err)).toEqual(fakeUsage);
   });
 
   it("rejects a conversation that does not end with a user message", async () => {

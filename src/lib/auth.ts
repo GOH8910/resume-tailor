@@ -6,7 +6,7 @@ import { magicLink } from "better-auth/plugins";
 import { getDbSync } from "@/db/client";
 import { signupPlan } from "@/billing/plan";
 import * as schema from "@/db/schema";
-import { banks, plans } from "./deps";
+import { banks, credits, plans } from "./deps";
 import { sendMagicLinkEmail } from "./email";
 import { env } from "./env";
 import { checkMagicLinkLimit } from "./magic-link-limit";
@@ -34,10 +34,11 @@ export async function checkMagicLinkAllowed(
   checkSignupAllowed(email, allowed);
 }
 
-/** Sets up a new account: an empty bank named after it, and its starting plan. */
+/** Sets up a new account: an empty bank named after it, its starting plan and its starting credits. */
 export async function onUserCreated(user: { id: string; email: string; name: string }): Promise<void> {
   await banks.createEmpty(user.id, user.name);
   await plans.ensure(user.id, signupPlan(user.email, env.adminEmails));
+  await credits.grantSignup(user.id, env.SIGNUP_GRANT_CREDITS);
 }
 
 function createAuth() {

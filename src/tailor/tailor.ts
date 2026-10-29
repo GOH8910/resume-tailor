@@ -3,6 +3,7 @@ import type { ApplicationRepository } from "@/applications/repository";
 import { fromTailorResult, fullStateFromBank } from "@/applications/resume-state";
 import type { Application } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
+import { attachUsage } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 import { DEFAULT_LIMITS, type TailorLimits } from "./limits";
@@ -46,13 +47,18 @@ export async function runTailor(input: TailorInput, deps: TailorDeps): Promise<{
     system: buildSystemPrompt(limits),
     user: buildUserMessage(bank, jobDescription, company, roleTitle),
   });
-  const { result, warnings } = validateTailorResult(bank, raw, limits);
-  const now = (deps.now ?? (() => new Date()))();
-  const application = newApplication(
-    { company, roleTitle, jobDescription, model: deps.model.id, warnings, notes: result.notes, resume: fromTailorResult(bank, result) },
-    now,
-  );
-  return { application: await deps.applications.save(input.userId, application), usage };
+  try {
+    const { result, warnings } = validateTailorResult(bank, raw, limits);
+    const now = (deps.now ?? (() => new Date()))();
+    const application = newApplication(
+      { company, roleTitle, jobDescription, model: deps.model.id, warnings, notes: result.notes, resume: fromTailorResult(bank, result) },
+      now,
+    );
+    return { application: await deps.applications.save(input.userId, application), usage };
+  } catch (err) {
+    // The call was billed even though the tailor failed; the caller still books it.
+    throw attachUsage(err, usage);
+  }
 }
 
 /** No-AI path: start from the whole bank and let the user prune. */

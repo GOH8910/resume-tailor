@@ -4,11 +4,12 @@ const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const runChat = vi.hoisted(() => vi.fn());
 const usage = vi.hoisted(() => ({ isFreeUsagePaused: vi.fn(), record: vi.fn() }));
+const credits = vi.hoisted(() => ({ charge: vi.fn(), refund: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans, usage, banks: {}, applications: {} }));
+vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications: {} }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
-vi.mock("@/lib/anthropic", () => ({ hasApiKey: () => true }));
+vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
 vi.mock("@/chat/chat", () => ({ runChat }));
 // The real class builds an Anthropic client, which needs an API key.
 vi.mock("@/chat/anthropic-chat-model", () => ({
@@ -17,7 +18,10 @@ vi.mock("@/chat/anthropic-chat-model", () => ({
   },
 }));
 
+import { attachUsage } from "@/billing/usage-error";
+import { ModelCallError } from "@/lib/anthropic";
 import { parseEnv } from "@/lib/env";
+import { AppError } from "@/lib/errors";
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
@@ -43,6 +47,8 @@ beforeEach(() => {
   runChat.mockResolvedValue({ outcome: OUTCOME, usage: USED });
   usage.isFreeUsagePaused.mockResolvedValue({ paused: false });
   usage.record.mockResolvedValue(undefined);
+  credits.charge.mockResolvedValue({ credits: 0, eventId: "charge-1" });
+  credits.refund.mockResolvedValue({ credits: 1 });
   useEnv({ APP_MODE: "hosted" });
 });
 
@@ -109,5 +115,62 @@ describe("POST /api/chat daily budget and usage", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await chatAs("free", { messages })).res.status).toBe(200);
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("[usage]"), expect.any(Error));
+  });
+});
+
+describe("POST /api/chat credits", () => {
+  it("charges a free account the message's cost before calling Claude, naming the open application", async () => {
+    useEnv({ APP_MODE: "hosted", CREDITS_PER_CHAT_MESSAGE: "2" });
+    const { res } = await chatAs("free", { messages, applicationId: "app-1" });
+    expect(res.status).toBe(200);
+    expect(credits.charge).toHaveBeenCalledExactlyOnceWith({ userId: "u1", amount: 2, kind: "chat", ref: "app-1" });
+    expect(credits.charge.mock.invocationCallOrder[0]).toBeLessThan(runChat.mock.invocationCallOrder[0]);
+  });
+
+  it("answers a short balance with a 402 naming the balance and the cost, without calling Claude", async () => {
+    credits.charge.mockRejectedValue(new AppError("Not enough credits", 402, { credits: 0, needed: 1 }));
+    const { res } = await chatAs("free", { messages });
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "Not enough credits", details: { credits: 0, needed: 1 } });
+    expect(runChat).not.toHaveBeenCalled();
+  });
+
+  it("refuses while free usage is paused before charging anything", async () => {
+    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    expect((await chatAs("free", { messages })).res.status).toBe(402);
+    expect(credits.charge).not.toHaveBeenCalled();
+  });
+
+  it("charges neither an unlimited nor a self-hosted account", async () => {
+    await chatAs("unlimited", { messages });
+    useEnv({ APP_MODE: "selfhost" });
+    await chatAs("free", { messages });
+    expect(credits.charge).not.toHaveBeenCalled();
+  });
+
+  it("books a refused reply, refunds the charge and answers 502 without the usage", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    runChat.mockRejectedValue(new ModelCallError("Claude declined this request: no", 502, USED));
+    const { res } = await chatAs("free", { messages });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Claude declined this request: no", details: null });
+    expect(usage.record).toHaveBeenCalledExactlyOnceWith({ userId: "u1", kind: "chat", usage: USED, free: true });
+    expect(credits.refund).toHaveBeenCalledExactlyOnceWith({ userId: "u1", amount: 1, ref: "charge-1" });
+  });
+
+  it("books the usage and refunds when saving the bank fails after Claude answered", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    runChat.mockRejectedValue(attachUsage(new Error("update banks failed"), USED));
+    expect((await chatAs("free", { messages })).res.status).toBe(500);
+    expect(usage.record).toHaveBeenCalledOnce();
+    expect(credits.refund).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the 502 when booking the failed call's usage also fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    usage.record.mockRejectedValue(new Error("db down"));
+    runChat.mockRejectedValue(new ModelCallError("Claude declined", 502, USED));
+    expect((await chatAs("free", { messages })).res.status).toBe(502);
+    expect(credits.refund).toHaveBeenCalledOnce();
   });
 });

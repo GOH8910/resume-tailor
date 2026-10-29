@@ -75,8 +75,8 @@ Tables (Drizzle, migration added to `drizzle/`):
 
 | Table | Columns | Notes |
 | --- | --- | --- |
-| `credit_events` | id (uuid), user_id (fk cascade), kind (`ad` / `signup` / `tailor` / `chat` / `admin`), amount (int, signed), ref (text, null: ad session id or application id), created_at | Append-only ledger. The balance is `sum(amount)`; `users.credits` caches it and is updated in the same transaction. |
-| `ad_sessions` | id (uuid), user_id (fk), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks match on transaction_id. |
+| `credit_events` | id (uuid), user_id (fk set null), kind (`ad` / `signup` / `tailor` / `chat` / `admin` / `refund`), amount (int, signed), ref (text, null: ad session id, application id, or the refunded charge's row id), created_at | Append-only ledger. The balance is `sum(amount)`; `user_plans.credits` caches it and is updated in the same transaction. Kept anonymised when the account is deleted. |
+| `ad_sessions` | id (uuid), user_id (fk set null), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks name the session in `custom_data`; the unique transaction_id stops a replayed callback. Kept when the account is deleted, so the per-IP cap still counts it. |
 | `usage_events` | id, user_id (fk), kind (`tailor` / `chat` / `seed`), model, input_tokens, output_tokens, cost_gbp (numeric), created_at | Every Claude call. Feeds the budget and the admin page. |
 
 Flow for a free account:
@@ -167,9 +167,14 @@ and a manual "pause free usage" toggle (`settings` table, one row).
 
 ## Error handling
 
-Credits short → 402 with the balance and cost; budget paused → 402 `{ paused: true, resumesAt }`;
-limits → 429 with `retryAfter`; ad grant rejected → 409 with a reason the UI can show ("ad closed
-too early", "daily limit reached"); Claude failure after charging → refund in the same request and 503.
+Every error body is `{ error, details }` (`handle()` in `src/lib/http.ts`), so the 402s are
+`{ error: "Not enough credits", details: { credits, needed } }` when credits are short and
+`{ error, details: { paused: true, reason, resumesAt } }` while free usage is paused (checked before any
+charge). Limits → 429 with `retryAfter`; the daily ad cap → 429 `{ error, details: { reason: "account" | "ip",
+resetsAt } }`; ad grant rejected → 409 with a reason the UI can show ("ad closed too early" →
+`details.reason: "watched too briefly"`, or "Ad session is not pending"). Claude failure after charging → the
+charge is refunded in the same request, any usage Anthropic billed is still recorded, and the client gets the
+original error (502 for a refused or unparseable reply). Usage and token counts never appear in `details`.
 All existing phase 1 error semantics stay.
 
 ## Testing

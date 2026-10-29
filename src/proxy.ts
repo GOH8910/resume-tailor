@@ -1,7 +1,15 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
 
-const PUBLIC = [/^\/signin(\/|$)/, /^\/api\/auth\//, /^\/api\/health$/, /^\/privacy$/, /^\/terms$/];
+const PUBLIC = [
+  /^\/signin(\/|$)/,
+  /^\/api\/auth\//,
+  /^\/api\/health$/,
+  /^\/privacy$/,
+  /^\/terms$/,
+  // The ad network's server-to-server reward callback; its signature is checked in the route.
+  /^\/api\/ads\/ssv$/,
+];
 
 function sameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");

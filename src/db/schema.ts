@@ -17,6 +17,7 @@ import type { Application } from "@/applications/schema";
 import type { Bank } from "@/bank/schema";
 import type { Plan } from "@/billing/plan";
 import type { UsageKind } from "@/billing/usage-types";
+import type { AdSessionStatus, CreditKind } from "@/credits/types";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -118,3 +119,51 @@ export const settings = pgTable("settings", {
     .$onUpdate(() => new Date())
     .notNull(),
 });
+
+/**
+ * Append-only credits ledger: every change to `user_plans.credits` writes one row here in the same transaction,
+ * so the balance always equals the sum of an account's rows.
+ */
+export const creditEvents = pgTable(
+  "credit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Kept, anonymised, when the account is deleted: the audit of credits granted for ads must survive it.
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    kind: text("kind").$type<CreditKind>().notNull(),
+    /** Signed: positive for credits earned or refunded, negative for credits spent. */
+    amount: integer("amount").notNull(),
+    /** The ad session, application or charge the row is about. */
+    ref: text("ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("credit_events_user_id_created_at_idx").on(t.userId, t.createdAt),
+    // Must list CREDIT_KINDS (src/credits/types.ts); changing either needs a migration.
+    check("credit_events_kind_check", sql`${t.kind} in ('ad', 'signup', 'tailor', 'chat', 'admin', 'refund')`),
+  ],
+);
+
+/** One row per rewarded ad attempt. The daily caps count the granted rows per account and per IP. */
+export const adSessions = pgTable(
+  "ad_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Set null rather than cascade, so deleting an account and signing up again does not reset the per-IP cap.
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    ip: text("ip").notNull(),
+    provider: text("provider").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true }),
+    status: text("status").$type<AdSessionStatus>().notNull().default("started"),
+    rejectReason: text("reject_reason"),
+    /** The ad network's id for a server-side verified reward; unique so a replayed callback cannot grant twice. */
+    transactionId: text("transaction_id").unique(),
+  },
+  (t) => [
+    index("ad_sessions_user_id_started_at_idx").on(t.userId, t.startedAt),
+    index("ad_sessions_ip_started_at_idx").on(t.ip, t.startedAt),
+    // Must list AD_SESSION_STATUSES (src/credits/types.ts); changing either needs a migration.
+    check("ad_sessions_status_check", sql`${t.status} in ('started', 'granted', 'rejected')`),
+  ],
+);

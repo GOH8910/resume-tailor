@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { chooseModel } from "@/billing/plan";
 import { currentPolicy } from "@/billing/policy";
-import { ensureFreeUsageOpen, recordUsageOrLog } from "@/billing/usage";
+import { runPaidCall } from "@/credits/money-path";
 import { hasApiKey } from "@/lib/anthropic";
+import { applications, banks, credits, usage } from "@/lib/deps";
+import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
-import { applications, banks, usage } from "@/lib/deps";
 import { handle, readJson, requireUser } from "@/lib/http";
 import { AnthropicTailorModel } from "@/tailor/anthropic-model";
 import { MODEL_IDS } from "@/tailor/model";
@@ -26,10 +27,20 @@ export async function POST(request: Request) {
     }
     const body = TailorRequestSchema.parse(await readJson(request));
     const policy = currentPolicy(user.plan);
-    await ensureFreeUsageOpen(usage, policy);
     const model = new AnthropicTailorModel(chooseModel(policy, body.model));
-    const result = await runTailor({ ...body, userId: user.id }, { banks, applications, model });
-    await recordUsageOrLog(usage, { userId: user.id, kind: "tailor", usage: result.usage, free: policy.chargesCredits });
-    return Response.json({ application: result.application }, { status: 201 });
+    const application = await runPaidCall(
+      {
+        user,
+        policy,
+        kind: "tailor",
+        cost: env.CREDITS_PER_TAILOR,
+        call: async () => {
+          const result = await runTailor({ ...body, userId: user.id }, { banks, applications, model });
+          return { value: result.application, usage: result.usage };
+        },
+      },
+      { credits, usage },
+    );
+    return Response.json({ application }, { status: 201 });
   });
 }

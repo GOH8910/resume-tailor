@@ -21,6 +21,21 @@ export type StructuredRequest = {
 export type Structured<T> = { value: T; usage: ModelUsage };
 
 /**
+ * Claude answered, and Anthropic billed the call, but the reply cannot be used (refused, truncated, unparseable).
+ * `usage` is for booking the cost on the server; `handle()` sends only the message.
+ */
+export class ModelCallError extends AppError {
+  constructor(
+    message: string,
+    status: number,
+    readonly usage: ModelUsage,
+  ) {
+    super(message, status);
+    this.name = "ModelCallError";
+  }
+}
+
+/**
  * One Messages call whose reply must be JSON matching `schema`, with the tokens it used.
  * Uses create() + manual parse: parse() would throw on truncated or refused output
  * before stop_reason could be checked, hiding the real cause.
@@ -46,20 +61,21 @@ export async function createStructured<S extends z.ZodType>(
     .catch((err: unknown) => {
       throw toAppError(err);
     });
+  const usage = usageOf(request.model, response.usage);
   if (response.stop_reason === "refusal") {
     const why = response.stop_details?.explanation ?? "no explanation given";
-    throw new AppError(`Claude declined this request: ${why}`, 502);
+    throw new ModelCallError(`Claude declined this request: ${why}`, 502, usage);
   }
   if (response.stop_reason === "max_tokens") {
-    throw new AppError("Claude ran out of output tokens before finishing. Try a shorter request.", 502);
+    throw new ModelCallError("Claude ran out of output tokens before finishing. Try a shorter request.", 502, usage);
   }
   const text = response.content.find((block) => block.type === "text");
   try {
     if (!text) throw new Error("Claude returned no text block");
-    return { value: format.parse(text.text), usage: usageOf(request.model, response.usage) };
+    return { value: format.parse(text.text), usage };
   } catch (err) {
     console.error("Claude structured output failed to parse", err);
-    throw new AppError("Claude returned output that did not match the expected schema. Try again.", 502);
+    throw new ModelCallError("Claude returned output that did not match the expected schema. Try again.", 502, usage);
   }
 }
 

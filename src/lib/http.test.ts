@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "./errors";
-import { handle, requireUser } from "./http";
+import { clientIp, handle, requireUser } from "./http";
 
 // The real instance opens the database; these tests only need getSession.
 const getSession = vi.hoisted(() => vi.fn());
@@ -80,5 +80,22 @@ describe("requireUser", () => {
     plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 0 });
     await requireUser(request());
     expect(plans.get).toHaveBeenLastCalledWith("u1", "unlimited");
+  });
+});
+
+describe("clientIp", () => {
+  const from = (headers: Record<string, string>) => clientIp(new Request("http://localhost/api/ads/start", { headers }));
+
+  it("prefers the address Fly's proxy saw", () => {
+    expect(from({ "fly-client-ip": "203.0.113.1", "x-forwarded-for": "198.51.100.7" })).toBe("203.0.113.1");
+  });
+
+  it("falls back to the first x-forwarded-for entry", () => {
+    expect(from({ "x-forwarded-for": " 198.51.100.7 , 10.0.0.1" })).toBe("198.51.100.7");
+  });
+
+  it("is 'unknown' without either header", () => {
+    expect(from({})).toBe("unknown");
+    expect(from({ "fly-client-ip": " ", "x-forwarded-for": "" })).toBe("unknown");
   });
 });

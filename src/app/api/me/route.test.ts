@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
+const credits = vi.hoisted(() => ({ balance: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans }));
+vi.mock("@/lib/deps", () => ({ plans, credits }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 
 import { parseEnv } from "@/lib/env";
@@ -31,8 +32,10 @@ describe("GET /api/me", () => {
   });
 
   it("describes a free account in hosted mode: Haiku, credits and ads", async () => {
+    useEnv({ APP_MODE: "hosted", AD_PROVIDER: "test", CREDITS_PER_TAILOR: "3", CREDITS_PER_CHAT_MESSAGE: "1" });
     getSession.mockResolvedValueOnce(ADA);
-    plans.get.mockResolvedValue({ plan: "free", credits: 5 });
+    plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+    credits.balance.mockResolvedValue(5);
 
     const res = await get();
 
@@ -45,20 +48,17 @@ describe("GET /api/me", () => {
       policy: { model: "claude-haiku-5-5", picksModel: false, chargesCredits: true, showsAds: true, limited: true },
       creditsPerTailor: 3,
       creditsPerChatMessage: 1,
+      adsAvailable: true,
     });
-    expect(plans.get).toHaveBeenCalledWith("u1", "free");
-    expect(plans.get).not.toHaveBeenCalledWith("u1");
+    expect(credits.balance).toHaveBeenCalledWith("u1");
   });
 
-  it("heals a missing plan row of an admin account as unlimited on its credits read too", async () => {
-    useEnv({ APP_MODE: "hosted", ADMIN_EMAILS: "ada@example.com" });
+  it("says no ads are available while the server has no ad network", async () => {
     getSession.mockResolvedValueOnce(ADA);
-    plans.get.mockResolvedValue({ plan: "unlimited", credits: 0 });
+    plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+    credits.balance.mockResolvedValue(0);
 
-    await get();
-
-    expect(plans.get).toHaveBeenCalledTimes(2);
-    for (const call of plans.get.mock.calls) expect(call).toEqual(["u1", "unlimited"]);
+    expect((await (await get()).json()).adsAvailable).toBe(false);
   });
 
   it("describes an unlimited account in hosted mode", async () => {

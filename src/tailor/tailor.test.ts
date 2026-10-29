@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplicationRepository } from "@/applications/repository";
 import { BankRepository } from "@/bank/repository";
 import { user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import { AppError } from "@/lib/errors";
 import { DEFAULT_LIMITS } from "./limits";
+import { usageFromError } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import type { TailorModel, TailorRequest } from "./model";
 import { buildSystemPrompt } from "./prompt";
@@ -86,6 +87,25 @@ describe("runTailor when the model fails", () => {
     };
     await expect(runTailor({ userId: USER, jobDescription: "We need Go.", company: "Acme" }, { banks, applications, model })).rejects.toBe(failure);
     expect(await applications.list(USER)).toEqual([]);
+  });
+});
+
+describe("runTailor when saving fails after the model answered", () => {
+  it("rethrows the same error, tagged with the tokens the model used", async () => {
+    const failure = new AppError("Could not save", 500);
+    vi.spyOn(applications, "save").mockRejectedValue(failure);
+    const err = await runTailor(
+      { userId: USER, jobDescription: "We need Go.", company: "Acme" },
+      { banks, applications, model: new FakeModel(fakeResult) },
+    ).catch((e: unknown) => e);
+    expect(err).toBe(failure);
+    expect(usageFromError(err)).toEqual(fakeUsage);
+  });
+
+  it("tags no usage when the model was never called", async () => {
+    const model = new FakeModel(fakeResult);
+    const err = await runTailor({ userId: USER, jobDescription: " ", company: "Acme" }, { banks, applications, model }).catch((e: unknown) => e);
+    expect(usageFromError(err)).toBeUndefined();
   });
 });
 

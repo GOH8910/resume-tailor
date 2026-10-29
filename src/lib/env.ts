@@ -31,6 +31,9 @@ const Schema = z.object({
   AD_PROVIDER: z.enum(["none", "test", "google"]).default("none"),
   AD_UNIT_PATH: z.string().optional(),
   AD_SSV_ENABLED: flag,
+  AD_SSV_KEYS_URL: blankAsUnset(
+    z.url({ protocol: /^https$/ }).default("https://www.gstatic.com/admob/reward/verifier-keys.json"),
+  ),
   FREE_MODEL: z.string().trim().min(1).default("claude-haiku-5-5"),
   UNLIMITED_MODEL: z.string().trim().min(1).default("claude-sonnet-5-5"),
   CREDITS_PER_TAILOR: blankAsUnset(z.coerce.number().int().min(0).default(2)),

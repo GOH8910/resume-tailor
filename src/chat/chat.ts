@@ -2,6 +2,7 @@ import type { ApplicationRepository } from "@/applications/repository";
 import type { Application, ResumeState } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
 import type { Bank } from "@/bank/schema";
+import { attachUsage } from "@/billing/usage-error";
 import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 import { applyBankChanges } from "./apply-bank";
@@ -43,12 +44,17 @@ export async function runChat(input: ChatInput, deps: ChatDeps): Promise<{ outco
   const system = buildChatSystemPrompt({ bank, application, resume: application ? input.resume : undefined });
   const { result, usage } = await deps.model.chat(system, messages);
 
-  const { bank: nextBank, applied, warnings } = applyBankChanges(bank, result.bankChanges);
-  const bankChanged = applied.length > 0;
-  if (bankChanged) await deps.banks.write(input.userId, nextBank);
+  try {
+    const { bank: nextBank, applied, warnings } = applyBankChanges(bank, result.bankChanges);
+    const bankChanged = applied.length > 0;
+    if (bankChanged) await deps.banks.write(input.userId, nextBank);
 
-  const resumeChanges = application ? result.resumeChanges : [];
-  if (!application && result.resumeChanges.length > 0) warnings.push("Resume changes were ignored because no resume is open");
+    const resumeChanges = application ? result.resumeChanges : [];
+    if (!application && result.resumeChanges.length > 0) warnings.push("Resume changes were ignored because no resume is open");
 
-  return { outcome: { reply: result.reply.trim(), applied, warnings, bank: nextBank, bankChanged, resumeChanges }, usage };
+    return { outcome: { reply: result.reply.trim(), applied, warnings, bank: nextBank, bankChanged, resumeChanges }, usage };
+  } catch (err) {
+    // The call was billed even though the turn failed; the caller still books it.
+    throw attachUsage(err, usage);
+  }
 }
