@@ -143,11 +143,22 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   (`next.config.ts`), and a `Content-Security-Policy` with a fresh nonce per request (`src/proxy.ts`, built by
   `src/ads/csp.ts`). Scripts run only with that nonce or when a nonce'd script loads them (`'strict-dynamic'`);
   styles only from our stylesheets; frames only our own and the PDF preview's `blob:`; nothing may frame the site.
+  With an https `BETTER_AUTH_URL` the policy also upgrades stray `http://` requests to https.
   The nonce reaches Next's scripts only while a page renders, so the root layout renders every page per request.
   If a page breaks after a dependency upgrade (blank areas, buttons that do nothing), open the browser console:
   a refused script, style or frame is reported there as a Content Security Policy violation, naming the directive.
-  The e2e suites fail on any violation. Phase 2b adds the Google ad hosts to the policy; ship them first as
-  `Content-Security-Policy-Report-Only` to see what Google's tag loads before enforcing them.
+  The e2e suites run under the dev policy (which allows eval and inline styles) and fail on any violation;
+  `scripts/smoke-image.sh` is the production-policy check: it walks the production image in a browser and fails on
+  any violation or console error.
+- **HSTS covers subdomains**: `includeSubDomains` tells browsers to use https for every subdomain of the site's
+  host for a year, and they remember it. Before the first deploy, either serve the app from a dedicated subdomain
+  (e.g. `resume.example.com`, so only its own subdomains are pinned) or make sure every subdomain of the domain
+  already works over https.
+- **Ads and the policy (phase 2b)**: Google's tag loads from hosts it does not publish in full. Enforce a loose
+  policy for ads first (`https:` in `img-src`, `frame-src` and `connect-src`), and at the same time send the tight
+  host lists from `src/ads/csp.ts` as `Content-Security-Policy-Report-Only`, with a `report-uri` to a
+  `/api/csp-report` endpoint (public, size-capped, rate-limited, log-only). The report-only policy should also cover
+  `style-src`, `font-src` and `media-src`. Tighten the enforced policy to the host lists once the reports are clean.
 - **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
   `COMPILE_CONCURRENCY` in `fly.toml` to at most N.
 - **Deploys during a compile**: `kill_timeout = 65` lets a stopping machine finish a compile (up to 60 s).

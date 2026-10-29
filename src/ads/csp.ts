@@ -29,10 +29,12 @@ type Options = {
   dev: boolean;
   /** The Google ad provider is on (hosted mode with AD_PROVIDER=google). */
   googleAds: boolean;
+  /** The site is served over https: browsers then fetch any stray http:// URL over https instead. */
+  upgradeInsecure: boolean;
 };
 
 /** The policy as one header line, directives joined with "; ". */
-export function buildCsp({ nonce, dev, googleAds }: Options): string {
+export function buildCsp({ nonce, dev, googleAds, upgradeInsecure }: Options): string {
   const google = (hosts: string[]) => (googleAds ? hosts : []);
   const directives: string[][] = [
     ["default-src", "'self'"],
@@ -52,7 +54,7 @@ export function buildCsp({ nonce, dev, googleAds }: Options): string {
     ["base-uri", "'self'"],
     ["form-action", "'self'"],
     ["frame-ancestors", "'none'"],
-    ...(dev ? [] : [["upgrade-insecure-requests"]]),
+    ...(upgradeInsecure ? [["upgrade-insecure-requests"]] : []),
   ];
   return directives.map((parts) => parts.join(" ")).join("; ");
 }

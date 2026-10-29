@@ -23,6 +23,8 @@ export const test = base.extend<{ cspViolations: string[] }>({
         });
       });
       await use(violations);
+      // A round trip to each page delivers any report still on its way: the browser sends binding calls in order.
+      for (const page of context.pages()) await page.evaluate(() => 0);
       expect(violations, "Content-Security-Policy violations").toEqual([]);
     },
     { auto: true },

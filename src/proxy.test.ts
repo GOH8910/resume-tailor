@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config, proxy } from "./proxy";
 
-const env = vi.hoisted(() => ({ NODE_ENV: "production", adProvider: "none" }));
+const env = vi.hoisted(() => ({ NODE_ENV: "production", adProvider: "none", BETTER_AUTH_URL: "https://resume.example.com" }));
+const PRODUCTION = { ...env };
 vi.mock("@/lib/env", () => ({ env }));
 
 const SESSION = "better-auth.session_token=abc.def";
@@ -91,7 +92,7 @@ describe("proxy matcher", () => {
 });
 
 describe("proxy content security policy", () => {
-  afterEach(() => Object.assign(env, { NODE_ENV: "production", adProvider: "none" }));
+  afterEach(() => Object.assign(env, PRODUCTION));
 
   const csp = (res: Response) => res.headers.get("content-security-policy") ?? "";
   const nonceIn = (policy: string) => /'nonce-([^']+)'/.exec(policy)?.[1];
@@ -131,17 +132,25 @@ describe("proxy content security policy", () => {
     expect(csp(proxy(request("/api/bank", { origin: "https://evil.example" })))).toContain("default-src 'self'");
   });
 
-  it("uses the production policy outside development", () => {
+  it("uses the production policy outside development, upgrading requests on an https deployment", () => {
     const policy = csp(proxy(request("/signin")));
     expect(policy).not.toContain("'unsafe-eval'");
     expect(policy).toContain("upgrade-insecure-requests");
     expect(policy).not.toContain("doubleclick");
   });
 
-  it("allows eval and does not upgrade to https under next dev", () => {
-    env.NODE_ENV = "development";
+  it("allows eval under next dev, and does not upgrade requests on an http deployment", () => {
+    Object.assign(env, { NODE_ENV: "development", BETTER_AUTH_URL: "http://localhost:3000" });
     const policy = csp(proxy(request("/signin")));
     expect(policy).toContain("'unsafe-eval'");
+    expect(policy).not.toContain("upgrade-insecure-requests");
+  });
+
+  // The Docker smoke test runs a production build on http://localhost: upgrading would send its requests to https.
+  it("does not upgrade requests for a production build served over http", () => {
+    env.BETTER_AUTH_URL = "http://localhost:3000";
+    const policy = csp(proxy(request("/signin")));
+    expect(policy).not.toContain("'unsafe-eval'");
     expect(policy).not.toContain("upgrade-insecure-requests");
   });
 

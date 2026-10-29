@@ -51,6 +51,9 @@ function createAuth() {
     // Fly's proxy puts the real client IP in fly-client-ip; the rate limiter keys on it.
     advanced: { ipAddress: { ipAddressHeaders: ["fly-client-ip", "x-forwarded-for"] } },
     rateLimit: { customRules: signInRateRules() },
+    // Failed OAuth callbacks (e.g. a state mismatch) land on our sign-in page with ?error=, which shows a message,
+    // instead of Better Auth's own error page.
+    onAPIError: { errorURL: "/signin" },
     socialProviders:
       env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
         ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } }

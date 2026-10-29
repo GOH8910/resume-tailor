@@ -182,6 +182,14 @@ type=$(api -o /dev/null -w '%{content_type}' "$BASE/api/applications/$id/pdf" ||
 check "saved PDF is served ($type)" test "$type" = application/pdf
 check "compile folders were cleaned up" test -z "$(in_app 'ls -A /var/lib/compile')"
 
+# --- The production policy in a browser ---
+# The e2e suites run under next dev's looser policy; this is the check of the production one.
+check "a signed-in browser walk (dashboard, bank, tailor, review, 404) has no CSP violation or console error" \
+  npx tsx scripts/smoke-browser.ts "$BASE" "$JAR"
+location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$BASE/api/auth/error?error=state_mismatch" || true)
+check "Better Auth's error page sends people to /signin (${location:-no redirect})" \
+  test "$location" = "$BASE/signin?error=state_mismatch"
+
 # --- TeX runs as a separate user ---
 # Next renames its process to "next-server (v...)".
 server_pid=$(in_app 'for p in /proc/[0-9]*; do case "$(tr "\0" " " < "$p/cmdline" 2>/dev/null)" in next-server*|"node server.js"*) basename "$p";; esac; done' | head -1 || true)

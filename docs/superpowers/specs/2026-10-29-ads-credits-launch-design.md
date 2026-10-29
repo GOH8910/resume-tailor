@@ -128,19 +128,26 @@ layout calls `connection()` so every page renders per request and gets it. `buil
 - `script-src 'self' 'nonce-…' 'strict-dynamic'` (+ `'unsafe-eval'` under `next dev`)
 - `style-src 'self' 'nonce-…'` in production; `'self' 'unsafe-inline'` under `next dev`, whose overlay injects
   `<style>` elements without the nonce. Production pages emit no inline styles (checked with `next build && next
-  start`; Next's default 404 page, which does, is replaced by `src/app/not-found.tsx`).
+  start`; Next's default 404 and error pages, which do, are replaced by `src/app/not-found.tsx`, `error.tsx` and
+  `global-error.tsx`).
 - `img-src 'self' blob: data:`, `font-src 'self'`, `connect-src 'self'`
 - `frame-src 'self' blob:` (the PDF preview iframe)
 - `object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
-- `upgrade-insecure-requests` outside `next dev`
+- `upgrade-insecure-requests` when `BETTER_AUTH_URL` is https (`upgradeInsecure`)
 
 With `AD_PROVIDER=google` in `hosted` mode (`env.adProvider`), one list in `src/ads/csp.ts` adds the Google hosts:
 `script-src` gets `securepubads.g.doubleclick.net`, `pagead2.googlesyndication.com`,
 `fundingchoicesmessages.google.com` and `www.googletagservices.com` (read only by CSP2 browsers; elsewhere
 `'strict-dynamic'` trusts the tag that our nonce'd code inserts); `frame-src`, `img-src` and `connect-src` get
-`*.doubleclick.net`, `*.googlesyndication.com` and `fundingchoicesmessages.google.com`. Phase 2b ships these as
-Report-Only first. Zod's eval probe is switched off in the browser (`src/instrumentation-client.ts`, `jitless`) so it
-does not report a violation. Read the Next CSP guide in
+`*.doubleclick.net`, `*.googlesyndication.com` and `fundingchoicesmessages.google.com`. Phase 2b does not enforce
+these lists at first: it enforces a loose ad policy (`https:` in `img-src`, `frame-src` and `connect-src`) and sends
+the tight lists as `Content-Security-Policy-Report-Only` to a `/api/csp-report` endpoint (public, size-capped,
+rate-limited, log-only), with `style-src`, `font-src` and `media-src` covered in the report-only policy too, then
+tightens the enforced policy once the reports are clean. Zod's eval probe is switched off in the browser
+(`src/instrumentation-client.ts`, `jitless`) so it does not report a violation. Next's own static 500 page
+(`.next/server/app/_global-error.html`, built from its internal `app-error` component, not from `global-error.tsx`)
+keeps its inline styles; it is served only when a request fails outside rendering, and then shows unstyled. A failing
+root layout renders `global-error.tsx` per request, with the nonce. Read the Next CSP guide in
 `node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md` before changing the policy.
 
 ## Limits and hardening (hosted mode)

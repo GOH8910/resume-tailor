@@ -25,7 +25,13 @@ function sameOrigin(request: NextRequest): boolean {
 
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const csp = buildCsp({ nonce, dev: env.NODE_ENV === "development", googleAds: env.adProvider === "google" });
+  const csp = buildCsp({
+    nonce,
+    dev: env.NODE_ENV === "development",
+    googleAds: env.adProvider === "google",
+    // Hosted production requires an https BETTER_AUTH_URL (env.ts); an http one is local, where upgrading breaks every request.
+    upgradeInsecure: env.BETTER_AUTH_URL.startsWith("https://"),
+  });
   const response = route(request, nonce, csp);
   response.headers.set("Content-Security-Policy", csp);
   return response;
