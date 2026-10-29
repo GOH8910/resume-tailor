@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/ui/api";
-import { adLimitMessage, creditProblem, creditsLabel, pausedMessage } from "./messages";
+import { adErrorMessage, adLimitMessage, creditProblem, creditsLabel, pausedMessage } from "./messages";
 
 describe("creditProblem", () => {
   it("reads a short balance", () => {
@@ -50,6 +50,31 @@ describe("adLimitMessage", () => {
 
   it("falls back without a reset time", () => {
     expect(adLimitMessage(undefined)).toBe("Daily ad limit reached, try again tomorrow");
+  });
+});
+
+describe("adErrorMessage", () => {
+  const now = new Date(2026, 9, 29, 15, 0);
+  const resetsAt = new Date(2026, 9, 30, 1, 0).toISOString();
+
+  it.each(["account", "ip"])("explains the daily cap per %s with its reset time", (reason) => {
+    const err = new ApiError("Daily ad limit reached", 429, { reason, resetsAt });
+    expect(adErrorMessage(err, now)).toMatch(/^Daily ad limit reached, try again tomorrow after \S/);
+  });
+
+  it("keeps the server's words for any other 429, such as a burst limit", () => {
+    expect(adErrorMessage(new ApiError("Too many requests", 429, { retryAfter: 30 }), now)).toBe("Too many requests");
+  });
+
+  it("keeps the server's reason for a refused grant", () => {
+    const err = new ApiError("The ad was closed too early", 409, { reason: "watched too briefly" });
+    expect(adErrorMessage(err, now)).toBe("The ad was closed too early");
+    expect(adErrorMessage(new ApiError("Ad session is not pending", 409), now)).toBe("Ad session is not pending");
+  });
+
+  it("falls back for errors without a message", () => {
+    expect(adErrorMessage(new Error("Failed to fetch"), now)).toBe("Failed to fetch");
+    expect(adErrorMessage("boom", now)).toBe("Something went wrong");
   });
 });
 

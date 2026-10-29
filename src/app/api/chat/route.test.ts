@@ -78,8 +78,13 @@ describe("POST /api/chat model policy", () => {
 });
 
 describe("POST /api/chat daily budget and usage", () => {
-  it("answers with the chat outcome as before, without the usage", async () => {
+  it("answers with the chat outcome and the balance after the charge, without the usage", async () => {
     const { res } = await chatAs("free", { messages });
+    expect(await res.json()).toEqual({ ...OUTCOME, credits: 0 });
+  });
+
+  it("leaves the balance out for an account that does not pay in credits", async () => {
+    const { res } = await chatAs("unlimited", { messages });
     expect(await res.json()).toEqual(OUTCOME);
   });
 

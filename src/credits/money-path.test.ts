@@ -54,7 +54,7 @@ const booked = () => db.select({ kind: usageEvents.kind, free: usageEvents.free,
 
 describe("runPaidCall for a free account", () => {
   it("charges the cost, runs the call, books its usage as free and returns its value", async () => {
-    expect(await paid(succeeds)).toBe("tailored");
+    expect(await paid(succeeds)).toEqual({ value: "tailored", credits: 1 });
     expect(await credits.balance(ADA.id)).toBe(1);
     expect(await ledger()).toEqual([["signup", 3], ["tailor", -2]]);
     expect(await booked()).toEqual([{ kind: "tailor", free: true, inputTokens: 10_000 }]);
@@ -77,7 +77,7 @@ describe("runPaidCall for a free account", () => {
   });
 
   it("charges nothing when the cost is 0, but still books the call as free", async () => {
-    expect(await paid(succeeds, FREE, 0)).toBe("tailored");
+    expect(await paid(succeeds, FREE, 0)).toEqual({ value: "tailored" });
     expect(await ledger()).toEqual([["signup", 3]]);
     expect(await booked()).toEqual([{ kind: "tailor", free: true, inputTokens: 10_000 }]);
   });
@@ -129,7 +129,7 @@ describe("runPaidCall for a free account", () => {
 describe("runPaidCall for an unlimited account", () => {
   it("never checks the pause or charges, and books the call as not free", async () => {
     await usage.setFreePaused(true);
-    expect(await paid(succeeds, UNLIMITED)).toBe("tailored");
+    expect(await paid(succeeds, UNLIMITED)).toEqual({ value: "tailored" });
     expect(await ledger()).toEqual([["signup", 3]]);
     expect(await booked()).toEqual([{ kind: "tailor", free: false, inputTokens: 10_000 }]);
   });

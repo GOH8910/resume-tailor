@@ -1,26 +1,17 @@
-import { createElement } from "react";
-import { createRoot } from "react-dom/client";
-import type { AdClientConfig } from "@/ads/provider";
-import { TestAdModal } from "./TestAdModal";
+import type { AdClientConfig, ShowRewardedAd } from "@/ads/provider";
 
-export type RewardedAdEvents = {
-  /** The server's ad session, which a network with server-side verification echoes back to it. */
-  sessionId: string;
-  onGranted: () => void;
-  onClosed: () => void;
-  onError: (message: string) => void;
-};
-
-/** Shows one rewarded ad and reports how it ended through exactly one callback. Returns a function that removes it. */
-export type ShowRewardedAd = (events: RewardedAdEvents) => () => void;
-
-/** The way to show a rewarded ad on this server, or null when it has no ad network. */
-export function providerFor(config: AdClientConfig): ShowRewardedAd | null {
+/**
+ * The way to show a rewarded ad on this server, or null when it has no ad network. A provider's code is imported
+ * only when an ad is about to play, so the test ad never ships in the pages' initial bundle.
+ */
+export async function loadProvider(config: AdClientConfig): Promise<ShowRewardedAd | null> {
   switch (config.provider) {
     case "none":
       return null;
-    case "test":
+    case "test": {
+      const { showTestAd } = await import("./test-ad");
       return (events) => showTestAd(config.minWatchSeconds, events);
+    }
     case "google":
       return showGoogleAd;
   }
@@ -32,25 +23,29 @@ const showGoogleAd: ShowRewardedAd = ({ onError }) => {
   return () => {};
 };
 
-function showTestAd(minWatchSeconds: number, { onGranted, onClosed }: RewardedAdEvents): () => void {
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  let open = true;
-  const remove = () => {
-    if (!open) return;
-    open = false;
-    // Deferred: Close calls this from a click handler that is still running inside this root.
-    queueMicrotask(() => {
-      root.unmount();
-      container.remove();
-    });
-  };
-  const endWith = (callback: () => void) => () => {
-    if (!open) return;
-    remove();
-    callback();
-  };
-  root.render(createElement(TestAdModal, { minWatchSeconds, onFinished: endWith(onGranted), onDismiss: endWith(onClosed) }));
-  return remove;
+// One ad at a time for the whole page, however many "Watch an ad" buttons are mounted.
+let adPlaying = false;
+const listeners = new Set<() => void>();
+
+function setAdPlaying(playing: boolean): void {
+  adPlaying = playing;
+  for (const listener of listeners) listener();
 }
+
+export const adSlot = {
+  /** For useSyncExternalStore. */
+  subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
+  isTaken: (): boolean => adPlaying,
+  /** Takes the slot; false when an ad is already under way somewhere on the page. */
+  claim(): boolean {
+    if (adPlaying) return false;
+    setAdPlaying(true);
+    return true;
+  },
+  release(): void {
+    setAdPlaying(false);
+  },
+};

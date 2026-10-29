@@ -22,6 +22,8 @@ type ChatResponse = {
   bank: Bank;
   bankChanged: boolean;
   resumeChanges: ResumeChange[];
+  /** The balance after the charge, for accounts that pay in credits. */
+  credits?: number;
 };
 
 export function ChatDrawer() {
@@ -62,10 +64,13 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState<string | null>(null);
+  // The server's numbers from a 402, shown until the balance covers the cost again.
+  const [shortBy, setShortBy] = useState<{ credits: number; needed: number } | null>(null);
   const chargesCredits = me?.policy.chargesCredits ?? false;
   const cost = me?.creditsPerChatMessage ?? 0;
   const credits = me?.credits ?? 0;
-  const short = chargesCredits && credits < cost;
+  const refusedShort = shortBy !== null && !(me && me.credits >= shortBy.needed);
+  const short = (chargesCredits && credits < cost) || refusedShort;
   const list = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const wasShort = useRef(short);
@@ -94,6 +99,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
     setBusy(true);
     setError(null);
     setPaused(null);
+    setShortBy(null);
     try {
       await handlers?.flush?.();
       const res = await api.send<ChatResponse>("/api/chat", "POST", {
@@ -110,16 +116,21 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       }
       if (res.bankChanged) await handlers?.reloadBank?.();
       setTurns((t) => [...t, { role: "assistant", content: res.reply, applied, warnings }]);
-      // The top bar's balance after this message's charge.
-      if (chargesCredits) refresh();
+      if (res.credits !== undefined) setCredits(res.credits);
     } catch (err) {
       const problem = creditProblem(err);
       if (problem) {
         // Claude never saw the message: take it back out of the conversation so it can be sent again later.
         setTurns(turns);
         setInput(content);
-        if (problem.kind === "short") setCredits(problem.credits);
-        else setPaused(problem.message);
+        if (problem.kind === "short") {
+          setCredits(problem.credits);
+          setShortBy({ credits: problem.credits, needed: problem.needed });
+        } else {
+          setPaused(problem.message);
+        }
+        // Without the account there is no balance to correct: load it.
+        if (me === null) refresh();
       } else {
         setError(errorMessage(err));
       }
@@ -191,6 +202,8 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       {short && (
         <div className="grid gap-2 border-t border-rule bg-warn-soft/60 px-3 py-2.5">
           <p className="text-xs text-warn">
+            {refusedShort &&
+              `A message costs ${creditsLabel(shortBy.needed)} and you have ${shortBy.credits}. `}
             {me?.adsAvailable ? "Watch an ad to keep chatting." : "You need more credits to keep chatting."}
           </p>
           <RewardedAdButton size="sm" />

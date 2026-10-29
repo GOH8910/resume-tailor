@@ -6,6 +6,8 @@ import { Button } from "@/ui/Button";
 
 type Props = {
   minWatchSeconds: number;
+  /** The dialog is open on screen. */
+  onShown: () => void;
   /** The ad played to the end. */
   onFinished: () => void;
   /** Closed before the end: no reward. */
@@ -16,10 +18,11 @@ type Props = {
  * Stands in for a rewarded video ad in development and e2e runs: a modal dialog that "plays" for a few seconds.
  * A modal <dialog> makes the page behind it inert; Tab is held on its one control, and focus returns to the opener.
  */
-export function TestAdModal({ minWatchSeconds, onFinished, onDismiss }: Props) {
+export function TestAdModal({ minWatchSeconds, onShown, onFinished, onDismiss }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const descriptionId = useId();
   const [fraction, setFraction] = useState(0);
   const totalSeconds = testAdSeconds(minWatchSeconds);
   const secondsLeft = Math.ceil(totalSeconds * (1 - fraction));
@@ -30,11 +33,12 @@ export function TestAdModal({ minWatchSeconds, onFinished, onDismiss }: Props) {
     if (!element) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     element.showModal();
+    onShown();
     return () => {
       element.close();
       opener?.focus();
     };
-  }, []);
+  }, [onShown]);
 
   useEffect(() => createTestAdTimer(minWatchSeconds, onFinished, setFraction), [minWatchSeconds, onFinished]);
 
@@ -42,6 +46,7 @@ export function TestAdModal({ minWatchSeconds, onFinished, onDismiss }: Props) {
     <dialog
       ref={dialog}
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       // Escape: treat it like the Close button rather than letting the browser close the dialog under React.
       onCancel={(event) => {
         event.preventDefault();
@@ -61,7 +66,7 @@ export function TestAdModal({ minWatchSeconds, onFinished, onDismiss }: Props) {
           <h2 id={titleId} className="mt-1 font-serif text-2xl tracking-tight">
             Test ad
           </h2>
-          <p className="mt-1 text-sm text-ink-soft">
+          <p id={descriptionId} className="mt-1 text-sm text-ink-soft">
             A stand-in for a rewarded video ad. Let it play to the end to earn 1 credit.
           </p>
         </div>
@@ -75,7 +80,7 @@ export function TestAdModal({ minWatchSeconds, onFinished, onDismiss }: Props) {
           className="h-1.5 overflow-hidden rounded-full bg-paper-deep"
         >
           <div
-            className="h-full origin-left bg-accent transition-transform duration-100 ease-linear"
+            className="h-full origin-left bg-accent transition-transform duration-100 ease-linear motion-reduce:transition-none"
             style={{ transform: `scaleX(${fraction})` }}
           />
         </div>

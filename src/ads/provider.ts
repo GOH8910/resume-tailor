@@ -11,6 +11,25 @@ export type AdClientConfig = {
   minWatchSeconds: number;
 };
 
+export type RewardedAdEvents = {
+  /** The server's ad session, which a network with server-side verification echoes back to it. */
+  sessionId: string;
+  /** The ad is on screen. Ends the caller's load timeout; never fires for an ad that failed to load. */
+  onShown?: () => void;
+  onGranted: () => void;
+  onClosed: () => void;
+  onError: (message: string) => void;
+};
+
+/**
+ * Shows one rewarded ad and returns `remove`, which takes it down. The contract every provider keeps:
+ * - Exactly one terminal callback fires (onGranted, onClosed or onError), once, and only after the ad's UI is gone
+ *   from the page. It may fire before `show` returns when the ad cannot start at all.
+ * - onShown fires at most once, before the terminal callback.
+ * - `remove` is idempotent and suppresses every later callback; the caller decides what a removed ad means.
+ */
+export type ShowRewardedAd = (events: RewardedAdEvents) => () => void;
+
 /** How long the test ad plays: always past the server's minimum watch time, so watching to the end is accepted. */
 export function testAdSeconds(minWatchSeconds: number): number {
   return Math.max(minWatchSeconds + 1, 2);

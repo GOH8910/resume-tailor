@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/ui/Button";
-import { creditsLabel } from "./messages";
 import { useCredits } from "./useCredits";
 
 /**
@@ -9,13 +8,10 @@ import { useCredits } from "./useCredits";
  * button is aria-disabled rather than disabled, so it keeps focus and the ad dialog can hand focus back to it.
  */
 export function RewardedAdButton({ size = "md" }: { size?: "sm" | "md" }) {
-  const { chargesCredits, adsAvailable, credits, watchAd, watching, lastError } = useCredits();
+  const { chargesCredits, adsAvailable, watchAd, watching, lastError } = useCredits();
   if (!chargesCredits) return null;
-  if (!adsAvailable) {
-    return (
-      <p className="text-xs text-ink-faint">Ads aren&apos;t available yet. Your account has {creditsLabel(credits)}.</p>
-    );
-  }
+  // The balance is already on screen beside this, so only say why there is no button.
+  if (!adsAvailable) return <p className="text-xs text-ink-faint">Ads aren&apos;t available yet.</p>;
   return (
     <div className="grid gap-1.5">
       <Button

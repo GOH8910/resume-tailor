@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { errorMessage } from "./api";
 import { authClient } from "./auth-client";
+import { Banner } from "./Banner";
 import { Button, FOCUS_RING } from "./Button";
 import { forgetChats } from "./chat/chat-storage";
 import { useChatContext } from "./chat/ChatProvider";
@@ -19,7 +20,7 @@ const LINKS = [
 export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
   const { handlers } = useChatContext();
-  const { me } = useMe();
+  const { me, error: accountError, refresh } = useMe();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   // The value is unused. The (app) layout reads the session without refreshing it (a server component cannot set
@@ -84,6 +85,19 @@ export function TopBar({ user }: { user: { email: string } }) {
           )}
         </div>
       </div>
+      {/* Shown once here for every page: without the account, credits and the tailor button cannot be shown. */}
+      {accountError && (
+        <div className="mx-auto max-w-6xl px-4 pb-3">
+          <Banner tone="warn" title="Could not load your account">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>{accountError}</span>
+              <Button size="sm" variant="secondary" onClick={refresh}>
+                Retry
+              </Button>
+            </div>
+          </Banner>
+        </div>
+      )}
     </header>
   );
 }

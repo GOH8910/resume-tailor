@@ -35,6 +35,9 @@ function webServer(spec: ServerSpec): WebServer {
     command: `rm -rf .e2e-data/${spec.name} && npm run dev -- --port ${spec.port}`,
     url: baseUrl(spec),
     env: {
+      // Each server's own build folder (next.config.ts). Next adds `<folder>/types` and `<folder>/dev/types` to
+      // tsconfig.json's include list whenever they are missing, so tsconfig.json lists both for both folders and
+      // excludes .next-e2e from type checking; renaming a folder here means updating those entries too.
       NEXT_DIST_DIR: `.next-e2e/${spec.name}`,
       RESUME_DATA_DIR: dataDir(spec),
       // Sign-in links are absolute URLs built from this; "file" writes them to <data>/magic-links/<email>.txt.

@@ -77,8 +77,13 @@ describe("POST /api/tailor model policy", () => {
 });
 
 describe("POST /api/tailor daily budget and usage", () => {
-  it("answers with the application only", async () => {
+  it("answers with the application and the balance after the charge, without the usage", async () => {
     const { res } = await tailorAs("free", job);
+    expect(await res.json()).toEqual({ application: { id: "a1" }, credits: 0 });
+  });
+
+  it("leaves the balance out for an account that does not pay in credits", async () => {
+    const { res } = await tailorAs("unlimited", job);
     expect(await res.json()).toEqual({ application: { id: "a1" } });
   });
 

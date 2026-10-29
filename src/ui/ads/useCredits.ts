@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import type { AdSessionStatus } from "@/credits/types";
-import { api, ApiError, errorMessage } from "@/ui/api";
+import { type RefObject, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { ShowRewardedAd } from "@/ads/provider";
+import { api } from "@/ui/api";
 import { useMe } from "@/ui/useMe";
-import { adLimitMessage } from "./messages";
-import { providerFor, type ShowRewardedAd } from "./providers";
+import { claimCredit, type GrantResponse } from "./claim";
+import { adErrorMessage } from "./messages";
+import { adSlot, loadProvider } from "./providers";
 
 const CLOSED_EARLY = "The ad was closed too early";
-const VERIFY_POLL_MS = 1000;
-const VERIFY_WAIT_MS = 20_000;
+const DID_NOT_LOAD = "The ad did not load, try again";
+const LOAD_TIMEOUT_MS = 15_000;
 
 export type Credits = {
   credits: number;
@@ -19,35 +20,38 @@ export type Credits = {
   adsAvailable: boolean;
   /** Plays one rewarded ad and adds its credit to the shared balance; failures land in `lastError`. */
   watchAd: () => Promise<void>;
+  /** An ad is under way anywhere on the page: only one plays at a time. */
   watching: boolean;
   lastError: string | null;
 };
 
+const sendGrant = (sessionId: string) => api.send<GrantResponse>("/api/ads/grant", "POST", { sessionId });
+
 /** The account's credits and a way to earn more by watching an ad. */
 export function useCredits(): Credits {
   const { me, setCredits } = useMe();
-  const [watching, setWatching] = useState(false);
+  const watching = useSyncExternalStore(adSlot.subscribe, adSlot.isTaken, () => false);
   const [lastError, setLastError] = useState<string | null>(null);
-  // Catches a second click in the same tick, before `watching` has re-rendered.
-  const inFlight = useRef(false);
+  // Takes down the ad this component started, e.g. when the viewer leaves the page while it plays.
+  const removeAd = useRef<(() => void) | null>(null);
   const ads = me?.ads;
 
+  useEffect(() => () => removeAd.current?.(), []);
+
   const watchAd = useCallback(async () => {
-    const show = ads ? providerFor(ads) : null;
-    if (!show || inFlight.current) return;
-    inFlight.current = true;
-    setWatching(true);
+    if (!ads || !adSlot.claim()) return;
     setLastError(null);
     try {
+      const show = await loadProvider(ads);
+      if (!show) return;
       const { sessionId } = await api.send<{ sessionId: string }>("/api/ads/start", "POST");
-      const outcome = await playAd(show, sessionId);
-      if (outcome.kind === "granted") setCredits(await claimCredit(sessionId));
+      const outcome = await playAd(show, sessionId, removeAd);
+      if (outcome.kind === "granted") setCredits(await claimCredit(sessionId, sendGrant));
       else setLastError(outcome.kind === "closed" ? CLOSED_EARLY : outcome.message);
     } catch (err) {
       setLastError(adErrorMessage(err));
     } finally {
-      inFlight.current = false;
-      setWatching(false);
+      adSlot.release();
     }
   }, [ads, setCredits]);
 
@@ -65,45 +69,32 @@ export function useCredits(): Credits {
 
 type AdOutcome = { kind: "granted" } | { kind: "closed" } | { kind: "error"; message: string };
 
-async function playAd(show: ShowRewardedAd, sessionId: string): Promise<AdOutcome> {
-  let remove = () => {};
-  // The first callback settles it; a provider may report before `show` returns (the Google stub does).
-  const outcome = await new Promise<AdOutcome>((resolve) => {
+/**
+ * Shows the ad and settles on its first terminal event. Until it is on screen, a timeout stands in for a blocked or
+ * stalled ad network. While it plays, `removeRef` holds a way to take it down, which counts as closing it.
+ */
+function playAd(show: ShowRewardedAd, sessionId: string, removeRef: RefObject<(() => void) | null>): Promise<AdOutcome> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let remove = () => {};
+    const settle = (outcome: AdOutcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(loadTimer);
+      removeRef.current = null;
+      remove();
+      resolve(outcome);
+    };
+    const loadTimer = setTimeout(() => settle({ kind: "error", message: DID_NOT_LOAD }), LOAD_TIMEOUT_MS);
     remove = show({
       sessionId,
-      onGranted: () => resolve({ kind: "granted" }),
-      onClosed: () => resolve({ kind: "closed" }),
-      onError: (message) => resolve({ kind: "error", message }),
+      onShown: () => clearTimeout(loadTimer),
+      onGranted: () => settle({ kind: "granted" }),
+      onClosed: () => settle({ kind: "closed" }),
+      onError: (message) => settle({ kind: "error", message }),
     });
+    // A provider may settle before `show` returns (the Google stub does), when `remove` was still the no-op.
+    if (settled) remove();
+    else removeRef.current = () => settle({ kind: "closed" });
   });
-  remove();
-  return outcome;
-}
-
-type GrantResponse = { credits: number; status?: AdSessionStatus };
-
-/**
- * Asks the server for the ad's credit and returns the new balance. Without server-side verification the grant
- * answers at once; with it, the answer carries the session's status, and only the ad network's callback grants.
- */
-async function claimCredit(sessionId: string): Promise<number> {
-  const deadline = Date.now() + VERIFY_WAIT_MS;
-  for (;;) {
-    const result = await api.send<GrantResponse>("/api/ads/grant", "POST", { sessionId });
-    if (result.status === undefined || result.status === "granted") return result.credits;
-    if (result.status === "rejected") throw new Error("The ad network did not confirm this ad, so no credit was added");
-    if (Date.now() >= deadline) {
-      throw new Error("The ad network has not confirmed this ad yet. If it does, the credit shows after a reload.");
-    }
-    await new Promise((resolve) => setTimeout(resolve, VERIFY_POLL_MS));
-  }
-}
-
-function adErrorMessage(err: unknown): string {
-  if (err instanceof ApiError && err.status === 429) {
-    const details = (err.details ?? {}) as { reason?: unknown; resetsAt?: unknown };
-    if (details.reason === "account" || details.reason === "ip") return adLimitMessage(details.resetsAt);
-  }
-  // A 409 carries the server's reason, e.g. "The ad was closed too early".
-  return errorMessage(err);
 }

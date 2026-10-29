@@ -1,4 +1,4 @@
-import { ApiError } from "@/ui/api";
+import { ApiError, errorMessage } from "@/ui/api";
 
 /** Why a paid AI route answered 402: the account is short of credits, or free usage is paused for everyone. */
 export type CreditProblem = { kind: "short"; credits: number; needed: number } | { kind: "paused"; message: string };
@@ -31,6 +31,16 @@ export function adLimitMessage(resetsAt: unknown, now = new Date()): string {
   const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const day = at.toDateString() === now.toDateString() ? "" : "tomorrow ";
   return `Daily ad limit reached, try again ${day}after ${time}`;
+}
+
+/** What to tell the viewer when starting or claiming an ad failed. */
+export function adErrorMessage(err: unknown, now = new Date()): string {
+  if (err instanceof ApiError && err.status === 429) {
+    const details = (err.details ?? {}) as { reason?: unknown; resetsAt?: unknown };
+    if (details.reason === "account" || details.reason === "ip") return adLimitMessage(details.resetsAt, now);
+  }
+  // Anything else carries the server's own words, e.g. a 409's "The ad was closed too early".
+  return errorMessage(err);
 }
 
 export function creditsLabel(count: number): string {

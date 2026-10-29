@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     checkChatMessages(body.messages);
     const policy = currentPolicy(user.plan);
     const model = new AnthropicChatModel(chooseModel(policy, body.model));
-    const outcome = await runPaidCall(
+    const { value: outcome, credits: balance } = await runPaidCall(
       {
         user,
         policy,
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
       },
       { credits, usage },
     );
-    return Response.json(outcome);
+    // `credits` is the balance after the charge, left out (undefined) when the plan does not pay in credits.
+    return Response.json({ ...outcome, credits: balance });
   });
 }

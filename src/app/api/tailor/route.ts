@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     cleanTailorInput(body);
     const policy = currentPolicy(user.plan);
     const model = new AnthropicTailorModel(chooseModel(policy, body.model));
-    const application = await runPaidCall(
+    const { value: application, credits: balance } = await runPaidCall(
       {
         user,
         policy,
@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       },
       { credits, usage },
     );
-    return Response.json({ application }, { status: 201 });
+    // `credits` is the balance after the charge, left out (undefined) when the plan does not pay in credits.
+    return Response.json({ application, credits: balance }, { status: 201 });
   });
 }

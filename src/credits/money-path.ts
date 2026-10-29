@@ -21,18 +21,24 @@ export type PaidCall<T> = {
   call: () => Promise<{ value: T; usage: ModelUsage }>;
 };
 
+/** The call's value, and the account's balance after the charge when one was taken (for the client to show). */
+export type PaidResult<T> = { value: T; credits?: number };
+
 /**
  * The one path every Claude call from a route takes. For a plan that charges credits: refuse while free usage is
  * paused, then charge (or refuse with a 402) before Claude is called. Afterwards book the call's usage, and if it
  * failed, book whatever usage Anthropic billed for it and refund the charge. Booking and refunding never throw:
- * the caller always gets the call's own result or error.
+ * the caller always gets the call's own result or error, plus the balance after a charge.
  */
-export async function runPaidCall<T>({ user, policy, kind, cost, ref, call }: PaidCall<T>, deps: PaidCallDeps): Promise<T> {
+export async function runPaidCall<T>(
+  { user, policy, kind, cost, ref, call }: PaidCall<T>,
+  deps: PaidCallDeps,
+): Promise<PaidResult<T>> {
   const paidWithCredits = policy.chargesCredits;
-  let chargeId: string | null = null;
+  let charge: { credits: number; eventId: string | null } | null = null;
   if (paidWithCredits) {
     await ensureFreeUsageOpen(deps.usage, policy);
-    if (cost > 0) chargeId = (await deps.credits.charge({ userId: user.id, amount: cost, kind, ref })).eventId;
+    if (cost > 0) charge = await deps.credits.charge({ userId: user.id, amount: cost, kind, ref });
   }
 
   let result: { value: T; usage: ModelUsage };
@@ -41,11 +47,11 @@ export async function runPaidCall<T>({ user, policy, kind, cost, ref, call }: Pa
   } catch (err) {
     const billed = usageFromError(err);
     if (billed) await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: billed, free: paidWithCredits });
-    if (chargeId) await refundOrLog(deps.credits, { userId: user.id, amount: cost, ref: chargeId });
+    if (charge?.eventId) await refundOrLog(deps.credits, { userId: user.id, amount: cost, ref: charge.eventId });
     throw err;
   }
   await recordUsageOrLog(deps.usage, { userId: user.id, kind, usage: result.usage, free: paidWithCredits });
-  return result.value;
+  return charge ? { value: result.value, credits: charge.credits } : { value: result.value };
 }
 
 async function refundOrLog(credits: PaidCallDeps["credits"], refund: { userId: string; amount: number; ref: string }): Promise<void> {

@@ -72,7 +72,42 @@ test("a 402 from the tailor route shows the pause, or the real balance", async (
   await tailorButton(page).click();
   await expect(balancePill(page)).toHaveText("Credits: 1");
   await expect(page.getByText("Not enough credits")).toBeVisible();
+  await expect(page.getByText("Tailoring costs 2 credits and you have 1.")).toBeVisible();
   await expect(tailorButton(page)).toBeDisabled();
+});
+
+test("an account that fails to load offers a retry, and tailoring waits for it", async ({ page }) => {
+  await signIn(page, uniqueEmail("credits-retry"));
+  await page.route("**/api/me", (route) => route.fulfill({ status: 500, json: { error: "Database unavailable" } }));
+  await page.goto("/tailor");
+  await expect(page.getByText("Could not load your account")).toBeVisible();
+  await expect(page.getByText("Database unavailable")).toBeVisible();
+  await fillJob(page);
+  await expect(tailorButton(page)).toBeDisabled();
+
+  await page.unroute("**/api/me");
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(balancePill(page)).toHaveText("Credits: 0");
+  await expect(page.getByText("Could not load your account")).toBeHidden();
+  await expect(page.getByText("Costs 2 credits · you have 0")).toBeVisible();
+});
+
+test("only one ad plays at a time, whichever button starts it", async ({ page }) => {
+  await signIn(page, uniqueEmail("credits-one-ad"));
+  await page.goto("/tailor");
+  await expect(balancePill(page)).toHaveText("Credits: 0");
+  await page.getByRole("button", { name: "Chat with Claude" }).click();
+  const chat = page.getByRole("region", { name: "Chat with Claude" });
+  await expect(page.getByRole("button", { name: "Watch an ad (+1 credit)" })).toHaveCount(2);
+
+  // The chat panel covers the form's column, so start the ad from the chat's button.
+  await chat.getByRole("button", { name: "Watch an ad (+1 credit)" }).click();
+  await expect(page.getByRole("dialog", { name: "Test ad" })).toBeVisible();
+  // The form's button sits under the modal ad, so match its text rather than its (inert) role.
+  await expect(page.getByRole("main").getByText("Watching the ad…")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Test ad" })).toBeHidden({ timeout: 10_000 });
+  await expect(balancePill(page)).toHaveText("Credits: 1");
+  await expect(page.getByRole("dialog", { name: "Test ad" })).toHaveCount(0);
 });
 
 test("closing the test ad early earns nothing", async ({ page }) => {
@@ -139,13 +174,16 @@ test("the chat drawer shows the per-message cost and offers an ad when out of cr
   // Stand-ins for answers this server cannot give without a key.
   const message = chat.getByLabel("Message");
   const send = chat.getByRole("button", { name: "Send" });
+  // The reply carries the balance after the charge; 5 is a stand-in that only the reply could have set.
   await page.route("**/api/chat", (route) =>
-    route.fulfill({ status: 200, json: { reply: "Hi", applied: [], warnings: [], bank: {}, bankChanged: false, resumeChanges: [] } }),
+    route.fulfill({
+      status: 200,
+      json: { reply: "Hi", applied: [], warnings: [], bank: {}, bankChanged: false, resumeChanges: [], credits: 5 },
+    }),
   );
-  const balanceReload = page.waitForRequest((request) => request.url().endsWith("/api/me"));
   await send.click();
   await expect(chat.getByText("Hi", { exact: true })).toBeVisible();
-  await balanceReload;
+  await expect(balancePill(page)).toHaveText("Credits: 5");
 
   await page.unroute("**/api/chat");
   await page.route("**/api/chat", (route) =>
@@ -163,7 +201,7 @@ test("the chat drawer shows the per-message cost and offers an ad when out of cr
   );
   await send.click();
   await expect(balancePill(page)).toHaveText("Credits: 0");
-  await expect(chat.getByText("Watch an ad to keep chatting.")).toBeVisible();
+  await expect(chat.getByText("A message costs 1 credit and you have 0. Watch an ad to keep chatting.")).toBeVisible();
   await expect(message).toHaveValue("Second message");
   await expect(send).toBeDisabled();
 });

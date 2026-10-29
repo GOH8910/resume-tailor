@@ -15,21 +15,26 @@ import { useMe } from "@/ui/useMe";
 
 type Mode = "ai" | "manual";
 
-/** Why the last start failed. `short` is only shown while the balance is still below the cost. */
-type Notice = { kind: "error"; text: string } | { kind: "paused"; text: string } | { kind: "short" };
+/** Why the last start failed. `short` keeps the server's numbers and is shown until the balance covers the cost. */
+type Notice =
+  | { kind: "error"; text: string }
+  | { kind: "paused"; text: string }
+  | { kind: "short"; credits: number; needed: number };
 
 function formatElapsed(totalSeconds: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 function noticeFor(err: unknown, problem: CreditProblem | null): Notice {
-  if (problem?.kind === "short") return { kind: "short" };
+  if (problem?.kind === "short") return { kind: "short", credits: problem.credits, needed: problem.needed };
   if (problem?.kind === "paused") return { kind: "paused", text: problem.message };
   return { kind: "error", text: errorMessage(err) };
 }
 
 /** "" leaves the choice to the server, which uses the plan's model. */
 type ModelChoiceValue = ModelId | "";
+
+type Started = { application: Application; credits?: number };
 
 /** Plans that may pick a model get a picker defaulting to the plan's model; the others are told what they run on. */
 function ModelChoice({
@@ -107,23 +112,25 @@ export function TailorForm() {
     setElapsed(0);
     setNotice(null);
     try {
-      const { application } =
+      const { application, credits: balance } =
         mode === "ai"
-          ? await api.send<{ application: Application }>("/api/tailor", "POST", {
+          ? await api.send<Started>("/api/tailor", "POST", {
               company,
               roleTitle,
               jobDescription,
               model: model || undefined,
             })
-          : await api.send<{ application: Application }>("/api/applications", "POST", { company, roleTitle, jobDescription });
-      // The top bar's balance outlives this page.
-      if (mode === "ai" && chargesCredits) refresh();
+          : await api.send<Started>("/api/applications", "POST", { company, roleTitle, jobDescription });
+      // The balance after the charge, for the top bar, which outlives this page.
+      if (balance !== undefined) setCredits(balance);
       // The AI call can take a minute; don't pull the user back if they left the page meanwhile.
       if (mounted.current) router.push(`/tailor/${application.id}`);
     } catch (err) {
       const problem = creditProblem(err);
       // The server's balance is the truth: another tab may have spent credits since this page loaded.
       if (problem?.kind === "short") setCredits(problem.credits);
+      // Without the account there is no balance to correct: load it.
+      if (problem && me === null) refresh();
       if (mounted.current) {
         setNotice(noticeFor(err, problem));
         setBusy(null);
@@ -180,21 +187,24 @@ export function TailorForm() {
               {notice.text}
             </Banner>
           )}
-          {notice?.kind === "short" && short && (
+          {notice?.kind === "short" && !(me && me.credits >= notice.needed) && (
             <Banner ref={noticeRef} tabIndex={-1} tone="warn" title="Not enough credits">
-              Tailoring costs {creditsLabel(cost)} and you have {credits}.
+              Tailoring costs {creditsLabel(notice.needed)} and you have {notice.credits}.
             </Banner>
           )}
 
           <div className="mt-2 grid gap-2">
             <Button
               variant="primary"
-              disabled={busy !== "ai" && (!ready || short)}
+              // Disabled until the account has loaded: until then the cost and the balance are unknown.
+              disabled={busy !== "ai" && (!ready || short || me === null)}
               aria-disabled={busy !== null}
               onClick={() => void start("ai")}
             >
               {busy === "ai" ? "Asking Claude…" : "Tailor with Claude"}
             </Button>
+            {/* Holds the cost line's place while the account loads, so the buttons below do not jump. */}
+            {me === null && <p aria-hidden="true" className="h-4" />}
             {chargesCredits && cost > 0 && (
               <div className="grid gap-2">
                 <p className={`text-xs ${short ? "text-warn" : "text-ink-faint"}`}>
