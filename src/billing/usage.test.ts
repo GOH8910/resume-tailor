@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { settings, usageEvents, user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
-import { ensureFreeUsageOpen, type PauseState, recordUsageOrLog, UsageService, type UsageSettings } from "./usage";
+import { type AccountPauseState, ensureFreeUsageOpen, recordUsageOrLog, UsageService, type UsageSettings } from "./usage";
 import type { ModelUsage } from "./usage-types";
 
 let close: () => Promise<void>;
@@ -12,7 +12,7 @@ const ADA = "user_ada";
 const BOB = "user_bob";
 
 // At a rate of 1, 100k Sonnet output tokens cost exactly £1.00 ($10 per million).
-const SETTINGS: UsageSettings = { usdToGbp: 1, freeDailyBudgetGbp: 2 };
+const SETTINGS: UsageSettings = { usdToGbp: 1, freeDailyBudgetGbp: 2, freeDailyCostPerAccountGbp: 1 };
 const poundsOfSonnet = (pounds: number): ModelUsage => ({ model: "claude-sonnet-5-5", inputTokens: 0, outputTokens: pounds * 100_000 });
 
 const NOON = new Date("2026-10-29T12:00:00Z");
@@ -37,7 +37,7 @@ afterEach(async () => {
 
 describe("UsageService.record", () => {
   it("stores the call with its tokens and its cost in GBP", async () => {
-    const usage = new UsageService(async () => db, { usdToGbp: 0.78, freeDailyBudgetGbp: 2 });
+    const usage = new UsageService(async () => db, { ...SETTINGS, usdToGbp: 0.78 });
     await usage.record({ userId: ADA, kind: "tailor", usage: { model: "claude-haiku-5-5", inputTokens: 10_000, outputTokens: 2_500 }, free: true }, NOON);
 
     const rows = await db.select().from(usageEvents);
@@ -169,6 +169,48 @@ describe("UsageService.isFreeUsagePaused", () => {
   });
 });
 
+describe("UsageService.isFreeUsagePausedFor", () => {
+  const free = (userId: string, pounds: number, at = NOON, isFree = true) =>
+    service().record({ userId, kind: "chat", usage: poundsOfSonnet(pounds), free: isFree }, at);
+
+  it("is open while the account's free spend today is under its cap", async () => {
+    await free(ADA, 0.5);
+    expect(await service().isFreeUsagePausedFor(ADA, NOON)).toEqual({ paused: false });
+  });
+
+  it("pauses the account, and only that account, once its free spend today reaches the cap", async () => {
+    await free(ADA, 0.5);
+    await free(ADA, 0.5);
+    const usage = service();
+    expect(await usage.isFreeUsagePausedFor(ADA, NOON)).toEqual({
+      paused: true,
+      reason: "account",
+      resumesAt: "2026-10-30T00:00:00.000Z",
+    });
+    expect(await usage.isFreeUsagePausedFor(BOB, NOON)).toEqual({ paused: false });
+    expect(await usage.isFreeUsagePausedFor(ADA, new Date("2026-10-30T00:00:00.000Z"))).toEqual({ paused: false });
+  });
+
+  it("counts only the account's free usage in the current UTC day", async () => {
+    await free(ADA, 5, new Date("2026-10-28T23:59:59.999Z"));
+    await free(ADA, 5, NOON, false);
+    await free(BOB, 0.9);
+    expect(await service({ freeDailyBudgetGbp: 100 }).isFreeUsagePausedFor(ADA, NOON)).toEqual({ paused: false });
+  });
+
+  it("puts a pause for everyone ahead of the account's cap", async () => {
+    await free(ADA, 2);
+    expect(await service().isFreeUsagePausedFor(ADA, NOON)).toMatchObject({ paused: true, reason: "budget" });
+    const usage = service();
+    await usage.setFreePaused(true);
+    expect(await usage.isFreeUsagePausedFor(ADA, NOON)).toEqual({ paused: true, reason: "manual" });
+  });
+
+  it("treats a cap of 0 as free usage switched off for every account, with no time it resumes", async () => {
+    expect(await service({ freeDailyCostPerAccountGbp: 0 }).isFreeUsagePausedFor(ADA, NOON)).toEqual({ paused: true, reason: "account" });
+  });
+});
+
 describe("UsageService.summary", () => {
   it("totals usage since a time by model, kind and whether it was free", async () => {
     const usage = service();
@@ -211,10 +253,25 @@ describe("UsageService.summary", () => {
 
 describe("ensureFreeUsageOpen", () => {
   const free = { chargesCredits: true };
-  const refusal = async (state: PauseState) => {
-    const err = await ensureFreeUsageOpen({ isFreeUsagePaused: async () => state }, free).catch((e: unknown) => e);
+  const refusal = async (state: AccountPauseState) => {
+    const err = await ensureFreeUsageOpen({ isFreeUsagePausedFor: async () => state }, free, ADA).catch((e: unknown) => e);
     return err as { status: number; message: string; details: unknown };
   };
+
+  it("says the account reached its own daily limit, and when it resets", async () => {
+    const resumesAt = "2026-10-30T00:00:00.000Z";
+    expect(await refusal({ paused: true, reason: "account", resumesAt })).toMatchObject({
+      status: 402,
+      message: `You've reached today's free AI limit for this account; it resets at ${resumesAt}`,
+      details: { paused: true, reason: "account", resumesAt },
+    });
+  });
+
+  it("checks the account the request is for", async () => {
+    const isFreeUsagePausedFor = vi.fn(async () => ({ paused: false }));
+    await ensureFreeUsageOpen({ isFreeUsagePausedFor }, free, ADA);
+    expect(isFreeUsagePausedFor).toHaveBeenCalledExactlyOnceWith(ADA);
+  });
 
   it("says when a spent budget lifts", async () => {
     const resumesAt = "2026-10-30T00:00:00.000Z";
@@ -242,10 +299,10 @@ describe("ensureFreeUsageOpen", () => {
   });
 
   it("lets the request through when open, and never asks for accounts that do not pay in credits", async () => {
-    await expect(ensureFreeUsageOpen({ isFreeUsagePaused: async () => ({ paused: false }) }, free)).resolves.toBeUndefined();
-    const isFreeUsagePaused = vi.fn();
-    await expect(ensureFreeUsageOpen({ isFreeUsagePaused }, { chargesCredits: false })).resolves.toBeUndefined();
-    expect(isFreeUsagePaused).not.toHaveBeenCalled();
+    await expect(ensureFreeUsageOpen({ isFreeUsagePausedFor: async () => ({ paused: false }) }, free, ADA)).resolves.toBeUndefined();
+    const isFreeUsagePausedFor = vi.fn();
+    await expect(ensureFreeUsageOpen({ isFreeUsagePausedFor }, { chargesCredits: false }, ADA)).resolves.toBeUndefined();
+    expect(isFreeUsagePausedFor).not.toHaveBeenCalled();
   });
 });
 

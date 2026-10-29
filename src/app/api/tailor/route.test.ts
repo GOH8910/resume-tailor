@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const runTailor = vi.hoisted(() => vi.fn());
-const usage = vi.hoisted(() => ({ isFreeUsagePaused: vi.fn(), record: vi.fn() }));
+const usage = vi.hoisted(() => ({ isFreeUsagePausedFor: vi.fn(), record: vi.fn() }));
 const credits = vi.hoisted(() => ({ charge: vi.fn(), refund: vi.fn() }));
 const applications = vi.hoisted(() => ({ count: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications }));
+vi.mock("@/lib/deps", () => ({ plans, usage, credits, freeCalls: { claim: () => () => {} }, banks: {}, applications }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
 vi.mock("@/tailor/tailor", async (importOriginal) => ({ ...(await importOriginal<object>()), runTailor }));
@@ -47,7 +47,7 @@ async function tailorAs(plan: "free" | "unlimited", body: Record<string, unknown
 beforeEach(() => {
   vi.resetAllMocks();
   runTailor.mockResolvedValue({ application: { id: "a1" }, usage: USED });
-  usage.isFreeUsagePaused.mockResolvedValue({ paused: false });
+  usage.isFreeUsagePausedFor.mockResolvedValue({ paused: false });
   usage.record.mockResolvedValue(undefined);
   credits.charge.mockResolvedValue({ credits: 0, eventId: "charge-1" });
   credits.refund.mockResolvedValue({ credits: 2 });
@@ -141,7 +141,7 @@ describe("POST /api/tailor daily budget and usage", () => {
 
   it("refuses a free account with a 402 until the next UTC day once the budget is spent, without calling Claude", async () => {
     const resumesAt = "2026-10-30T00:00:00.000Z";
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "budget", resumesAt });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "budget", resumesAt });
     const { res } = await tailorAs("free", job);
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({
@@ -153,7 +153,7 @@ describe("POST /api/tailor daily budget and usage", () => {
   });
 
   it("refuses a free account while the operator has paused free usage", async () => {
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "manual" });
     const { res } = await tailorAs("free", job);
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: "Free AI features are paused by the operator", details: { paused: true, reason: "manual" } });
@@ -161,11 +161,11 @@ describe("POST /api/tailor daily budget and usage", () => {
   });
 
   it("does not hold an unlimited or self-hosted account to the free budget", async () => {
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "manual" });
     expect((await tailorAs("unlimited", job)).res.status).toBe(201);
     useEnv({ APP_MODE: "selfhost" });
     expect((await tailorAs("free", job)).res.status).toBe(201);
-    expect(usage.isFreeUsagePaused).not.toHaveBeenCalled();
+    expect(usage.isFreeUsagePausedFor).not.toHaveBeenCalled();
   });
 
   it("records the call once, as free usage for a free account", async () => {
@@ -228,7 +228,7 @@ describe("POST /api/tailor credits", () => {
   });
 
   it("refuses while free usage is paused before charging anything", async () => {
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "manual" });
     expect((await tailorAs("free", job)).res.status).toBe(402);
     expect(credits.charge).not.toHaveBeenCalled();
   });

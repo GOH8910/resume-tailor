@@ -58,6 +58,8 @@ const Schema = z.object({
   AD_MIN_WATCH_SECONDS: blankAsUnset(z.coerce.number().min(0).default(7)),
   SIGNUP_GRANT_CREDITS: blankAsUnset(z.coerce.number().int().min(0).default(0)),
   FREE_DAILY_BUDGET_GBP: blankAsUnset(z.coerce.number().min(0).default(2)),
+  FREE_DAILY_COST_PER_ACCOUNT_GBP: blankAsUnset(z.coerce.number().min(0).default(0.1)),
+  FREE_CALLS_IN_FLIGHT: blankAsUnset(z.coerce.number().int().min(1).default(4)),
   USD_TO_GBP: blankAsUnset(z.coerce.number().positive().default(0.78)),
 });
 
@@ -131,8 +133,9 @@ function checkProduction(source: Source, env: Env): void {
   }
   // The test provider grants credits for a fake ad, so on a public site it would be free money.
   if (env.AD_PROVIDER === "test") throw new Error("AD_PROVIDER=test is not allowed in production");
-  if (env.adProvider === "google" && !env.AD_UNIT_PATH) {
-    throw new Error("AD_UNIT_PATH must be set when AD_PROVIDER=google");
+  // The Google provider is a stub until phase 2b, which also makes AD_UNIT_PATH and AD_SSV_ENABLED required with it.
+  if (env.adProvider === "google") {
+    throw new Error("AD_PROVIDER=google is not available yet: the Google ad provider comes in phase 2b");
   }
 }
 

@@ -6,9 +6,10 @@ import { clientIp, handle, ipKey, isAdminEmail, MAX_BODY_BYTES, readJson, requir
 // The real instance opens the database; these tests only need getSession.
 const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
+const credits = vi.hoisted(() => ({ grantSignup: vi.fn() }));
 vi.mock("./auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("./deps", () => ({ plans }));
-vi.mock("./env", () => ({ env: { adminEmails: new Set(["ed@example.com"]) } }));
+vi.mock("./deps", () => ({ plans, credits }));
+vi.mock("./env", () => ({ env: { adminEmails: new Set(["ed@example.com"]), SIGNUP_GRANT_CREDITS: 4 } }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -172,6 +173,24 @@ describe("requireUser", () => {
     plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 0 });
     await requireUser(request());
     expect(plans.get).toHaveBeenLastCalledWith("u1", "unlimited");
+  });
+
+  // An account from before plans existed never ran the sign-up hook that grants them.
+  it("gives a free account whose plan it just created the sign-up credits", async () => {
+    getSession.mockResolvedValueOnce(session("ada@example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "free", credits: 0, created: true });
+    await requireUser(request());
+    expect(credits.grantSignup).toHaveBeenCalledExactlyOnceWith("u1", 4);
+  });
+
+  it("grants nothing when the plan already existed, or to an unlimited account", async () => {
+    getSession.mockResolvedValueOnce(session("ada@example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "free", credits: 0, created: false });
+    await requireUser(request());
+    getSession.mockResolvedValueOnce(session("Ed@Example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 0, created: true });
+    await requireUser(request());
+    expect(credits.grantSignup).not.toHaveBeenCalled();
   });
 });
 

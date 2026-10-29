@@ -153,13 +153,20 @@ describe("CreditsService ad sessions", () => {
     expect(await credits.balance(ADA)).toBe(1);
   });
 
-  it("refuses a verified callback for an expired session too", async () => {
+  // The network's callback can arrive well after the ad, so a verified grant gets a day rather than an hour.
+  it("grants a verified callback for a session up to 24 hours old, and refuses one after that as expired", async () => {
     const credits = service();
-    const { sessionId } = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "google" }, NOON);
-    await expect(credits.grantVerifiedAd({ sessionId, transactionId: "tx-late" }, later(NOON, 7200))).rejects.toMatchObject({
+    const day = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "google" }, NOON);
+    const late = await credits.startAdSession({ userId: ADA, ip: HOME, provider: "google" }, NOON);
+
+    await expect(credits.grantVerifiedAd({ sessionId: day.sessionId, transactionId: "tx-day" }, later(NOON, 86_400))).resolves.toEqual({
+      userId: ADA,
+      credits: 1,
+    });
+    await expect(credits.grantVerifiedAd({ sessionId: late.sessionId, transactionId: "tx-late" }, later(NOON, 86_401))).rejects.toMatchObject({
       status: 409,
     });
-    expect(await session(sessionId)).toMatchObject({ status: "rejected", rejectReason: "expired", transactionId: null });
+    expect(await session(late.sessionId)).toMatchObject({ status: "rejected", rejectReason: "expired", transactionId: null });
   });
 
   it("grants a session only once", async () => {

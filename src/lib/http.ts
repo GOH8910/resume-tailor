@@ -2,7 +2,7 @@ import { isIPv4, isIPv6 } from "node:net";
 import { ZodError } from "zod";
 import { type Plan, signupPlan } from "@/billing/plan";
 import { getAuth } from "./auth";
-import { plans } from "./deps";
+import { credits, plans } from "./deps";
 import { env } from "./env";
 import { AppError } from "./errors";
 
@@ -135,9 +135,17 @@ export async function requireUser(request: Request): Promise<CurrentUser> {
   const session = await getAuth().api.getSession({ headers: request.headers });
   if (!session) throw new AppError("Sign in to continue", 401);
   const { id, email, name } = session.user;
-  // An account from before plans existed gets the plan it would have been given at sign-up.
-  const { plan } = await plans.get(id, signupPlan(email, env.adminEmails));
-  return { id, email, name, plan };
+  return { id, email, name, plan: await accountPlan({ id, email }) };
+}
+
+/**
+ * The account's plan. An account from before plans existed (or whose sign-up hook failed) is given what sign-up
+ * would have given it: its plan, and on the free plan the sign-up credits (granted once, however often this runs).
+ */
+export async function accountPlan({ id, email }: { id: string; email: string }): Promise<Plan> {
+  const { plan, created } = await plans.get(id, signupPlan(email, env.adminEmails));
+  if (created && plan === "free") await credits.grantSignup(id, env.SIGNUP_GRANT_CREDITS);
+  return plan;
 }
 
 /** Whether the address is one of the operator's (ADMIN_EMAILS). */

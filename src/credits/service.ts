@@ -30,11 +30,14 @@ export const AD_IP_RETENTION_MS = 48 * 60 * 60 * 1000;
 export const IP_PURGE_BATCH = 500;
 
 /**
- * The longest an ad session stays grantable. Far inside AD_IP_RETENTION_MS, so a session's IP is always still there
- * when it is granted and the per-IP cap never counts a grant under the blanked ('') IP that old sessions share.
+ * How long an ad session stays grantable: an hour when the client reports the ad, a day for the ad network's verified
+ * callback, which can arrive late. Both are inside AD_IP_RETENTION_MS, so a session's IP is always still there when it
+ * is granted and the per-IP cap never counts a grant under the blanked ('') IP that old sessions share.
  */
 export const AD_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
+export const AD_VERIFIED_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+type GrantRequest = { sessionId: string; owner?: string; transactionId?: string; maxAgeMs: number };
 type GrantOutcome =
   | { kind: "granted"; userId: string; credits: number }
   | { kind: "not-pending" }
@@ -89,7 +92,7 @@ export class CreditsService {
 
   /** Grants the account's pending session one credit, when the client reports the ad as watched. */
   async grantAd({ userId, sessionId }: { userId: string; sessionId: string }, now = new Date()): Promise<{ credits: number }> {
-    const { credits } = await this.grant({ sessionId, owner: userId }, now);
+    const { credits } = await this.grant({ sessionId, owner: userId, maxAgeMs: AD_SESSION_MAX_AGE_MS }, now);
     return { credits };
   }
 
@@ -98,7 +101,7 @@ export class CreditsService {
     { sessionId, transactionId }: { sessionId: string; transactionId: string },
     now = new Date(),
   ): Promise<{ userId: string; credits: number }> {
-    return this.grant({ sessionId, transactionId }, now);
+    return this.grant({ sessionId, transactionId, maxAgeMs: AD_VERIFIED_SESSION_MAX_AGE_MS }, now);
   }
 
   /** The status of one of the account's sessions, for a client waiting on a verified callback. */
@@ -177,14 +180,11 @@ export class CreditsService {
   }
 
   /** `owner` is the signed-in account for a client-reported grant; a verified callback grants to whoever started the session. */
-  private async grant(
-    { sessionId, owner, transactionId }: { sessionId: string; owner?: string; transactionId?: string },
-    now: Date,
-  ): Promise<{ userId: string; credits: number }> {
+  private async grant(request: GrantRequest, now: Date): Promise<{ userId: string; credits: number }> {
     const db = await this.db();
     // Rejections are returned rather than thrown, so that marking the session rejected is committed.
-    const outcome = isUuid(sessionId)
-      ? await db.transaction((tx) => this.grantInTransaction(tx, { sessionId, owner, transactionId }, now))
+    const outcome = isUuid(request.sessionId)
+      ? await db.transaction((tx) => this.grantInTransaction(tx, request, now))
       : ({ kind: "not-pending" } as const);
     switch (outcome.kind) {
       case "granted":
@@ -198,17 +198,13 @@ export class CreditsService {
     }
   }
 
-  private async grantInTransaction(
-    tx: Db,
-    { sessionId, owner, transactionId }: { sessionId: string; owner?: string; transactionId?: string },
-    now: Date,
-  ): Promise<GrantOutcome> {
+  private async grantInTransaction(tx: Db, { sessionId, owner, transactionId, maxAgeMs }: GrantRequest, now: Date): Promise<GrantOutcome> {
     const [session] = await tx.select().from(adSessions).where(eq(adSessions.id, sessionId)).for("update");
     const userId = session?.userId;
     if (!session || session.status !== "started" || !userId || (owner !== undefined && userId !== owner)) {
       return { kind: "not-pending" };
     }
-    if (now.getTime() - session.startedAt.getTime() > AD_SESSION_MAX_AGE_MS) {
+    if (now.getTime() - session.startedAt.getTime() > maxAgeMs) {
       await reject(tx, sessionId, "expired");
       return { kind: "not-pending" };
     }

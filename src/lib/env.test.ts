@@ -160,7 +160,7 @@ describe("parseEnv: modes, plans and credits", () => {
 
   it("keeps the configured ad provider in hosted mode", () => {
     expect(parseEnv({ APP_MODE: "hosted", AD_PROVIDER: "test" }).adProvider).toBe("test");
-    const google = parseEnv(production({ AD_PROVIDER: "google", AD_UNIT_PATH: "/123/rewarded" }));
+    const google = parseEnv({ APP_MODE: "hosted", AD_PROVIDER: "google", AD_UNIT_PATH: "/123/rewarded" });
     expect(google.adProvider).toBe("google");
     expect(google.AD_UNIT_PATH).toBe("/123/rewarded");
   });
@@ -178,13 +178,14 @@ describe("parseEnv: modes, plans and credits", () => {
     expect(() => parseEnv(production({ AD_PROVIDER: "test" }))).toThrow("AD_PROVIDER=test is not allowed in production");
   });
 
-  it("requires AD_UNIT_PATH for the Google ad provider in hosted production", () => {
-    expect(() => parseEnv(production({ AD_PROVIDER: "google" }))).toThrow(
-      "AD_UNIT_PATH must be set when AD_PROVIDER=google",
-    );
+  // The Google provider is a stub until phase 2b; a server set to it would offer ads that cannot play.
+  it("refuses the Google ad provider in hosted production until it exists", () => {
+    for (const extra of [{}, { AD_UNIT_PATH: "/123/rewarded", AD_SSV_ENABLED: "true" }]) {
+      expect(() => parseEnv(production({ AD_PROVIDER: "google", ...extra }))).toThrow("AD_PROVIDER=google is not available yet");
+    }
   });
 
-  it("does not require AD_UNIT_PATH while `next build` runs", () => {
+  it("does not refuse it while `next build` runs", () => {
     expect(() =>
       parseEnv({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build", AD_PROVIDER: "google" }),
     ).not.toThrow();

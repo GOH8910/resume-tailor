@@ -1,4 +1,3 @@
-import type { ApplicationRepository } from "@/applications/repository";
 import type { Application, ResumeState } from "@/applications/schema";
 import type { BankRepository } from "@/bank/repository";
 import type { Bank } from "@/bank/schema";
@@ -13,12 +12,13 @@ import type { ChatMessage, ChatResult, ResumeChange } from "./schema";
 
 export type ChatInput = {
   userId: string;
-  applicationId?: string;
+  /** The open resume's application, already read from the account (the route does it before charging). */
+  application?: Application;
   resume?: ResumeState;
   messages: ChatMessage[];
 };
 
-export type ChatDeps = { banks: BankRepository; applications: ApplicationRepository; model: ChatModel };
+export type ChatDeps = { banks: BankRepository; model: ChatModel };
 
 export type ChatOutcome = {
   reply: string;
@@ -42,8 +42,7 @@ export async function runChat(input: ChatInput, deps: ChatDeps): Promise<{ outco
   checkChatMessages(messages);
 
   const bank = await deps.banks.read(input.userId);
-  let application: Application | undefined;
-  if (input.applicationId) application = await deps.applications.get(input.userId, input.applicationId);
+  const { application } = input;
 
   const system = buildChatSystemPrompt({ bank, application, resume: application ? input.resume : undefined });
   const { result, usage } = await deps.model.chat(system, messages);

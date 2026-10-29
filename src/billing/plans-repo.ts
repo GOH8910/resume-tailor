@@ -13,17 +13,16 @@ export class PlansRepository {
   /**
    * The account's plan and credits. A missing row is created with `plan` (the plan the account would have been
    * given at sign-up), which heals an account whose sign-up hook failed or that predates plans; an existing row is
-   * never changed.
+   * never changed. `created` says whether this call created the row.
    */
-  async get(userId: string, plan: Plan): Promise<AccountPlan> {
+  async get(userId: string, plan: Plan): Promise<AccountPlan & { created: boolean }> {
     const db = await this.db();
-    let row = await this.select(db, userId);
-    if (!row) {
-      await db.insert(userPlans).values({ userId, plan }).onConflictDoNothing();
-      row = await this.select(db, userId);
-    }
+    const existing = await this.select(db, userId);
+    if (existing) return { ...existing, created: false };
+    const inserted = await db.insert(userPlans).values({ userId, plan }).onConflictDoNothing().returning({ userId: userPlans.userId });
+    const row = await this.select(db, userId);
     if (!row) throw new AppError("Could not create a plan for this account", 500);
-    return row;
+    return { ...row, created: inserted.length > 0 };
   }
 
   /** Gives the account `plan` unless it already has one. */

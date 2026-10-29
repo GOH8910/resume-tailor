@@ -4,7 +4,7 @@ import { emptyBank } from "@/bank/schema";
 import { account, adSessions, applications, banks, creditEvents, session, usageEvents, user, userPlans } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
-import { APPLICATION_BATCH, exportStream } from "./export";
+import { APPLICATION_BATCH, EXPORT_IDLE_MS, exportStream } from "./export";
 
 let close: () => Promise<void>;
 let db: Db;
@@ -41,6 +41,7 @@ beforeEach(async () => {
   ]);
 });
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await close();
 });
@@ -171,6 +172,47 @@ describe("exportStream", () => {
 
     expect(errors).not.toHaveBeenCalled();
     expect(onEnd).toHaveBeenCalledOnce();
+  });
+
+  it("ends a download nobody reads for 60 s, giving back its slot and logging it once without the account", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onEnd = vi.fn();
+    const stream = await exportStream(db, ADA, onEnd, NOW);
+
+    await vi.advanceTimersByTimeAsync(EXPORT_IDLE_MS - 1);
+    expect(onEnd).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(onEnd).toHaveBeenCalledOnce();
+    expect(warnings).toHaveBeenCalledOnce();
+    expect(warnings.mock.calls[0].join(" ")).toMatch(/^\[account\] /);
+    for (const secret of [ADA.id, ADA.email]) expect(warnings.mock.calls[0].join(" ")).not.toContain(secret);
+    await expect(stream.getReader().read()).rejects.toThrow("The download stalled");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not time out a download that keeps reading, and leaves no timer behind", async () => {
+    const many = Array.from({ length: APPLICATION_BATCH * 2 }, (_, i) => application(`2026-10-01-co${String(i).padStart(2, "0")}-aaaaaaaa`, "Co"));
+    await db.insert(applications).values(many.map((data) => ({ userId: ADA.id, id: data.id, data })));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onEnd = vi.fn();
+    const reader = (await exportStream(db, ADA, onEnd, NOW)).getReader();
+
+    let chunks = 0;
+    for (;;) {
+      // Slow, but never a whole minute between reads.
+      await vi.advanceTimersByTimeAsync(EXPORT_IDLE_MS - 1);
+      const { done } = await reader.read();
+      if (done) break;
+      chunks += 1;
+    }
+
+    expect(chunks).toBe(4);
+    expect(onEnd).toHaveBeenCalledOnce();
+    expect(warnings).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("calls onEnd when the download is abandoned part-way", async () => {

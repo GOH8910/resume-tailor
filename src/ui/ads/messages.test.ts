@@ -33,6 +33,14 @@ describe("pausedMessage", () => {
     expect(pausedMessage("budget", undefined)).toBe("Free AI features are paused");
     expect(pausedMessage("budget", "not a date")).toBe("Free AI features are paused");
   });
+
+  it("says the account reached its own daily limit, and when it resets in local time", () => {
+    const resumesAt = "2026-10-30T00:00:00.000Z";
+    const message = pausedMessage("account", resumesAt);
+    expect(message).toMatch(/^You've reached today's free AI limit for this account; it resets at \S/);
+    expect(message).not.toContain(resumesAt);
+    expect(pausedMessage("account", undefined)).toBe("You've reached today's free AI limit for this account");
+  });
 });
 
 describe("adLimitMessage", () => {

@@ -15,7 +15,7 @@ const LAST_MONTH = new Date("2026-09-30T23:59:59Z");
 const HAIKU = "claude-haiku-5-5";
 const SONNET = "claude-sonnet-5-5";
 
-const usage = () => new UsageService(async () => db, { usdToGbp: 1, freeDailyBudgetGbp: 2 });
+const usage = () => new UsageService(async () => db, { usdToGbp: 1, freeDailyBudgetGbp: 2, freeDailyCostPerAccountGbp: 1 });
 const summarise = (budgetGbp = 2) => adminSummary({ db, usage: usage(), freeDailyBudgetGbp: budgetGbp }, NOON);
 
 async function call(model: string, kind: "tailor" | "chat", costGbp: number, free: boolean, createdAt: Date) {

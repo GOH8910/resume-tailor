@@ -1,6 +1,6 @@
 import { ApiError, errorMessage } from "@/ui/api";
 
-/** Why a paid AI route answered 402: the account is short of credits, or free usage is paused for everyone. */
+/** Why a paid AI route answered 402: the account is short of credits, or free usage is paused (for everyone or the account). */
 export type CreditProblem = { kind: "short"; credits: number; needed: number } | { kind: "paused"; message: string };
 
 type PaymentDetails = { credits?: unknown; needed?: unknown; paused?: unknown; reason?: unknown; resumesAt?: unknown };
@@ -16,12 +16,16 @@ export function creditProblem(err: unknown): CreditProblem | null {
   return null;
 }
 
+/** `reason` "account": this account reached its own daily limit; the others pause free usage for everyone. */
 export function pausedMessage(reason: unknown, resumesAt: unknown): string {
   if (reason === "manual") return "Free AI features are paused by the operator";
   const at = parseDate(resumesAt);
-  if (!at) return "Free AI features are paused";
-  const when = at.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-  return `Free AI features are paused until ${when}`;
+  const when = at?.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  if (reason === "account") {
+    const limit = "You've reached today's free AI limit for this account";
+    return when ? `${limit}; it resets at ${when}` : limit;
+  }
+  return when ? `Free AI features are paused until ${when}` : "Free AI features are paused";
 }
 
 /** The message for the daily ad cap. It resets at midnight UTC, which is not always tomorrow in local time. */

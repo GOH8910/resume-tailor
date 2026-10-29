@@ -13,6 +13,8 @@ export type UsageSettings = {
   usdToGbp: number;
   /** Free usage pauses for the rest of the UTC day once its cost reaches this; 0 keeps it paused. */
   freeDailyBudgetGbp: number;
+  /** One account's free usage pauses for the rest of the UTC day once its own cost reaches this; 0 keeps it paused. */
+  freeDailyCostPerAccountGbp: number;
 };
 
 export type UsageEvent = {
@@ -24,7 +26,10 @@ export type UsageEvent = {
   free: boolean;
 };
 
+/** Whether free usage is paused for every account, and why. */
 export type PauseState = { paused: boolean; reason?: "budget" | "manual"; resumesAt?: string };
+/** For one account: also paused (`account`) once it reached its own daily cap. */
+export type AccountPauseState = Omit<PauseState, "reason"> & { reason?: PauseState["reason"] | "account" };
 
 export type UsageTotals = {
   calls: number;
@@ -63,14 +68,19 @@ export class UsageService {
     });
   }
 
-  /** The cost of free usage in the UTC day containing `now`. */
-  async freeSpendToday(now = new Date()): Promise<number> {
+  /** The cost of free usage in the UTC day containing `now`, for every account or for one. */
+  async freeSpendToday(now = new Date(), userId?: string): Promise<number> {
     const db = await this.db();
     const [row] = await db
       .select({ total: sql<number>`coalesce(sum(${usageEvents.costGbp}), 0)`.mapWith(Number) })
       .from(usageEvents)
       .where(
-        and(eq(usageEvents.free, true), gte(usageEvents.createdAt, startOfUtcDay(now)), lt(usageEvents.createdAt, nextUtcDay(now))),
+        and(
+          eq(usageEvents.free, true),
+          userId === undefined ? undefined : eq(usageEvents.userId, userId),
+          gte(usageEvents.createdAt, startOfUtcDay(now)),
+          lt(usageEvents.createdAt, nextUtcDay(now)),
+        ),
       );
     return roundGbp(row?.total ?? 0);
   }
@@ -86,6 +96,21 @@ export class UsageService {
     if (budget === 0) return { paused: true, reason: "budget" };
     if ((await this.freeSpendToday(now)) >= budget) {
       return { paused: true, reason: "budget", resumesAt: nextUtcDay(now).toISOString() };
+    }
+    return { paused: false };
+  }
+
+  /**
+   * Whether one account is refused free AI calls right now: free usage is paused for everyone, or the account's own
+   * free spend today has reached its cap, so a single account cannot use up the whole day's budget.
+   */
+  async isFreeUsagePausedFor(userId: string, now = new Date()): Promise<AccountPauseState> {
+    const everyone = await this.isFreeUsagePaused(now);
+    if (everyone.paused) return everyone;
+    const cap = this.settings.freeDailyCostPerAccountGbp;
+    if (cap === 0) return { paused: true, reason: "account" };
+    if ((await this.freeSpendToday(now, userId)) >= cap) {
+      return { paused: true, reason: "account", resumesAt: nextUtcDay(now).toISOString() };
     }
     return { paused: false };
   }
@@ -133,19 +158,24 @@ export class UsageService {
   }
 }
 
-/** Refuses (402) an AI request paid for with free credits while free usage is paused. */
+/** Refuses (402) an AI request paid for with free credits while free usage is paused for everyone or for the account. */
 export async function ensureFreeUsageOpen(
-  usage: Pick<UsageService, "isFreeUsagePaused">,
+  usage: Pick<UsageService, "isFreeUsagePausedFor">,
   policy: Pick<PlanPolicy, "chargesCredits">,
+  userId: string,
 ): Promise<void> {
   if (!policy.chargesCredits) return;
-  const state = await usage.isFreeUsagePaused();
+  const state = await usage.isFreeUsagePausedFor(userId);
   if (!state.paused) return;
   throw new AppError(pausedMessage(state), 402, { paused: true, reason: state.reason, resumesAt: state.resumesAt });
 }
 
-function pausedMessage(state: PauseState): string {
+function pausedMessage(state: AccountPauseState): string {
   if (state.reason === "manual") return "Free AI features are paused by the operator";
+  if (state.reason === "account") {
+    const limit = "You've reached today's free AI limit for this account";
+    return state.resumesAt ? `${limit}; it resets at ${state.resumesAt}` : limit;
+  }
   return state.resumesAt
     ? `Free AI features are paused until ${state.resumesAt} (daily budget reached)`
     : "Free AI features are paused (daily budget is 0)";

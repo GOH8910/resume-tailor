@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSession = vi.hoisted(() => vi.fn());
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const runChat = vi.hoisted(() => vi.fn());
-const usage = vi.hoisted(() => ({ isFreeUsagePaused: vi.fn(), record: vi.fn() }));
+const usage = vi.hoisted(() => ({ isFreeUsagePausedFor: vi.fn(), record: vi.fn() }));
 const credits = vi.hoisted(() => ({ charge: vi.fn(), refund: vi.fn() }));
+const applications = vi.hoisted(() => ({ get: vi.fn() }));
 const env = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ plans, usage, credits, banks: {}, applications: {} }));
+vi.mock("@/lib/deps", () => ({ plans, usage, credits, freeCalls: { claim: () => () => {} }, banks: {}, applications }));
 vi.mock("@/lib/env", async (importOriginal) => ({ ...(await importOriginal<object>()), env }));
 vi.mock("@/lib/anthropic", async (importOriginal) => ({ ...(await importOriginal<object>()), hasApiKey: () => true }));
 vi.mock("@/chat/chat", async (importOriginal) => ({ ...(await importOriginal<object>()), runChat }));
@@ -46,10 +47,11 @@ async function chatAs(plan: "free" | "unlimited", body: Record<string, unknown>)
 beforeEach(() => {
   vi.resetAllMocks();
   runChat.mockResolvedValue({ outcome: OUTCOME, usage: USED });
-  usage.isFreeUsagePaused.mockResolvedValue({ paused: false });
+  usage.isFreeUsagePausedFor.mockResolvedValue({ paused: false });
   usage.record.mockResolvedValue(undefined);
   credits.charge.mockResolvedValue({ credits: 0, eventId: "charge-1" });
   credits.refund.mockResolvedValue({ credits: 1 });
+  applications.get.mockImplementation(async (_userId: string, id: string) => ({ id, company: "Acme" }));
   useEnv({ APP_MODE: "hosted" });
   clearLimits();
 });
@@ -126,7 +128,7 @@ describe("POST /api/chat daily budget and usage", () => {
 
   it("refuses a free account with a 402 until the next UTC day once the budget is spent, without calling Claude", async () => {
     const resumesAt = "2026-10-30T00:00:00.000Z";
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "budget", resumesAt });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "budget", resumesAt });
     const { res } = await chatAs("free", { messages });
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({
@@ -138,9 +140,9 @@ describe("POST /api/chat daily budget and usage", () => {
   });
 
   it("does not hold an unlimited account to the free budget", async () => {
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "manual" });
     expect((await chatAs("unlimited", { messages })).res.status).toBe(200);
-    expect(usage.isFreeUsagePaused).not.toHaveBeenCalled();
+    expect(usage.isFreeUsagePausedFor).not.toHaveBeenCalled();
   });
 
   it("records the call once, free only for a free account", async () => {
@@ -164,8 +166,33 @@ describe("POST /api/chat credits", () => {
     useEnv({ APP_MODE: "hosted", CREDITS_PER_CHAT_MESSAGE: "2" });
     const { res } = await chatAs("free", { messages, applicationId: "app-1" });
     expect(res.status).toBe(200);
+    expect(applications.get).toHaveBeenCalledExactlyOnceWith("u1", "app-1");
     expect(credits.charge).toHaveBeenCalledExactlyOnceWith({ userId: "u1", amount: 2, kind: "chat", ref: "app-1" });
     expect(credits.charge.mock.invocationCallOrder[0]).toBeLessThan(runChat.mock.invocationCallOrder[0]);
+    // The application is read once, by the route, and handed to the chat.
+    expect(runChat.mock.lastCall?.[0]).toMatchObject({ application: { id: "app-1" } });
+  });
+
+  it.each([
+    ["too long", "a".repeat(81)],
+    ["not an application id", "../../etc"],
+    ["upper case", "App-1"],
+  ])("refuses an application id that is %s with a 400, before reading it or charging", async (_, applicationId) => {
+    const { res } = await chatAs("free", { messages, applicationId });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/^applicationId: /);
+    expect(applications.get).not.toHaveBeenCalled();
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(runChat).not.toHaveBeenCalled();
+  });
+
+  it("answers an application the account does not have with a 404, charging nothing", async () => {
+    applications.get.mockRejectedValue(new AppError('Application "2026-10-01-acme-aaaaaaaa" not found', 404));
+    const { res } = await chatAs("free", { messages, applicationId: "2026-10-01-acme-aaaaaaaa" });
+    expect(res.status).toBe(404);
+    expect(credits.charge).not.toHaveBeenCalled();
+    expect(usage.isFreeUsagePausedFor).not.toHaveBeenCalled();
+    expect(runChat).not.toHaveBeenCalled();
   });
 
   it("refuses a conversation that does not end with a user message with a 400 before charging or calling Claude", async () => {
@@ -186,7 +213,7 @@ describe("POST /api/chat credits", () => {
   });
 
   it("refuses while free usage is paused before charging anything", async () => {
-    usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
+    usage.isFreeUsagePausedFor.mockResolvedValue({ paused: true, reason: "manual" });
     expect((await chatAs("free", { messages })).res.status).toBe(402);
     expect(credits.charge).not.toHaveBeenCalled();
   });

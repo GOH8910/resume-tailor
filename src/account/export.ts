@@ -8,6 +8,9 @@ import type { Db } from "@/db/types";
 /** Applications read per query: one can be up to 700 KB of JSON. */
 export const APPLICATION_BATCH = 10;
 
+/** How long the stream waits for the browser to read the next piece before ending the download. */
+export const EXPORT_IDLE_MS = 60_000;
+
 /** What "Download my data" hands the account holder. Dates are ISO strings. */
 export type AccountExport = {
   exportedAt: string;
@@ -45,44 +48,66 @@ type Account = { id: string; email: string };
  * The export as a stream of compact JSON (the AccountExport shape). Everything but the applications is read before the
  * stream is handed out, so a failure there is still an ordinary error response; the applications follow a batch at a
  * time, each as the database stores it (`data::text`, never parsed), so a large account is never in memory whole.
- * PDFs are left out: they compile again from the JSON. `onEnd` runs once, when the stream ends, fails or is cancelled.
+ * PDFs are left out: they compile again from the JSON. `onEnd` runs once, when the stream ends, fails, is cancelled
+ * or goes unread for EXPORT_IDLE_MS (a stalled browser would otherwise hold its export slot for good).
  */
 export async function exportStream(db: Db, account: Account, onEnd: () => void, now = new Date()): Promise<ReadableStream<Uint8Array>> {
   const pieces = exportPieces(db, account, now);
   const first = await pieces.next();
   const encoder = new TextEncoder();
   let ended = false;
-  // Set when the browser abandons the download: a batch still being read then has nowhere to go.
-  let cancelled = false;
+  // Set when the browser abandons the download or stops reading: a batch still being read then has nowhere to go.
+  let abandoned = false;
+  let idle: ReturnType<typeof setTimeout> | undefined;
   const end = () => {
     if (ended) return;
     ended = true;
     onEnd();
   };
+  const stopWaiting = () => {
+    clearTimeout(idle);
+    idle = undefined;
+  };
+  // Runs while a piece waits in the queue; a read (pull) stops it.
+  const waitForRead = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    stopWaiting();
+    idle = setTimeout(() => {
+      idle = undefined;
+      abandoned = true;
+      end();
+      console.warn(`[account] a data export went unread for ${EXPORT_IDLE_MS / 1000} s and was ended`);
+      controller.error(new Error("The download stalled"));
+      void pieces.return(undefined);
+    }, EXPORT_IDLE_MS);
+  };
   return new ReadableStream<Uint8Array>({
     start(controller) {
       if (!first.done) controller.enqueue(encoder.encode(first.value));
+      waitForRead(controller);
     },
     async pull(controller) {
+      stopWaiting();
       try {
         const next = await pieces.next();
-        if (cancelled) return;
+        if (abandoned) return;
         if (next.done) {
           end();
           controller.close();
         } else {
           controller.enqueue(encoder.encode(next.value));
+          waitForRead(controller);
         }
       } catch (err) {
         end();
-        if (cancelled) return;
+        if (abandoned) return;
         // Driver errors carry SQL and bound parameters in their message: log the cause, as handle() does.
         console.error("[account] a data export failed part-way", err instanceof Error && err.cause ? err.cause : err);
         controller.error(err);
       }
     },
     async cancel() {
-      cancelled = true;
+      abandoned = true;
+      stopWaiting();
       end();
       await pieces.return(undefined);
     },

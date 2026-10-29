@@ -1,5 +1,6 @@
 node_modules
 .next
+.next-e2e
 data
 .e2e-data
 *.pdf
@@ -8,5 +9,7 @@ docs
 e2e
 test-results
 playwright-report
+coverage
+*.tsbuildinfo
 .git
 scratch*

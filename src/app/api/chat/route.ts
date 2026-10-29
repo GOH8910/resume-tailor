@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { APPLICATION_ID } from "@/applications/ids";
 import { requireResumeWithinSize } from "@/applications/input";
 import { ResumeStateInputSchema } from "@/applications/schema";
 import { chooseModel } from "@/billing/plan";
@@ -8,7 +9,7 @@ import { checkChatMessages, runChat } from "@/chat/chat";
 import { ChatMessagesSchema } from "@/chat/schema";
 import { runPaidCall } from "@/credits/money-path";
 import { hasApiKey } from "@/lib/anthropic";
-import { applications, banks, credits, usage } from "@/lib/deps";
+import { applications, banks, credits, freeCalls, usage } from "@/lib/deps";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
@@ -16,7 +17,8 @@ import { limitUser } from "@/lib/limits";
 import { MODEL_IDS } from "@/tailor/model";
 
 const ChatRequestSchema = z.object({
-  applicationId: z.string().optional(),
+  // Becomes the charge's ledger ref, so it must be a real id: bounded and well-formed.
+  applicationId: z.string().regex(APPLICATION_ID).optional(),
   resume: ResumeStateInputSchema.optional(),
   messages: ChatMessagesSchema,
   // Honoured only for plans that do not pay in credits; see chooseModel.
@@ -33,6 +35,8 @@ export async function POST(request: Request) {
     const body = ChatRequestSchema.parse(await readJson(request));
     requireResumeWithinSize(body.resume);
     checkChatMessages(body.messages);
+    // Read before charging, and only from this account, so a missing application is a free 404.
+    const application = body.applicationId ? await applications.get(user.id, body.applicationId) : undefined;
     const policy = currentPolicy(user.plan);
     const model = new AnthropicChatModel(chooseModel(policy, body.model));
     const { value: outcome, credits: balance } = await runPaidCall(
@@ -41,13 +45,14 @@ export async function POST(request: Request) {
         policy,
         kind: "chat",
         cost: env.CREDITS_PER_CHAT_MESSAGE,
-        ref: body.applicationId,
+        ref: application?.id,
         call: async () => {
-          const result = await runChat({ ...body, userId: user.id }, { banks, applications, model });
+          const input = { userId: user.id, application, resume: body.resume, messages: body.messages };
+          const result = await runChat(input, { banks, model });
           return { value: result.outcome, usage: result.usage };
         },
       },
-      { credits, usage },
+      { credits, usage, freeCalls },
     );
     // `credits` is the balance after the charge, left out (undefined) when the plan does not pay in credits.
     return Response.json({ ...outcome, credits: balance });

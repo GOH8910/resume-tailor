@@ -50,8 +50,8 @@ describe("runChat", () => {
       resumeChanges: [{ ...EMPTY_RESUME_CHANGE, kind: "setSummary", text: "New" }],
     });
     const { outcome, usage } = await runChat(
-      { userId: USER, applicationId: app.id, resume: fullStateFromBank(app.resume && (await banks.read(USER))), messages: [{ role: "user", content: "I know AWS; also shorten my summary" }] },
-      { banks, applications, model },
+      { userId: USER, application: app, resume: fullStateFromBank(app.resume && (await banks.read(USER))), messages: [{ role: "user", content: "I know AWS; also shorten my summary" }] },
+      { banks, model },
     );
     expect(usage).toEqual(fakeUsage);
     expect(outcome.bankChanged).toBe(true);
@@ -64,7 +64,7 @@ describe("runChat", () => {
 
   it("ignores resume changes without an open resume and does not write an unchanged bank", async () => {
     const model = new FakeModel({ reply: "Hi", bankChanges: [], resumeChanges: [{ ...EMPTY_RESUME_CHANGE, kind: "setSummary", text: "x" }] });
-    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "hello" }] }, { banks, applications, model });
+    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "hello" }] }, { banks, model });
     expect(outcome.bankChanged).toBe(false);
     expect(outcome.resumeChanges).toEqual([]);
     expect(outcome.warnings[0]).toContain("no resume is open");
@@ -79,7 +79,7 @@ describe("runChat", () => {
       bankChanges: [{ ...EMPTY_BANK_CHANGE, kind: "addSkills", category: "Cloud", texts: ["AWS"] }],
       resumeChanges: [],
     });
-    const err = await runChat({ userId: USER, messages: [{ role: "user", content: "I know AWS" }] }, { banks, applications, model }).catch(
+    const err = await runChat({ userId: USER, messages: [{ role: "user", content: "I know AWS" }] }, { banks, model }).catch(
       (e: unknown) => e,
     );
     expect(err).toBe(failure);
@@ -95,7 +95,7 @@ describe("runChat", () => {
     const texts = Array.from({ length: 40 }, (_, i) => `${i} ${"y".repeat(590)}`);
     const model = new FakeModel({ reply: "Added them.", bankChanges: [{ ...EMPTY_BANK_CHANGE, kind: "addBullets", entryId: "e_fill", texts }], resumeChanges: [] });
 
-    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "add these" }] }, { banks, applications, model });
+    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "add these" }] }, { banks, model });
 
     expect(outcome.bankChanged).toBe(false);
     expect(outcome.applied).toEqual([]);
@@ -106,14 +106,14 @@ describe("runChat", () => {
 
   it("cuts a reply over 16,000 characters, so it cannot block later requests", async () => {
     const model = new FakeModel({ reply: "r".repeat(20_000), bankChanges: [], resumeChanges: [] });
-    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "talk a lot" }] }, { banks, applications, model });
+    const { outcome } = await runChat({ userId: USER, messages: [{ role: "user", content: "talk a lot" }] }, { banks, model });
     expect(outcome.reply).toHaveLength(16_000);
     expect(outcome.warnings).toContain("Claude's reply was cut to 16,000 characters");
   });
 
   it("rejects a conversation that does not end with a user message", async () => {
     const model = new FakeModel({ reply: "", bankChanges: [], resumeChanges: [] });
-    await expect(runChat({ userId: USER, messages: [{ role: "assistant", content: "?" }] }, { banks, applications, model })).rejects.toMatchObject({ status: 400 });
+    await expect(runChat({ userId: USER, messages: [{ role: "assistant", content: "?" }] }, { banks, model })).rejects.toMatchObject({ status: 400 });
   });
 });
 

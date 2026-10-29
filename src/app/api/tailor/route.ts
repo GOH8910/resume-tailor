@@ -4,7 +4,7 @@ import { chooseModel } from "@/billing/plan";
 import { currentPolicy } from "@/billing/policy";
 import { runPaidCall } from "@/credits/money-path";
 import { hasApiKey } from "@/lib/anthropic";
-import { applications, banks, credits, usage } from "@/lib/deps";
+import { applications, banks, credits, freeCalls, usage } from "@/lib/deps";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { handle, readJson, requireUser } from "@/lib/http";
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
           return { value: result.application, usage: result.usage };
         },
       },
-      { credits, usage },
+      { credits, usage, freeCalls },
     );
     // `credits` is the balance after the charge, left out (undefined) when the plan does not pay in credits.
     return Response.json({ application, credits: balance }, { status: 201 });
