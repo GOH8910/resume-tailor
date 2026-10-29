@@ -31,8 +31,13 @@ in section 3.
    - `PRIVACY_CONTACT_EMAIL` is required: without it the new machine refuses to boot, and the blue-green deploy keeps
      the old one serving.
    - `SIGNUP_GRANT_CREDITS=4` gives each new account two tailors on Haiku (at the default `CREDITS_PER_TAILOR=2`)
-     while there are no ads (`AD_PROVIDER` stays `none`). `FREE_DAILY_BUDGET_GBP` caps what free accounts can spend per UTC day (default 2).
-   - Keep `SIGNUP_EMAILS` for a private run. Removing it opens sign-up (step 6).
+     while there are no ads (`AD_PROVIDER` stays `none`). Free accounts from phase 1 get it too, on their first
+     request after the deploy. `FREE_DAILY_BUDGET_GBP` caps what free accounts can spend per UTC day (default 2);
+     `FREE_DAILY_COST_PER_ACCOUNT_GBP` (default 0.10) and `FREE_CALLS_IN_FLIGHT` (default 4) keep their defaults
+     unless you set them (see "Spend bounds" in section 7).
+   - Keep `SIGNUP_EMAILS` for a private run. Removing it opens sign-up (step 7).
+   - Check that the Anthropic console has a monthly spend limit (section 1). It is the only cap on unlimited accounts
+     besides the rate limits, and the last line of defence for everything else.
 2. [ ] **Test the image.** `bash scripts/smoke-image.sh` must print no FAIL, and run
    `docker build --platform linux/amd64 .` once (section 4).
 3. [ ] **Deploy and check.** `fly deploy`, then `fly status` (one machine) and
@@ -42,11 +47,14 @@ in section 3.
    templates" in section 7. Confirm the terms' liability cap of £50 (`src/legal/terms.ts`). Consider having them
    reviewed by someone qualified.
 5. [ ] **Check the PDF preview in Firefox and Safari** once: the tests only run Chromium.
-6. [ ] **Open sign-up** with `fly secrets unset SIGNUP_EMAILS`. For the first week, look at `/admin` daily: the free
+6. [ ] **Turn on private vulnerability reporting** on GitHub (the repository's Settings, "Advanced Security" or
+   "Code security", "Private vulnerability reporting"). `SECURITY.md` sends reporters there.
+7. [ ] **Open sign-up** with `fly secrets unset SIGNUP_EMAILS`. For the first week, look at `/admin` daily: the free
    spend against the budget, credits granted and spent, and ad sessions by status, rejected ones especially.
-7. [ ] **Phase 2b, ads.** Apply for Google Ad Manager with the live landing, privacy and terms pages; create a
+8. [ ] **Phase 2b, ads.** Apply for Google Ad Manager with the live landing, privacy and terms pages; create a
    rewarded ad unit; set up Privacy & messaging for UK and EEA consent. Then wire the Google provider (the phase 2b
-   code), deploy it, and set `SIGNUP_GRANT_CREDITS` back to 0.
+   code, which also requires `AD_UNIT_PATH` and `AD_SSV_ENABLED` with it), deploy it, and set `SIGNUP_GRANT_CREDITS`
+   back to 0. Until that code ships, a production server refuses to boot with `AD_PROVIDER=google`.
 
 Developers with a local database from before this phase: migration 0002 was regenerated during development, so an
 old `data/pglite` no longer matches the migrations. Delete `data/pglite` once (this erases the local accounts and
@@ -64,7 +72,8 @@ banks); the next start creates it again.
    Credentials, Create OAuth client ID, Web application, with the authorized redirect URI
    `https://<domain>/api/auth/callback/google`. Keep the client ID and secret. While the consent screen is
    in Testing, only its listed test users can use Google.
-5. **Anthropic console**: create an API key, and set a monthly spend limit (Settings, Limits).
+5. **Anthropic console**: create an API key, and set a monthly spend limit (Settings, Limits). The limit is
+   mandatory: unlimited accounts are bounded only by it and the rate limits.
 6. **Domain**: you need to be able to edit its DNS records.
 
 ## 2. Create the Fly app
@@ -116,8 +125,9 @@ fly secrets set SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
   boot, naming it. Self-hosted servers and development fall back to the address in `EMAIL_FROM`.
 - `ADMIN_EMAILS` (comma-separated) get the unlimited plan when their account is first used, and the `/admin` page.
   `SIGNUP_GRANT_CREDITS` is what a new account starts with: 4 until ads are live, then 0. `FREE_DAILY_BUDGET_GBP`
-  pauses free accounts' AI calls for the rest of the UTC day once their costed usage reaches it. `.env.example`
-  documents the other plan, credit and ad settings and their defaults.
+  pauses free accounts' AI calls for the rest of the UTC day once their costed usage reaches it;
+  `FREE_DAILY_COST_PER_ACCOUNT_GBP` and `FREE_CALLS_IN_FLIGHT` bound one account and the calls running at once (see
+  "Spend bounds" in section 7). `.env.example` documents the other plan, credit and ad settings and their defaults.
 - `fly.toml` already sets `PORT`, `HOSTNAME`, `COMPILE_CONCURRENCY`, `EMAIL_TRANSPORT=resend`,
   `LATEX_RUN_AS` and `COMPILE_ROOT`. Do not set them as secrets.
 - A missing or invalid required value makes the new machine exit at boot (`[env] invalid configuration` in
@@ -208,6 +218,13 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
     the plan when an account is first used, so use this for an account that signed up before you listed it, or to
     take Unlimited away again. Removing an address from `ADMIN_EMAILS` (and restarting) takes away `/admin`, not the
     plan.
+- **Spend bounds** (free accounts, hosted mode): the day's free spend pauses everyone at `FREE_DAILY_BUDGET_GBP`
+  (default £2), and each account at `FREE_DAILY_COST_PER_ACCOUNT_GBP` of its own (default £0.10; it then sees "You've
+  reached today's free AI limit for this account"). Both are checked before a call starts, so calls already running can
+  overshoot; `FREE_CALLS_IN_FLIGHT` (default 4, in memory) bounds that, answering 503 "The free AI is busy" beyond it.
+  The largest free call costs about £0.13 (about 1 MB of prompt at Haiku's long-context rate plus 16k output tokens),
+  so a day's free spend stays under about £2 + 4 × £0.13 ≈ £2.52, and one account's under about £0.10 + 4 × £0.13.
+  Unlimited accounts are bounded only by the rate limits and the Anthropic console's monthly spend limit.
 - **Public pages**: `/` (the landing page), `/privacy`, `/terms`, `/cookies` and `/signin` need no account;
   every other page sends a signed-out visitor to `/signin`. The dashboard lives at `/dashboard`: a signed-in visit
   to `/` or `/signin` goes there, and so does signing in without a `next`. The landing page shows
@@ -233,14 +250,16 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   There is no `public/` folder; if one is added, the Dockerfile must copy it, as Next's standalone output leaves
   it out.
 - **Account export and deletion**: every account can download its data and delete itself on `/account`. Exports are
-  streamed, one per account and two across the server at a time. A deletion removes the account's sign-ins, bank,
+  streamed, one per account and two across the server at a time; a download the browser stops reading for 60 s is
+  ended, which frees its slot (logged as `[account] a data export went unread`). A deletion removes the account's sign-ins, bank,
   resumes and PDFs, plan, credits and sessions; its credits ledger, ad sessions and costed usage stay, with no account
   attached, for the audit, the per-IP ad cap and the budget (the ledger without its resume references, the ad
   sessions without their IPs except today's grants). A person who cannot sign in can be deleted in psql with
   `delete from "user" where email = '…';`, which cascades the same way but keeps those references and IPs.
 - **IP retention**: ad sessions keep the client's IP (a /64 for IPv6) for 48 hours, for the per-IP daily ad cap.
   The server blanks older ones at boot, every hour and at each ad start, skipping any row another request holds
-  (the next run gets it). A session can only be granted within an hour of starting. Better Auth's session rows also hold an IP and user agent per signed-in
+  (the next run gets it). A session can only be granted within an hour of starting, or a day for the ad network's
+  verified callback. Better Auth's session rows also hold an IP and user agent per signed-in
   browser; a row goes when that browser signs out or the account is deleted.
 - **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
   UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
@@ -309,7 +328,7 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 
 ## 10. Later phases
 
-- Phase 2b (ads): the Google provider, consent, server-side verification and the report-only CSP rollout. The
-  spec's "Phases" section lists what moved there.
+- Phase 2b (ads): the Google provider (requiring `AD_UNIT_PATH` and `AD_SSV_ENABLED` with it), consent,
+  server-side verification and the report-only CSP rollout. The spec's "Phases" section lists what moved there.
 - Before Lemon Squeezy webhooks go live, add `/api/webhooks/` to the `PUBLIC` list in `src/proxy.ts`:
   webhook calls carry no session cookie.

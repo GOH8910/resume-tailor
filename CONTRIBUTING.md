@@ -10,7 +10,7 @@ Set up as in the README's "From source" section, then run the gates. All of them
 npx tsc --noEmit
 npx eslint src e2e scripts
 npx vitest run
-npm run test:e2e             # needs `npx playwright install chromium` and MacTeX
+npm run test:e2e             # needs `npx playwright install chromium`, and MacTeX (TeX Live on Linux)
 bash scripts/smoke-image.sh  # needs Docker; run it when you touch the Dockerfile, docker/, LaTeX or security headers
 ```
 
@@ -33,7 +33,7 @@ Never commit a real resume, bank, PDF, `.env` file, API key or email address. `d
 
 ## Licence
 
-Resume Tailor is licensed under the GNU Affero General Public License v3.0 (`LICENSE`). By sending a contribution,
+Resume Tailor is licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only, `LICENSE`). By sending a contribution,
 you agree that it is licensed under the same terms.
 
 Security problems go through `SECURITY.md`, not a public issue.

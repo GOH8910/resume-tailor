@@ -6,7 +6,7 @@ export function PublicFooter({ sourceCodeUrl }: { sourceCodeUrl: string }) {
   return (
     <footer className="border-t border-rule">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8 text-sm sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-ink-faint">Resume Tailor is free and open source (AGPL-3.0).</p>
+        <p className="text-ink-faint">Resume Tailor is free and open source (AGPL-3.0-only).</p>
         <nav aria-label="Footer" className="text-ink-soft">
           <ul className="flex flex-wrap gap-x-6 gap-y-2">
             <li>

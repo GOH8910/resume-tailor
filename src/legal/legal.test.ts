@@ -60,7 +60,7 @@ describe.each(Object.entries(DOCUMENTS))("the %s page", (title, build) => {
     expect(plainText(notice.intro)).toBe(
       "This is a self-hosted copy of Resume Tailor. Whoever runs this server is responsible for your data and sets " +
         "their own terms; the hosted service’s terms and privacy notice do not apply here. The software is open " +
-        "source under AGPL-3.0: source.",
+        "source under AGPL-3.0-only: source.",
     );
     expect(links(notice)).toEqual([SOURCE]);
   });

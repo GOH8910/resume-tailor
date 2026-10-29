@@ -83,7 +83,7 @@ export function termsOfService(context: LegalContext): LegalDocument {
       {
         heading: "Open source",
         body: [
-          "The code is open source under the GNU Affero General Public License v3.0 (AGPL-3.0), and " +
+          "The code is open source under the GNU Affero General Public License v3.0 only (AGPL-3.0-only), and " +
             `[its source code](${sourceCodeUrl}) is public. You can run your own copy under that licence; these ` +
             "terms cover only this site.",
         ],

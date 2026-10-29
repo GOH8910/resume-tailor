@@ -2,9 +2,9 @@
 
 Job hunting is hard, so I built this for myself while applying. You keep one bank of every bullet you've ever
 written. Paste a job description and Claude picks the bullets that fit and lightly rewords them. You review every
-change and download a one-page PDF, compiled with LaTeX from `templates/resume.tex`. The hosted site at
-`https://<your-domain>` is free to use: short ads pay for the AI once they are switched on, and I cover it until
-then. The code is open source, so you can also run it yourself.
+change and download a one-page PDF, compiled with LaTeX from `templates/resume.tex`. The hosted copy (link coming
+once it's live) is free to use: short ads pay for the AI once they are switched on, and I cover it until then. The
+code is open source, so you can also run it yourself.
 
 <img src="src/ui/landing/sample-resume.png" alt="A one-page resume made with Resume Tailor from the example bank" width="360">
 
@@ -109,7 +109,8 @@ Outside production the mode defaults to `selfhost`. The database is PGlite, in `
 
 ### What self-host mode changes
 
-- No ads and no credits: every account can tailor and chat without limit, and the daily budget does not apply.
+- No ads and no credits: every account can tailor and chat without limit, and the free-usage budget and caps do not
+  apply.
 - No rate limits. The size limits on requests still apply.
 - The tailor form and the chat show a model picker. Without a pick, the model is `UNLIMITED_MODEL`.
 - The privacy, terms and cookies pages show a short notice instead of the hosted service's texts: whoever runs the
@@ -125,7 +126,7 @@ through sudo (see `docker/sudoers-latex`), and set `COMPILE_ROOT`.
 
 ### The licence, in one sentence
 
-If you run a modified version for other people, the AGPL asks you to offer them its source: publish your changes
+If you run a modified version for other people, the AGPL-3.0-only licence asks you to offer them its source: publish your changes
 and set `SOURCE_CODE_URL` to them, which the public pages link.
 
 ## Develop
@@ -142,7 +143,7 @@ bash scripts/smoke-image.sh  # builds the production image and checks it against
 
 `npm run test:e2e` starts two dev servers with emptied `.e2e-data/` folders: a self-hosted one on port 3123 and a
 hosted one on port 3124 with the test ad provider. It signs in through magic-link files and compiles real PDFs, so it
-needs `npx playwright install chromium` and MacTeX. To try hosted mode by hand, run
+needs `npx playwright install chromium` and MacTeX (TeX Live on Linux). To try hosted mode by hand, run
 `APP_MODE=hosted AD_PROVIDER=test AD_MIN_WATCH_SECONDS=1 npm run dev`.
 
 See `CONTRIBUTING.md` before sending a change.
@@ -202,7 +203,7 @@ checklist and goes on to secrets, deploys, limits, the admin page and the legal 
 
 ## Licence
 
-Copyright (C) 2026 Edward Goh. Licensed under the GNU Affero General Public License v3.0.
+Copyright (C) 2026 Edward Goh. Licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only).
 
 The full text is in `LICENSE`. Contributions are accepted under the same licence (`CONTRIBUTING.md`). To report a
 security problem, see `SECURITY.md`.
