@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { env } from "@/lib/env";
 import { PublicFooter } from "@/ui/public/PublicFooter";
 import { PublicHeader } from "@/ui/public/PublicHeader";
 
@@ -8,7 +9,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col">
       <PublicHeader />
       {children}
-      <PublicFooter />
+      <PublicFooter sourceCodeUrl={env.SOURCE_CODE_URL} />
     </div>
   );
 }

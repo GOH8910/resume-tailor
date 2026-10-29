@@ -1,7 +1,7 @@
 /**
- * Renders public/sample-resume.png, the landing page's sample: every entry of data/example/bank.json through the real
- * template (as "Start from full bank" would), page 1 converted to PNG at 110 dpi. Commit the PNG; if its size in
- * pixels changes, update SAMPLE_RESUME in src/ui/landing/sample.ts (its test compares the two).
+ * Renders src/ui/landing/sample-resume.png, the landing page's sample: every entry of data/example/bank.json through
+ * the real template (as "Start from full bank" would), page 1 converted to PNG at 110 dpi. Commit the PNG; the page
+ * imports it, so Next picks up a new size and content hash on its own.
  *   npx tsx scripts/render-sample.ts
  * Needs latexmk on PATH (MacTeX or TeX Live; LATEXMK_PATH overrides) and pdftoppm (brew install poppler).
  */
@@ -16,7 +16,7 @@ import { compileTex } from "@/latex/compile";
 import { loadTemplate } from "@/latex/template";
 
 const BANK = path.resolve("data/example/bank.json");
-const OUTPUT = path.resolve("public/sample-resume.png");
+const OUTPUT = path.resolve("src/ui/landing/sample-resume.png");
 const DPI = "110";
 
 async function main(): Promise<void> {

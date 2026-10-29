@@ -5,8 +5,16 @@ import { privacyPolicy } from "./privacy";
 import { termsOfService } from "./terms";
 import type { LegalContext, LegalDocument } from "./types";
 
-const CONTEXT: LegalContext = { contactEmail: "privacy@example.com", adsEnabled: false };
-const DOCUMENTS = { privacy: privacyPolicy, terms: termsOfService, cookies: cookiePolicy };
+const SOURCE = "https://git.example.com/resume-tailor";
+const CONTEXT: LegalContext = {
+  contactEmail: "privacy@example.com",
+  adsAvailable: false,
+  googleAds: false,
+  selfHosted: false,
+  sourceCodeUrl: SOURCE,
+};
+const GOOGLE_ADS: LegalContext = { ...CONTEXT, adsAvailable: true, googleAds: true };
+const DOCUMENTS = { Privacy: privacyPolicy, Terms: termsOfService, Cookies: cookiePolicy };
 // The pages these texts may link to.
 const PAGES = ["/", "/account", "/cookies", "/privacy", "/terms"];
 
@@ -16,12 +24,14 @@ function texts(doc: LegalDocument): string[] {
   return [doc.title, doc.intro, ...blocks].map(plainText);
 }
 
+const textOf = (doc: LegalDocument) => texts(doc).join("\n");
+
 function links(doc: LegalDocument): string[] {
   const raw = [doc.intro, ...doc.sections.flatMap((section) => section.body.flat())].join("\n");
   return [...raw.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]);
 }
 
-describe.each(Object.entries(DOCUMENTS))("the %s page", (_name, build) => {
+describe.each(Object.entries(DOCUMENTS))("the %s page", (title, build) => {
   const doc = build(CONTEXT);
 
   it("stays under about 900 words", () => {
@@ -40,13 +50,30 @@ describe.each(Object.entries(DOCUMENTS))("the %s page", (_name, build) => {
       else expect(href).toMatch(/^(https:\/\/|mailto:)/);
     }
   });
+
+  it("is replaced by the self-hosted notice on a self-hosted server", () => {
+    const notice = build({ ...CONTEXT, selfHosted: true });
+    expect(notice.title).toBe(title);
+    expect(notice.sections).toEqual([]);
+    expect(plainText(notice.intro)).toBe(
+      "This is a self-hosted copy of Resume Tailor. Whoever runs this server is responsible for your data and sets " +
+        "their own terms; the hosted service’s terms and privacy notice do not apply here. The software is open " +
+        "source under AGPL-3.0: source.",
+    );
+    expect(links(notice)).toEqual([SOURCE]);
+  });
 });
 
 describe("privacyPolicy", () => {
-  const text = texts(privacyPolicy(CONTEXT)).join("\n");
+  const text = textOf(privacyPolicy(CONTEXT));
 
-  it.each(["Anthropic", "Neon", "Fly.io", "Resend", "Google Ad Manager"])("names the processor %s", (name) => {
+  it.each(["Anthropic", "Neon", "Fly.io", "Resend", "Google Ad Manager"])("names %s", (name) => {
     expect(text).toContain(name);
+  });
+
+  it("introduces them as handling data for the site, and Google as its own controller", () => {
+    expect(text).toContain("These companies handle data for the site:");
+    expect(text).toMatch(/For sign-in and ads, Google is a controller in its own right/);
   });
 
   it("gives the configured contact address", () => {
@@ -55,7 +82,7 @@ describe("privacyPolicy", () => {
 
   it("says whether ads are switched on", () => {
     expect(text).toContain("Ads are not switched on yet.");
-    expect(texts(privacyPolicy({ ...CONTEXT, adsEnabled: true })).join("\n")).toContain("Ads are switched on.");
+    expect(textOf(privacyPolicy(GOOGLE_ADS))).toContain("Ads are switched on.");
   });
 
   it("lists what the export holds and leaves out", () => {
@@ -66,20 +93,27 @@ describe("privacyPolicy", () => {
 
 describe("termsOfService", () => {
   it("promises ad-earned credits only while ads are switched on", () => {
-    const off = texts(termsOfService(CONTEXT)).join("\n");
+    const off = textOf(termsOfService(CONTEXT));
     expect(off).toContain("Credits are earned by watching ads when ads are enabled, and may be granted by the operator.");
     expect(off).not.toContain("which you earn by watching ads");
-    expect(texts(termsOfService({ ...CONTEXT, adsEnabled: true })).join("\n")).toContain("which you earn by watching ads");
+    expect(textOf(termsOfService(GOOGLE_ADS))).toContain("which you earn by watching ads");
   });
 
-  it("points to where the current costs are shown", () => {
-    expect(links(termsOfService(CONTEXT))).toEqual(expect.arrayContaining(["/", "/account"]));
+  it("points to where the current costs are shown, and to the configured source code", () => {
+    expect(links(termsOfService(CONTEXT))).toEqual(expect.arrayContaining(["/", "/account", SOURCE]));
   });
 });
 
 describe("cookiePolicy", () => {
   it("says no advertising cookies are set while ads are off", () => {
-    expect(texts(cookiePolicy(CONTEXT)).join("\n")).toContain("no advertising cookies are set");
-    expect(texts(cookiePolicy({ ...CONTEXT, adsEnabled: true })).join("\n")).toContain("Ads are switched on.");
+    expect(textOf(cookiePolicy(CONTEXT))).toContain("Ads are not switched on yet, so no advertising cookies are set.");
+  });
+
+  it("describes Google's cookies only when the ads come from Google", () => {
+    expect(textOf(cookiePolicy(GOOGLE_ADS))).toContain("Ads are switched on.");
+    // The test provider (development and the e2e tests) plays a fake ad in the page.
+    const testAds = textOf(cookiePolicy({ ...CONTEXT, adsAvailable: true }));
+    expect(testAds).toContain("The ads on this server come from a test provider, which sets no cookies.");
+    expect(testAds).not.toContain("Ads are switched on.");
   });
 });

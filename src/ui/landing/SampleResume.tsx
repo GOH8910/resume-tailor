@@ -1,4 +1,5 @@
-import { SAMPLE_RESUME } from "./sample";
+// A static import: Next serves it from /_next/static/media under a content hash, cached as immutable, and knows its size.
+import sample from "./sample-resume.png";
 
 /** The sample resume on a card, over a second sheet for depth. */
 export function SampleResume() {
@@ -11,9 +12,9 @@ export function SampleResume() {
           {/* A plain <img>: next/image adds a style="" attribute, which the Content-Security-Policy blocks. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={SAMPLE_RESUME.src}
-            width={SAMPLE_RESUME.width}
-            height={SAMPLE_RESUME.height}
+            src={sample.src}
+            width={sample.width}
+            height={sample.height}
             alt="A one-page tailored resume produced by Resume Tailor"
             fetchPriority="high"
             decoding="async"

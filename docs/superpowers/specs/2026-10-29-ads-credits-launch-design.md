@@ -228,8 +228,10 @@ demotes an account later.
 - `/privacy`, `/terms`, `/cookies` (static, template-grade, naming Anthropic, Neon, Fly.io, Resend,
   Google Ad Manager as processors, the credits/ads mechanics, the ledger retention, and the right to
   export/delete). Not legal advice. The text is data in `src/legal/*.ts`, rendered by
-  `src/ui/legal/LegalPage.tsx`; the contact address is `PRIVACY_CONTACT_EMAIL`, defaulting to the address in
-  `EMAIL_FROM`.
+  `src/ui/legal/LegalPage.tsx`; the contact address is `PRIVACY_CONTACT_EMAIL` (required in hosted production,
+  elsewhere defaulting to the address in `EMAIL_FROM`). A self-hosted server shows a short notice on each page
+  instead: its operator is responsible for the data and sets their own terms. The public pages link the source code
+  at `SOURCE_CODE_URL` (default: the upstream repository).
 - `src/proxy.ts` PUBLIC gains `/` (an exact match), `/cookies`, `/api/ads/ssv`.
 
 ## Open source

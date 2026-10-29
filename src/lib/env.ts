@@ -1,9 +1,14 @@
 import { z } from "zod";
+import { DEFAULT_SOURCE_CODE_URL } from "./site";
 
 // A blank value (`KEY=` in a .env file or a deploy config) means unset; z.coerce.number() would read it as 0.
 function blankAsUnset<T extends z.ZodType>(schema: T) {
   return z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), schema);
 }
+
+// The browser's own definition (<input type="email">): it allows a dotless host such as the development default
+// signin@localhost, and no character that could break out of the mailto: link the legal pages make of it.
+const ContactEmail = z.email({ pattern: z.regexes.html5Email });
 
 // z.coerce.boolean() would read the string "false" as true.
 const flag = z
@@ -22,8 +27,10 @@ const Schema = z.object({
   EMAIL_TRANSPORT: z.enum(["resend", "file"]).optional(),
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default("Resume Tailor <signin@localhost>"),
-  // Shown on the privacy page; a bare address. Unset: the address in EMAIL_FROM.
-  PRIVACY_CONTACT_EMAIL: blankAsUnset(z.email().optional()),
+  // Shown on the legal pages; a bare address. Required in hosted production; elsewhere unset means EMAIL_FROM's address.
+  PRIVACY_CONTACT_EMAIL: blankAsUnset(ContactEmail.optional()),
+  // Linked from the public pages, as the AGPL asks of a modified copy that others use over a network.
+  SOURCE_CODE_URL: blankAsUnset(z.url({ protocol: /^https$/ }).default(DEFAULT_SOURCE_CODE_URL)),
   SIGNUP_EMAILS: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   // A prefix: compile slot n (from 1) runs TeX as user `${LATEX_RUN_AS}${n}`, in a folder of group `${LATEX_RUN_AS}run${n}`.
@@ -66,6 +73,8 @@ export type Env = Parsed & {
   adProvider: Parsed["AD_PROVIDER"];
   /** Where people write about their data: PRIVACY_CONTACT_EMAIL, else the sender address of the sign-in emails. */
   privacyContactEmail: string;
+  /** Rewarded ads can be watched on this server: an ad provider other than "none" is in effect. */
+  adsAvailable: boolean;
 };
 
 /** Parses the environment; in production (but not during `next build`) it must be complete and explicit. */
@@ -73,14 +82,16 @@ export function parseEnv(source: Source): Env {
   const parsed = Schema.parse(source);
   const isProduction = parsed.NODE_ENV === "production";
   const appMode = parsed.APP_MODE ?? (isProduction ? "hosted" : "selfhost");
+  const adProvider = appMode === "selfhost" ? "none" : parsed.AD_PROVIDER;
   const env: Env = {
     ...parsed,
     EMAIL_TRANSPORT: parsed.EMAIL_TRANSPORT ?? (isProduction ? "resend" : "file"),
     signupEmails: parseEmailList(parsed.SIGNUP_EMAILS),
     appMode,
     adminEmails: parseEmailList(parsed.ADMIN_EMAILS),
-    adProvider: appMode === "selfhost" ? "none" : parsed.AD_PROVIDER,
-    privacyContactEmail: parsed.PRIVACY_CONTACT_EMAIL ?? addressIn(parsed.EMAIL_FROM),
+    adProvider,
+    privacyContactEmail: privacyContact(parsed),
+    adsAvailable: adProvider !== "none",
   };
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together");
@@ -111,11 +122,25 @@ function checkProduction(source: Source, env: Env): void {
   } else if (!env.BETTER_AUTH_URL.startsWith("https://")) {
     throw new Error("BETTER_AUTH_URL must start with https://");
   }
+  // A public site must say who answers questions about people's data; sign-in senders are often unread mailboxes.
+  if (env.appMode === "hosted" && !env.PRIVACY_CONTACT_EMAIL) {
+    throw new Error("PRIVACY_CONTACT_EMAIL must be set in hosted production: the address the legal pages give for data requests");
+  }
   // The test provider grants credits for a fake ad, so on a public site it would be free money.
   if (env.AD_PROVIDER === "test") throw new Error("AD_PROVIDER=test is not allowed in production");
   if (env.adProvider === "google" && !env.AD_UNIT_PATH) {
     throw new Error("AD_UNIT_PATH must be set when AD_PROVIDER=google");
   }
+}
+
+/** PRIVACY_CONTACT_EMAIL, else the address in EMAIL_FROM, which must then be an email address too. */
+function privacyContact(parsed: Parsed): string {
+  if (parsed.PRIVACY_CONTACT_EMAIL) return parsed.PRIVACY_CONTACT_EMAIL;
+  const address = addressIn(parsed.EMAIL_FROM);
+  if (!ContactEmail.safeParse(address).success) {
+    throw new Error(`PRIVACY_CONTACT_EMAIL must be set: EMAIL_FROM holds no email address to fall back to ("${address}")`);
+  }
+  return address;
 }
 
 /** The address in a sender such as `Resume Tailor <signin@example.com>`, or the whole value when it has no <…>. */

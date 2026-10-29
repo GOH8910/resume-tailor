@@ -5,7 +5,7 @@ import { getAuth } from "@/lib/auth";
 import { isAdminEmail } from "@/lib/http";
 import { AdminPage } from "@/ui/admin/AdminPage";
 
-export const metadata: Metadata = { title: "Admin · Resume Tailor" };
+export const metadata: Metadata = { title: "Admin" };
 
 export default async function Admin() {
   // headers() first: during `next build` it ends prerendering before getAuth() can open the database.

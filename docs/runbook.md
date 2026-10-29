@@ -45,11 +45,13 @@ fly secrets set \
   EMAIL_FROM='Resume Tailor <signin@<domain>>' \
   RESEND_API_KEY='re_...' \
   ANTHROPIC_API_KEY='sk-ant-...' \
+  PRIVACY_CONTACT_EMAIL='privacy@<domain>' \
   SIGNUP_EMAILS='<you>,friend@example.com'
 # Optional, both or neither:
 fly secrets set GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...'
-# Optional: where the legal pages send data requests (default: the address in EMAIL_FROM)
-fly secrets set PRIVACY_CONTACT_EMAIL='privacy@<domain>'
+# Optional: where the public pages link the source code (default: the upstream repository). A modified copy run for
+# others must offer its own source under the AGPL.
+fly secrets set SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
 ```
 
 - `DATABASE_URL` is Neon's **direct** (unpooled) string with `sslmode=verify-full`. The app runs its
@@ -59,7 +61,8 @@ fly secrets set PRIVACY_CONTACT_EMAIL='privacy@<domain>'
   already exist can always sign in.
 - `EMAIL_FROM` must be on the domain verified in Resend.
 - `PRIVACY_CONTACT_EMAIL` is the address the privacy, terms and cookies pages give for questions and data requests
-  (a bare address). Unset, they show the address in `EMAIL_FROM`, which must then be a mailbox you read.
+  (a bare address, in a mailbox you read). It is required in hosted production: without it the machine refuses to
+  boot, naming it. Self-hosted servers and development fall back to the address in `EMAIL_FROM`.
 - `fly.toml` already sets `PORT`, `HOSTNAME`, `COMPILE_CONCURRENCY`, `EMAIL_TRANSPORT=resend`,
   `LATEX_RUN_AS` and `COMPILE_ROOT`. Do not set them as secrets.
 - A missing or invalid required value makes the new machine exit at boot (`[env] invalid configuration` in
@@ -153,22 +156,27 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 - **Public pages**: `/` (the landing page), `/privacy`, `/terms`, `/cookies` and `/signin` need no account;
   every other page sends a signed-out visitor to `/signin`. The dashboard lives at `/dashboard`: a signed-in visit
   to `/` or `/signin` goes there, and so does signing in without a `next`. The landing page shows
-  `CREDITS_PER_TAILOR`, `CREDITS_PER_CHAT_MESSAGE` and `FREE_MODEL` as configured; a self-hosted server shows
-  "no ads, no credits" instead. After a deletion the browser lands on `/?deleted=1`, which says so.
+  `CREDITS_PER_TAILOR`, `CREDITS_PER_CHAT_MESSAGE` and `FREE_MODEL` as configured, and says ads are still to come
+  (with `SIGNUP_GRANT_CREDITS`) while `AD_PROVIDER=none`; a self-hosted server shows "no ads, no credits" instead.
+  After a deletion the browser lands on `/?deleted=1`, which says so. `/robots.txt` lets crawlers read the public
+  pages and keeps them out of `/api/`; `/signin` asks not to be indexed.
 - **The legal pages are templates: check them before launch.** Their text is in `src/legal/` (`privacy.ts`,
   `terms.ts`, `cookies.ts`), rendered by `src/ui/legal/LegalPage.tsx`; change a page's `updated` date with its
-  text. They describe what the code did when they were written: the export's fields, what deletion removes and
+  text. A self-hosted server (`APP_MODE=selfhost`) shows a short notice on each instead: its operator is
+  responsible for the data there and sets their own terms. They describe what the code did when they were written: the export's fields, what deletion removes and
   keeps, the 48-hour IP retention for ads, the processors (Anthropic, Neon, Fly.io, Resend, Google) and their
   London regions, and whether ads are on (from `AD_PROVIDER`). Check before launch, and again whenever those
   change: the Neon plan's restore window (the privacy page says "up to 7 days": Neon's free plan keeps 6 hours
   and Launch up to 7 days, so a longer window needs the text changed), Fly's log retention, Anthropic's API
-  retention (30 days when written) and the liability cap in the terms. They are not legal advice; have them read
-  by someone qualified if you can. `src/legal/legal.test.ts` checks their length, links and a few of these facts.
-- **Sample resume image**: `public/sample-resume.png` on the landing page is `data/example/bank.json` rendered
-  through the real template. After changing the template or the example bank, run
-  `npx tsx scripts/render-sample.ts` (needs latexmk and `pdftoppm`) and commit the PNG; if its size in pixels
-  changes, update `SAMPLE_RESUME` in `src/ui/landing/sample.ts` (a unit test compares the two). The Dockerfile
-  copies `public/` into the image, which Next's standalone output leaves out.
+  retention (30 days when written), and the terms' liability cap of £50 (the owner's choice: confirm it). They are
+  not legal advice; have them read by someone qualified if you can. `src/legal/legal.test.ts` checks their length,
+  links and a few of these facts.
+- **Sample resume image**: `src/ui/landing/sample-resume.png` on the landing page is `data/example/bank.json`
+  rendered through the real template. After changing the template or the example bank, run
+  `npx tsx scripts/render-sample.ts` (needs latexmk and `pdftoppm`) and commit the PNG. The page imports it, so Next
+  serves it from `/_next/static/media/` under a content hash (cached as immutable) and reads its size itself.
+  There is no `public/` folder; if one is added, the Dockerfile must copy it, as Next's standalone output leaves
+  it out.
 - **Account export and deletion**: every account can download its data and delete itself on `/account`. Exports are
   streamed, one per account and two across the server at a time. A deletion removes the account's sign-ins, bank,
   resumes and PDFs, plan, credits and sessions; its credits ledger, ad sessions and costed usage stay, with no account

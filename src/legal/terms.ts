@@ -1,10 +1,12 @@
-import { SOURCE_CODE_URL } from "@/lib/site";
+import { selfHostedNotice } from "./self-hosted";
 import type { LegalContext, LegalDocument } from "./types";
 
-export function termsOfService({ contactEmail, adsEnabled }: LegalContext): LegalDocument {
+export function termsOfService(context: LegalContext): LegalDocument {
+  if (context.selfHosted) return selfHostedNotice("Terms", context);
+  const { contactEmail, adsAvailable, sourceCodeUrl } = context;
   const contact = `[${contactEmail}](mailto:${contactEmail})`;
   // No promise of ad-earned credits while there are no ads to watch.
-  const earning = adsEnabled
+  const earning = adsAvailable
     ? "It is free: the AI features cost credits, which you earn by watching ads."
     : "It is free: the AI features cost credits. Credits are earned by watching ads when ads are enabled, and may be " +
       "granted by the operator.";
@@ -81,9 +83,9 @@ export function termsOfService({ contactEmail, adsEnabled }: LegalContext): Lega
       {
         heading: "Open source",
         body: [
-          `The code is open source under the GNU Affero General Public License v3.0 (AGPL-3.0), on ` +
-            `[GitHub](${SOURCE_CODE_URL}). You can run your own copy under that licence; these terms cover only ` +
-            "this site.",
+          "The code is open source under the GNU Affero General Public License v3.0 (AGPL-3.0), and " +
+            `[its source code](${sourceCodeUrl}) is public. You can run your own copy under that licence; these ` +
+            "terms cover only this site.",
         ],
       },
       {

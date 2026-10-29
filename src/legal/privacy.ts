@@ -1,8 +1,11 @@
+import { selfHostedNotice } from "./self-hosted";
 import type { LegalContext, LegalDocument } from "./types";
 
 // Keep this in step with the code: the export's fields (src/account/export.ts), what deletion removes and keeps
 // (src/account/delete.ts), the ad IP retention (AD_IP_RETENTION_MS in src/credits/service.ts) and the processors.
-export function privacyPolicy({ contactEmail, adsEnabled }: LegalContext): LegalDocument {
+export function privacyPolicy(context: LegalContext): LegalDocument {
+  if (context.selfHosted) return selfHostedNotice("Privacy", context);
+  const { contactEmail, adsAvailable } = context;
   const contact = `[${contactEmail}](mailto:${contactEmail})`;
   return {
     title: "Privacy",
@@ -59,7 +62,7 @@ export function privacyPolicy({ contactEmail, adsEnabled }: LegalContext): Legal
       {
         heading: "Who else handles it",
         body: [
-          "These companies process data on my behalf:",
+          "These companies handle data for the site:",
           [
             "[Anthropic](https://www.anthropic.com) runs Claude. It receives your bank, job descriptions and chat " +
               "messages when you tailor or chat. Anthropic does not train its models on this data, and " +
@@ -69,8 +72,10 @@ export function privacyPolicy({ contactEmail, adsEnabled }: LegalContext): Legal
             "[Fly.io](https://fly.io) hosts the app, in London, and keeps its logs.",
             "[Resend](https://resend.com) sends the sign-in emails, so it sees your email address.",
             "Google, if you sign in with Google. When ads are switched on, Google Ad Manager also serves the ads, " +
-              "after asking for your consent through Google’s consent tool. " +
-              (adsEnabled ? "Ads are switched on." : "Ads are not switched on yet."),
+              "after asking for your consent through Google’s consent tool. For sign-in and ads, Google is a " +
+              "controller in its own right: it decides how it uses that data, under " +
+              "[Google’s privacy policy](https://policies.google.com/privacy). " +
+              (adsAvailable ? "Ads are switched on." : "Ads are not switched on yet."),
           ],
           "Anthropic, Resend and Google may process data in the United States. Those transfers rely on the " +
             "safeguards UK law provides, such as the UK–US data bridge or the UK addendum to the standard " +

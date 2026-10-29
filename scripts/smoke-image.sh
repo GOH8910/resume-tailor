@@ -99,6 +99,7 @@ docker run -d --name "$APP" --network "$NET" --init -p "127.0.0.1:$PORT:3000" \
   -e BETTER_AUTH_URL="$BASE" \
   -e EMAIL_TRANSPORT=file \
   -e EMAIL_FROM="Resume Tailor <signin@localhost>" \
+  -e PRIVACY_CONTACT_EMAIL=privacy@localhost \
   -e ANTHROPIC_API_KEY=sk-ant-smoke-dummy \
   "$IMAGE" >/dev/null
 
@@ -148,8 +149,11 @@ for page in landing privacy terms cookies; do
   check "every <script> and <style> on $path carries the nonce, and nothing uses style=\"\"" \
     markup_carries_nonce "$WORK/$name.headers" "$WORK/$name.html"
 done
-sample=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$BASE/sample-resume.png" || true)
-check "the landing page's sample resume is served from public/ ($sample)" test "$sample" = "200 image/png"
+# A static import: served under a content hash from /_next/static/media, so browsers may cache it for good.
+sample_path=$(grep -o '/_next/static/media/sample-resume\.[^"]*\.png' "$WORK/public-landing.html" | head -1 || true)
+sample=$(curl -sS -D "$WORK/sample.headers" -o /dev/null -w '%{http_code} %{content_type}' "$BASE$sample_path" || true)
+check "the landing page's sample resume is served (${sample_path:-no <img> found}: $sample)" test "$sample" = "200 image/png"
+check "the sample resume is cached as immutable" has_header "$WORK/sample.headers" "cache-control: public, max-age=31536000, immutable"
 
 # --- Sign in, save a bank, compile ---
 code=$(api -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \

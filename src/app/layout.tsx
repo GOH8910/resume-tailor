@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Resume Tailor",
+  // Pages set only their own title, e.g. "Account" → "Account · Resume Tailor".
+  title: { template: "%s · Resume Tailor", default: "Resume Tailor" },
   description: "Pick the right bullets for every job description.",
 };
 

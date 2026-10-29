@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import type { Me } from "@/billing/policy";
 import { modelName } from "@/tailor/model";
+import { LINK_CLASS } from "@/ui/Button";
+import { LEGAL_PAGES } from "@/ui/legal/legal-pages";
 import { useMe } from "@/ui/useMe";
 import { CreditsCard } from "./CreditsCard";
 import { DataCard } from "./DataCard";
@@ -66,6 +69,17 @@ export function AccountPage() {
           </div>
         </div>
       )}
+      <nav aria-label="Legal" className="mt-10 border-t border-rule pt-4 text-sm text-ink-soft">
+        <ul className="flex flex-wrap gap-x-6 gap-y-2">
+          {LEGAL_PAGES.map((page) => (
+            <li key={page.href}>
+              <Link href={page.href} className={LINK_CLASS}>
+                {page.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </section>
   );
 }

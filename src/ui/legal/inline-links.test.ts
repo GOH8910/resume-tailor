@@ -39,3 +39,10 @@ describe("plainText", () => {
     expect(plainText("Write to [me](mailto:a@example.com) today.")).toBe("Write to me today.");
   });
 });
+
+describe("splitLinks: paths", () => {
+  // Browsers read "\" as "/", so "/\host" leaves the site; the same check vets sign-in's ?next=.
+  it.each(["/\\evil.example", "/%2F%2Fevil.example"])("refuses the path %s", (href) => {
+    expect(() => splitLinks(`[x](${href})`)).toThrow("Refusing the link");
+  });
+});

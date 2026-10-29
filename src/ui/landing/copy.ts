@@ -1,4 +1,5 @@
 // The landing page's sentences that depend on how this server is set up, kept apart so each variant is tested.
+import { CREDITS_PER_AD } from "@/credits/types";
 
 export function credits(count: number): string {
   return `${count} ${count === 1 ? "credit" : "credits"}`;
@@ -13,7 +14,13 @@ export function heroFunding({ selfHosted, adsAvailable }: { selfHosted: boolean;
 
 /** Hosted mode: where credits come from, without promising ads that cannot be watched yet. */
 export function creditsSource({ adsAvailable, signupGrantCredits }: { adsAvailable: boolean; signupGrantCredits: number }): string {
-  if (adsAvailable) return "The AI costs credits, and you earn them by watching short ads: one ad is worth about one credit.";
+  if (adsAvailable) return `The AI costs credits, and you earn them by watching short ads: one ad is worth about ${credits(CREDITS_PER_AD)}.`;
   const grant = signupGrantCredits > 0 ? `; new accounts start with ${credits(signupGrantCredits)}` : "";
   return `The AI costs credits. Credits will come from short ads once they’re switched on${grant}.`;
+}
+
+/** The operator's word on who pays for the AI. */
+export function whyAds(adsAvailable: boolean): string {
+  const cost = "Each tailor costs me a fraction of a penny in AI usage;";
+  return adsAvailable ? `${cost} ads cover it so nobody has to pay.` : `${cost} until ads are switched on I’m covering it, so nobody has to pay.`;
 }

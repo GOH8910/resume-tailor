@@ -85,8 +85,6 @@ ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 LATEX_RUN_AS=tex COMPILE_ROOT
     COMPILE_CONCURRENCY=$COMPILE_CONCURRENCY
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
-# Next's standalone output leaves out public/ (the landing page's sample resume).
-COPY --from=build /app/public ./public
 COPY --from=build /app/templates ./templates
 COPY --from=build /app/drizzle ./drizzle
 # The app's code stays root-owned (node cannot change it) and closed to tex; node can write only data/ and the

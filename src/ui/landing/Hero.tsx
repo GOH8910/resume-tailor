@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { SOURCE_CODE_URL } from "@/lib/site";
 import { buttonClass } from "@/ui/Button";
 import { SampleResume } from "./SampleResume";
 
 /** `funding` ends the paragraph: what pays for the AI on this server (src/ui/landing/copy.ts). */
-export function Hero({ funding }: { funding: string }) {
+export function Hero({ funding, sourceCodeUrl }: { funding: string; sourceCodeUrl: string }) {
   return (
     <section
       aria-labelledby="landing-heading"
@@ -23,7 +22,7 @@ export function Hero({ funding }: { funding: string }) {
           <Link href="/signin" className={buttonClass({ variant: "primary" })}>
             Sign in to start
           </Link>
-          <a href={SOURCE_CODE_URL} className={buttonClass({ variant: "ghost" })}>
+          <a href={sourceCodeUrl} className={buttonClass({ variant: "ghost" })}>
             Run it yourself
           </a>
         </div>

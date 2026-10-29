@@ -1,6 +1,16 @@
+import { selfHostedNotice } from "./self-hosted";
 import type { LegalContext, LegalDocument } from "./types";
 
-export function cookiePolicy({ contactEmail, adsEnabled }: LegalContext): LegalDocument {
+/** Whether this server's ads set cookies: only Google's do. */
+function adCookiesNow({ adsAvailable, googleAds }: LegalContext): string {
+  if (googleAds) return "Ads are switched on.";
+  if (adsAvailable) return "The ads on this server come from a test provider, which sets no cookies.";
+  return "Ads are not switched on yet, so no advertising cookies are set.";
+}
+
+export function cookiePolicy(context: LegalContext): LegalDocument {
+  if (context.selfHosted) return selfHostedNotice("Cookies", context);
+  const { contactEmail } = context;
   return {
     title: "Cookies",
     updated: "2026-10-29",
@@ -29,7 +39,7 @@ export function cookiePolicy({ contactEmail, adsEnabled }: LegalContext): LegalD
           "When ads are switched on, Google Ad Manager shows the rewarded ads and may set cookies, or use similar " +
             "technology, to measure and personalise them. Before it does, visitors in the UK and EEA are asked for " +
             "consent through Google’s consent tool. Without consent, Google shows only non-personalised ads.",
-          adsEnabled ? "Ads are switched on." : "Ads are not switched on yet, so no advertising cookies are set.",
+          adCookiesNow(context),
           "Google explains its use of data in " +
             "[how Google uses information from sites that use its services](https://policies.google.com/technologies/partner-sites).",
         ],

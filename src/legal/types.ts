@@ -17,6 +17,11 @@ export type LegalDocument = {
 /** What the texts say differently from one deployment to another. */
 export type LegalContext = {
   contactEmail: string;
-  /** Google rewarded ads are switched on (AD_PROVIDER=google in hosted mode). */
-  adsEnabled: boolean;
+  /** Rewarded ads can be watched on this server (env.adsAvailable). */
+  adsAvailable: boolean;
+  /** The ads come from Google Ad Manager, which sets advertising cookies (AD_PROVIDER=google). */
+  googleAds: boolean;
+  /** A self-hosted server: the hosted service's texts do not apply, so each page is a short notice instead. */
+  selfHosted: boolean;
+  sourceCodeUrl: string;
 };

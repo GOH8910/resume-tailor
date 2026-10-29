@@ -1,9 +1,7 @@
 import Link from "next/link";
 import type { LegalBlock, LegalDocument } from "@/legal/types";
-import { FOCUS_RING } from "@/ui/Button";
+import { LINK_CLASS } from "@/ui/Button";
 import { splitLinks } from "./inline-links";
-
-const LINK_CLASS = `rounded-sm text-accent underline decoration-accent/40 underline-offset-2 transition-colors hover:text-accent-deep hover:decoration-accent-deep ${FOCUS_RING}`;
 
 /** "2026-10-29" as "29 October 2026", whatever the server's time zone. */
 function longDate(day: string): string {
@@ -51,7 +49,8 @@ function Block({ block }: { block: LegalBlock }) {
 export function LegalPage({ document }: { document: LegalDocument }) {
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-12 sm:py-16">
-      <article>
+      {/* break-words: a long email address or URL must not widen the page on a phone. */}
+      <article className="break-words">
         <header className="border-b border-rule pb-8">
           <h1 className="text-4xl tracking-tight sm:text-5xl">{document.title}</h1>
           <p className="mt-3 text-sm text-ink-faint">

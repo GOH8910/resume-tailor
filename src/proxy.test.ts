@@ -101,8 +101,8 @@ describe("proxy matcher", () => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
   });
 
-  // Files in public/ (the landing page's sample resume) are served without the proxy, so signed out too.
-  it.each(["/_next/static/chunks/app.js", "/favicon.ico", "/robots.txt", "/sample-resume.png"])("skips %s", (url) => {
+  // Static files are served without the proxy, so signed out too: the landing page's sample resume is a /_next/ one.
+  it.each(["/_next/static/chunks/app.js", "/_next/static/media/sample-resume.0a1b2c3d.png", "/favicon.ico", "/robots.txt"])("skips %s", (url) => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
   });
 });

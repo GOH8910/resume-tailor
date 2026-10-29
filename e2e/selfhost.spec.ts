@@ -27,4 +27,7 @@ test("the account page has no credits on a self-hosted server", async ({ page })
   await expect(page.getByRole("region", { name: "Credits" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download my data" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete my account" })).toBeDisabled();
+  await expect(page).toHaveTitle("Account · Resume Tailor");
+  const legal = page.getByRole("navigation", { name: "Legal" });
+  for (const name of ["Privacy", "Terms", "Cookies"]) await expect(legal.getByRole("link", { name })).toBeVisible();
 });

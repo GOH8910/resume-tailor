@@ -12,7 +12,8 @@ import { HowItWorks } from "@/ui/landing/HowItWorks";
 import { SignInCallout } from "@/ui/landing/SignInCallout";
 
 export const metadata: Metadata = {
-  title: "Resume Tailor · Tailor your resume to every job",
+  // The brand first, not the layout's suffix.
+  title: { absolute: "Resume Tailor · Tailor your resume to every job" },
   description: "Keep one bank of every bullet you have written; Claude picks the ones that fit each job. Free and open source.",
 };
 
@@ -27,8 +28,7 @@ export default async function LandingPage({ searchParams }: Props) {
   // The account page comes here after deleting the account.
   const { deleted } = await searchParams;
   const selfHosted = env.appMode === "selfhost";
-  // The test provider counts: it plays a fake ad in development and the e2e tests. Production has none or google.
-  const adsAvailable = env.adProvider !== "none";
+  const { adsAvailable } = env;
   return (
     <main className="flex-1">
       {deleted === "1" && (
@@ -36,7 +36,7 @@ export default async function LandingPage({ searchParams }: Props) {
           <Banner tone="info">Your account has been deleted.</Banner>
         </div>
       )}
-      <Hero funding={heroFunding({ selfHosted, adsAvailable })} />
+      <Hero funding={heroFunding({ selfHosted, adsAvailable })} sourceCodeUrl={env.SOURCE_CODE_URL} />
       <HowItWorks />
       {selfHosted ? (
         <SelfHostedNote />

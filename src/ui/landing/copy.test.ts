@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { creditsSource, heroFunding } from "./copy";
+import { creditsSource, heroFunding, whyAds } from "./copy";
 
 describe("heroFunding", () => {
   it("says an ad pays for the AI when ads can be watched", () => {
@@ -22,7 +22,7 @@ describe("heroFunding", () => {
 describe("creditsSource", () => {
   it("says credits come from watching ads when ads can be watched", () => {
     expect(creditsSource({ adsAvailable: true, signupGrantCredits: 4 })).toBe(
-      "The AI costs credits, and you earn them by watching short ads: one ad is worth about one credit.",
+      "The AI costs credits, and you earn them by watching short ads: one ad is worth about 1 credit.",
     );
   });
 
@@ -36,6 +36,18 @@ describe("creditsSource", () => {
   it("leaves out the starting credits when there are none", () => {
     expect(creditsSource({ adsAvailable: false, signupGrantCredits: 0 })).toBe(
       "The AI costs credits. Credits will come from short ads once they’re switched on.",
+    );
+  });
+});
+
+describe("whyAds", () => {
+  it("says the ads cover the cost once they are on", () => {
+    expect(whyAds(true)).toBe("Each tailor costs me a fraction of a penny in AI usage; ads cover it so nobody has to pay.");
+  });
+
+  it("says who covers the cost until then", () => {
+    expect(whyAds(false)).toBe(
+      "Each tailor costs me a fraction of a penny in AI usage; until ads are switched on I’m covering it, so nobody has to pay.",
     );
   });
 });

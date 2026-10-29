@@ -10,7 +10,8 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
-function isSafeRelativePath(value: string): boolean {
+/** A path on this site that no browser reads as another host ("//host", "/\host", encoded slashes, control characters). */
+export function isSafeRelativePath(value: string): boolean {
   if (!value.startsWith("/") || value.startsWith("//")) return false;
   // Browsers read "\" as "/" and drop tabs and newlines, so "/\host" and "/\t/host" become "//host".
   if (value.includes("\\") || hasControlCharacter(value)) return false;

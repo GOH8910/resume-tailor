@@ -4,7 +4,7 @@ import { adSessions, creditEvents, userPlans } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { AppError } from "@/lib/errors";
 import { nextUtcDay, startOfUtcDay } from "./day";
-import type { AdSessionStatus, CreditKind } from "./types";
+import { type AdSessionStatus, type CreditKind, CREDITS_PER_AD } from "./types";
 
 export type CreditsSettings = {
   /** Most ad credits one account may be granted per UTC day. */
@@ -206,7 +206,7 @@ export class CreditsService {
       return { kind: "limit", scope, resetsAt: nextUtcDay(now).toISOString() };
     }
     await tx.update(adSessions).set({ status: "granted", grantedAt: now, transactionId }).where(eq(adSessions.id, sessionId));
-    const credits = await addCredits(tx, { userId, amount: 1, kind: "ad", ref: sessionId, now });
+    const credits = await addCredits(tx, { userId, amount: CREDITS_PER_AD, kind: "ad", ref: sessionId, now });
     return { kind: "granted", userId, credits };
   }
 

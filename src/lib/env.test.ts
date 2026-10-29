@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "./env";
+import { DEFAULT_SOURCE_CODE_URL } from "./site";
 
 const SECRET = "x".repeat(32);
 
@@ -13,6 +14,7 @@ function production(overrides: Record<string, string | undefined> = {}) {
     EMAIL_FROM: "Resume Tailor <signin@example.com>",
     RESEND_API_KEY: "re_123",
     ANTHROPIC_API_KEY: "sk-ant-123",
+    PRIVACY_CONTACT_EMAIL: "privacy@example.com",
     ...overrides,
   };
 }
@@ -311,5 +313,47 @@ describe("parseEnv: privacy contact", () => {
 
   it("rejects a PRIVACY_CONTACT_EMAIL that is not an email address", () => {
     expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "Privacy <privacy@example.com>" })).toThrow();
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "a)b@example.com" })).toThrow();
+  });
+
+  it("refuses a fallback from EMAIL_FROM that is not an email address, naming the setting to fix", () => {
+    expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor" })).toThrow("PRIVACY_CONTACT_EMAIL");
+    expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor <not an address>" })).toThrow("PRIVACY_CONTACT_EMAIL");
+  });
+
+  it("requires PRIVACY_CONTACT_EMAIL in hosted production", () => {
+    expect(() => parseEnv(production({ PRIVACY_CONTACT_EMAIL: undefined }))).toThrow(
+      "PRIVACY_CONTACT_EMAIL must be set in hosted production",
+    );
+    expect(() => parseEnv(production({ PRIVACY_CONTACT_EMAIL: " " }))).toThrow("PRIVACY_CONTACT_EMAIL must be set");
+  });
+
+  it("falls back to EMAIL_FROM in a self-hosted production server", () => {
+    const env = parseEnv(production({ APP_MODE: "selfhost", PRIVACY_CONTACT_EMAIL: undefined }));
+    expect(env.privacyContactEmail).toBe("signin@example.com");
+  });
+});
+
+describe("parseEnv: source code link", () => {
+  it("defaults to the upstream repository, and reads a blank value as unset", () => {
+    expect(parseEnv({}).SOURCE_CODE_URL).toBe(DEFAULT_SOURCE_CODE_URL);
+    expect(parseEnv({ SOURCE_CODE_URL: " " }).SOURCE_CODE_URL).toBe(DEFAULT_SOURCE_CODE_URL);
+  });
+
+  it("accepts another https URL, and nothing else", () => {
+    expect(parseEnv({ SOURCE_CODE_URL: "https://git.example.com/fork" }).SOURCE_CODE_URL).toBe("https://git.example.com/fork");
+    expect(() => parseEnv({ SOURCE_CODE_URL: "http://git.example.com/fork" })).toThrow();
+    expect(() => parseEnv({ SOURCE_CODE_URL: "javascript:alert(1)" })).toThrow();
+  });
+});
+
+describe("parseEnv: adsAvailable", () => {
+  it.each([
+    [{ APP_MODE: "hosted" }, false],
+    [{ APP_MODE: "hosted", AD_PROVIDER: "test" }, true],
+    [{ APP_MODE: "hosted", AD_PROVIDER: "google", AD_UNIT_PATH: "/1/x" }, true],
+    [{ APP_MODE: "selfhost", AD_PROVIDER: "test" }, false],
+  ])("is %j → %s: whether an ad can be watched on this server", (source, expected) => {
+    expect(parseEnv(source).adsAvailable).toBe(expected);
   });
 });

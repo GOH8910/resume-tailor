@@ -4,13 +4,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { FOCUS_RING } from "@/ui/Button";
+import { LINK_CLASS } from "@/ui/Button";
 import { safeNextPath } from "@/ui/signin/next-path";
 import { SignInForm } from "@/ui/signin/SignInForm";
 
-export const metadata: Metadata = { title: "Sign in · Resume Tailor" };
-
-const LINK_CLASS = `rounded-sm underline underline-offset-2 hover:text-ink ${FOCUS_RING}`;
+// Crawlers reach it from every signed-out redirect; it is not a page to list.
+export const metadata: Metadata = { title: "Sign in", robots: { index: false } };
 
 type Props = { searchParams: Promise<{ next?: string | string[]; error?: string | string[] }> };
 
@@ -31,17 +30,20 @@ export default async function SignInPage({ searchParams }: Props) {
         <div className="mt-6">
           <SignInForm googleEnabled={Boolean(env.GOOGLE_CLIENT_ID)} next={target} error={typeof error === "string" ? error : undefined} />
         </div>
-        <p className="mt-6 text-xs leading-relaxed text-ink-faint">
-          By signing in you accept the{" "}
-          <Link href="/terms" className={LINK_CLASS}>
-            terms
-          </Link>{" "}
-          and the{" "}
-          <Link href="/privacy" className={LINK_CLASS}>
-            privacy notice
-          </Link>
-          .
-        </p>
+        {/* A self-hosted server's operator sets their own terms (the legal pages say so). */}
+        {env.appMode !== "selfhost" && (
+          <p className="mt-6 text-xs leading-relaxed text-ink-faint">
+            By signing in you accept the{" "}
+            <Link href="/terms" className={LINK_CLASS}>
+              terms
+            </Link>
+            . The{" "}
+            <Link href="/privacy" className={LINK_CLASS}>
+              privacy notice
+            </Link>{" "}
+            explains what is stored.
+          </p>
+        )}
       </div>
     </main>
   );

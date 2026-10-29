@@ -1,4 +1,5 @@
-import { credits, creditsSource } from "./copy";
+import { CREDITS_PER_AD } from "@/credits/types";
+import { credits, creditsSource, whyAds } from "./copy";
 
 type Props = {
   creditsPerTailor: number;
@@ -13,7 +14,7 @@ type Props = {
 export function CreditsExplainer({ creditsPerTailor, creditsPerChatMessage, model, adsAvailable, signupGrantCredits }: Props) {
   const prices = [
     // Listed only while an ad can actually be watched.
-    ...(adsAvailable ? [{ label: "Watch one ad", value: "+1 credit" }] : []),
+    ...(adsAvailable ? [{ label: "Watch one ad", value: `+${credits(CREDITS_PER_AD)}` }] : []),
     { label: "A tailored resume", value: credits(creditsPerTailor) },
     { label: "A chat message", value: credits(creditsPerChatMessage) },
   ];
@@ -28,7 +29,7 @@ export function CreditsExplainer({ creditsPerTailor, creditsPerChatMessage, mode
             {creditsSource({ adsAvailable, signupGrantCredits })} Free accounts run on {model}.
           </p>
           <p className="mt-8 max-w-xl border-l-2 border-accent pl-4 font-serif text-xl italic leading-snug">
-            Each tailor costs me a fraction of a penny in AI usage; ads cover it so nobody has to pay.
+            {whyAds(adsAvailable)}
           </p>
         </div>
         <dl className="self-start rounded-lg border border-rule bg-card px-6 py-2 shadow-card">
