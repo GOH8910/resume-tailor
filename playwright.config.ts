@@ -18,7 +18,8 @@ const SERVERS: ServerSpec[] = [
       AD_SSV_ENABLED: "",
       CREDITS_PER_TAILOR: "2",
       SIGNUP_GRANT_CREDITS: "0",
-      ADMIN_EMAILS: "",
+      // Only e2e/account.spec.ts signs in as this address.
+      ADMIN_EMAILS: "admin-e2e@example.com",
       // Set but empty, so a key in .env.local can never reach Claude from a test: tailoring answers 503.
       ANTHROPIC_API_KEY: "",
     },
@@ -55,7 +56,7 @@ function webServer(spec: ServerSpec): WebServer {
   };
 }
 
-const HOSTED_ONLY = /credits\.spec\.ts$/;
+const HOSTED_ONLY = /(credits|account)\.spec\.ts$/;
 
 function project(spec: ServerSpec): PlaywrightTestProject {
   return {

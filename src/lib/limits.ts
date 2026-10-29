@@ -26,6 +26,8 @@ export const limits = {
   adStart: perWindow(20, HOUR_S, "ad"),
   applicationCreate: perWindow(30, TEN_MINUTES_S, "new resume"),
   applicationWrite: perWindow(120, TEN_MINUTES_S, "resume save"),
+  // An export reads every row the account has; nobody needs more than a few an hour.
+  accountExport: perWindow(5, HOUR_S, "data export"),
 } satisfies Record<string, Limit>;
 
 export type LimitName = keyof typeof limits;

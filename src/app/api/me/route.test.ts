@@ -50,6 +50,7 @@ describe("GET /api/me", () => {
       creditsPerChatMessage: 1,
       adsAvailable: true,
       ads: { provider: "test", ssv: false, minWatchSeconds: 7 },
+      isAdmin: false,
     });
     expect(credits.balance).toHaveBeenCalledWith("u1");
   });
@@ -84,6 +85,15 @@ describe("GET /api/me", () => {
 
     expect(body.plan).toBe("unlimited");
     expect(body.policy).toEqual({ model: "claude-sonnet-5-5", picksModel: true, chargesCredits: false, showsAds: false, limited: true });
+  });
+
+  it("tells an account listed in ADMIN_EMAILS that it is an admin, whatever its plan", async () => {
+    useEnv({ APP_MODE: "hosted", ADMIN_EMAILS: "Ops@example.com, ada@example.com" });
+    getSession.mockResolvedValueOnce(ADA);
+    plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+    credits.balance.mockResolvedValue(0);
+
+    expect((await (await get()).json()).isAdmin).toBe(true);
   });
 
   it("describes any account in selfhost mode as unrestricted", async () => {

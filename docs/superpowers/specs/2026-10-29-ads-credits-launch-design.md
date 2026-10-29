@@ -155,8 +155,8 @@ root layout renders `global-error.tsx` per request, with the nonce. Read the Nex
 - Burst limits, in-memory per machine (`src/lib/rate-limit.ts` token buckets, named in `src/lib/limits.ts`,
   keyed by user id), applied in hosted mode only: tailor 10/hour, chat 30/10 min, compile 60/10 min (the
   queue protects the CPU), bank writes 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad start
-  20/hour. Buckets start full, so a first window allows up to about 2× the figure. Magic links 5/hour and
-  verifications 20/hour per IP through Better Auth's `rateLimit.customRules` (production only, replacing the
+  20/hour, data exports 5/hour. Buckets start full, so a first window allows up to about 2× the figure. Magic
+  links 5/hour and verifications 20/hour per IP through Better Auth's `rateLimit.customRules` (production only, replacing the
   magic-link plugin's 5/min), alongside the per-email throttle. Responses: 429 `{ error, details: { retryAfter }
   }` (seconds) plus a `Retry-After` header; the tailor form and the chat show a countdown, the bank editor and
   the review screen keep the edit and save it again after the wait ("Saving again in N s"), and the preview
@@ -181,11 +181,31 @@ root layout renders `global-error.tsx` per request, with the nonce. Read the Nex
 
 ## Account page
 
-`/account`: email, plan, credits balance and the last 50 ledger entries, "Download my data"
-(`GET /api/account/export`: bank + applications without PDFs + ledger), "Delete my account" (type the
-email; cascades through all tables; sessions revoked; sign-out). Admin accounts also see `/admin`:
-today's and this month's costed usage, credits granted/spent, ad sessions by status, the budget state,
-and a manual "pause free usage" toggle (`settings` table, one row).
+`/account` (every signed-in account, linked from the top bar and its credits pill): email, plan ("Free" /
+"Unlimited", "Self-hosted" in selfhost mode) and model; for accounts that pay in credits, the balance, what a
+tailor and a chat message cost, and the last 50 ledger rows (`GET /api/account/credits` →
+`{ credits, events: [{ kind, amount, ref, createdAt }] }`, kinds in words: "Ad watched", "Welcome credits",
+"Tailor", "Chat message", "Refund", "Adjustment").
+
+- "Download my data": `GET /api/account/export` (5/hour per account in hosted mode) answers a JSON attachment,
+  `resume-tailor-export.json`: `{ exportedAt, email, bank, applications, credits }` with the bank and the
+  applications as stored (no PDFs; they compile again from the JSON) and the whole ledger, oldest first.
+- "Delete my account": the user types the account's email; `POST /api/account/delete { email }` answers 400 on a
+  mismatch. In one transaction the server locks the account's `ad_sessions` rows and then its `user_plans` row (the
+  order an ad grant takes them, so a grant in flight and the deletion cannot deadlock), deletes its sessions and then
+  the `user` row, which cascades to `banks`, `applications`, `user_plans` and `account`; `credit_events`,
+  `ad_sessions` and `usage_events` keep their rows with `user_id` set null. The response expires the session cookies
+  (Better Auth's sign-out); the client forgets its chats and loads `/`. Signing in again with the same email creates
+  a fresh, empty account (the sign-up grant again: the per-IP ad cap still counts the old account's ads).
+
+`/admin` is for accounts whose email is in `ADMIN_EMAILS`, whatever their plan (`requireAdmin`); any other signed-in
+account gets a 404, from the page and from `/api/admin/*`, so the pages are not advertised. It shows today's and this
+month's costed usage (UTC; totals, the part paid with free credits, by model and by kind), credits granted and spent
+today (spent net of refunds), today's ad sessions by status, the budget (`FREE_DAILY_BUDGET_GBP`, today's free spend,
+whether free usage is paused and why), a Pause/Resume switch for free usage (`POST /api/admin/pause { paused }` →
+`settings('free_paused')`), and a "Set a plan" form (`POST /api/admin/plan { email, plan }`, 404 when no account uses
+the email): `ADMIN_EMAILS` only picks an account's plan at its first use, so this is how the operator promotes or
+demotes an account later.
 
 ## Public pages
 
@@ -216,6 +236,7 @@ resetsAt } }`; ad grant rejected → 409 with a reason the UI can show ("ad clos
 `details.reason: "watched too briefly"`, or "Ad session is not pending"). Claude failure after charging → the
 charge is refunded in the same request, any usage Anthropic billed is still recorded, and the client gets the
 original error (502 for a refused or unparseable reply). Usage and token counts never appear in `details`.
+Account deletion with an email that is not the account's → 400; `/api/admin/*` for a signed-in non-admin → 404.
 All existing phase 1 error semantics stay.
 
 ## Testing

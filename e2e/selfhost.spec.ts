@@ -16,3 +16,15 @@ test("self-hosting shows no credits or ads, and keeps the model picker", async (
   await expect(chat.getByLabel("Message")).toBeVisible();
   await expect(chat.getByText(/per message/)).toHaveCount(0);
 });
+
+test("the account page has no credits on a self-hosted server", async ({ page }) => {
+  const email = uniqueEmail("selfhost-account");
+  await signIn(page, email);
+  await page.getByRole("link", { name: "Account" }).click();
+  const profile = page.getByRole("region", { name: "Your account" });
+  await expect(profile.getByText(email)).toBeVisible();
+  await expect(profile.getByText("Self-hosted", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Credits" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download my data" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete my account" })).toBeDisabled();
+});

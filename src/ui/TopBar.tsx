@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { errorMessage } from "./api";
+import { errorMessage, setSigningOut as setApiSigningOut } from "./api";
 import { authClient } from "./auth-client";
 import { Banner } from "./Banner";
 import { Button, FOCUS_RING } from "./Button";
@@ -11,11 +11,15 @@ import { forgetChats } from "./chat/chat-storage";
 import { useChatContext } from "./chat/ChatProvider";
 import { useMe } from "./useMe";
 
-const LINKS = [
-  { href: "/", label: "Dashboard", isActive: (p: string) => p === "/" },
-  { href: "/bank/experience", label: "Bank", isActive: (p: string) => p.startsWith("/bank") },
-  { href: "/tailor", label: "Tailor", isActive: (p: string) => p.startsWith("/tailor") },
+type NavLink = { href: string; label: string; isActive: (pathname: string) => boolean };
+
+const LINKS: NavLink[] = [
+  { href: "/", label: "Dashboard", isActive: (p) => p === "/" },
+  { href: "/bank/experience", label: "Bank", isActive: (p) => p.startsWith("/bank") },
+  { href: "/tailor", label: "Tailor", isActive: (p) => p.startsWith("/tailor") },
+  { href: "/account", label: "Account", isActive: (p) => p === "/account" },
 ];
+const ADMIN_LINK: NavLink = { href: "/admin", label: "Admin", isActive: (p) => p === "/admin" };
 
 export function TopBar({ user }: { user: { email: string } }) {
   const pathname = usePathname();
@@ -26,18 +30,22 @@ export function TopBar({ user }: { user: { email: string } }) {
   // The value is unused. The (app) layout reads the session without refreshing it (a server component cannot set
   // cookies), so this client call to the get-session route is what renews the session and its cookie.
   authClient.useSession();
+  const links = me?.isAdmin ? [...LINKS, ADMIN_LINK] : LINKS;
 
   async function signOut() {
     setSigningOut(true);
     setSignOutError(null);
     try {
       await handlers?.flush?.(); // an autosave still waiting on its timer
+      // From here, requests still in flight come back 401; their redirect to sign in would race the one below.
+      setApiSigningOut(true);
       const { error } = await authClient.signOut();
       if (error) throw new Error(error.message ?? "the server refused");
       forgetChats();
       // A full load drops the router cache and every in-memory copy of this user's data.
       window.location.replace("/signin");
     } catch (err) {
+      setApiSigningOut(false);
       setSignOutError(`Could not sign out: ${errorMessage(err)}`);
       setSigningOut(false);
     }
@@ -49,8 +57,8 @@ export function TopBar({ user }: { user: { email: string } }) {
         <Link href="/" className="font-serif text-xl tracking-tight">
           Resume<span className="text-accent">Tailor</span>
         </Link>
-        <nav aria-label="Main navigation" className="flex gap-1">
-          {LINKS.map((link) => {
+        <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
+          {links.map((link) => {
             const active = link.isActive(pathname);
             return (
               <Link
@@ -68,9 +76,15 @@ export function TopBar({ user }: { user: { email: string } }) {
         </nav>
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           {me?.policy.chargesCredits && (
-            <span role="status" className="rounded-full border border-rule bg-card px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink">
-              Credits: {me.credits}
-            </span>
+            <Link
+              href="/account"
+              // A status inside a link does not count towards its name, so the link is named outright.
+              aria-label={`Credits: ${me.credits}`}
+              className={`rounded-full border border-rule bg-card px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink transition-colors hover:border-ink ${FOCUS_RING}`}
+            >
+              {/* A live region, so a change of balance is announced. */}
+              <span role="status">Credits: {me.credits}</span>
+            </Link>
           )}
           <span title={user.email} className="max-w-[14rem] truncate text-sm text-ink-soft">
             {user.email}

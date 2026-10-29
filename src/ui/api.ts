@@ -11,6 +11,15 @@ export class ApiError extends Error {
   }
 }
 
+// Set while this tab signs out or deletes its account: requests still in flight then come back 401, and their
+// redirect to /signin?next=… would race the page's own navigation away.
+let signingOut = false;
+
+/** Tells the client this tab is ending its session, so a 401 no longer sends the browser to sign in. */
+export function setSigningOut(value: boolean): void {
+  signingOut = value;
+}
+
 /** An expired or revoked session: send the browser to sign in, then back to this page. */
 function redirectToSignIn(): void {
   if (typeof window === "undefined") return;
@@ -34,13 +43,19 @@ async function parseResponse<T>(res: Response): Promise<T> {
     // Non-JSON error body: keep the status text.
   }
   // Only the data routes' session check answers 401, so it always means "signed out".
-  if (res.status === 401) redirectToSignIn();
+  if (res.status === 401 && !signingOut) redirectToSignIn();
   throw new ApiError(message, res.status, details);
 }
 
 export const api = {
   get<T>(url: string): Promise<T> {
     return fetch(url).then((res) => parseResponse<T>(res));
+  },
+  /** A file the server sends (a download); an error answer throws like any other call's. */
+  async blob(url: string): Promise<Blob> {
+    const res = await fetch(url);
+    if (!res.ok) await parseResponse<never>(res);
+    return res.blob();
   },
   send<T>(url: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
     return fetch(url, {

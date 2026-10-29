@@ -2,7 +2,7 @@ import { adClientConfig } from "@/ads/client-config";
 import { currentPolicy, type Me } from "@/billing/policy";
 import { credits } from "@/lib/deps";
 import { env } from "@/lib/env";
-import { handle, requireUser } from "@/lib/http";
+import { handle, isAdminEmail, requireUser } from "@/lib/http";
 
 export async function GET(request: Request) {
   return handle(async () => {
@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       creditsPerChatMessage: env.CREDITS_PER_CHAT_MESSAGE,
       adsAvailable: env.adProvider !== "none",
       ads: adClientConfig(),
+      isAdmin: isAdminEmail(user.email),
     };
     return Response.json(me);
   });

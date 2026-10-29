@@ -62,6 +62,11 @@ documents every variable, including Google sign-in.
    resumes" makes them your bank's default. The badge warns if the resume
    spills past one page. **Download PDF** when happy.
 4. **Dashboard**: every tailored resume is kept with its job description and PDF.
+5. **Account**: your plan and, on a hosted server, your credits and their history.
+   **Download my data** saves your bank, resumes and credit history as one JSON
+   file; **Delete my account** removes them for good. Accounts listed in
+   `ADMIN_EMAILS` also get an **Admin** page with the day's AI spend and a
+   switch to pause free usage (see `docs/runbook.md`).
 
 ### Chat with Claude
 

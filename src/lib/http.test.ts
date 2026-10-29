@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { AppError } from "./errors";
-import { clientIp, handle, ipKey, MAX_BODY_BYTES, readJson, requireUser } from "./http";
+import { clientIp, handle, ipKey, isAdminEmail, MAX_BODY_BYTES, readJson, requireAdmin, requireUser } from "./http";
 
 // The real instance opens the database; these tests only need getSession.
 const getSession = vi.hoisted(() => vi.fn());
@@ -172,6 +172,36 @@ describe("requireUser", () => {
     plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 0 });
     await requireUser(request());
     expect(plans.get).toHaveBeenLastCalledWith("u1", "unlimited");
+  });
+});
+
+describe("requireAdmin", () => {
+  const request = () => new Request("http://localhost/api/admin/summary", { headers: { cookie: "session=abc" } });
+  const signedInAs = (email: string, plan: "free" | "unlimited") => {
+    getSession.mockResolvedValueOnce({ user: { id: "u1", email, name: "Ed", image: null }, session: { id: "s1" } });
+    plans.get.mockResolvedValueOnce({ plan, credits: 0 });
+  };
+
+  it("lets in an account listed in ADMIN_EMAILS, ignoring case and plan", async () => {
+    signedInAs("Ed@Example.com", "free");
+    await expect(requireAdmin(request())).resolves.toMatchObject({ id: "u1", email: "Ed@Example.com" });
+  });
+
+  it("answers any other signed-in account with a 404, so the admin pages are not advertised", async () => {
+    signedInAs("ada@example.com", "unlimited");
+    await expect(requireAdmin(request())).rejects.toMatchObject({ status: 404, message: "Not found" });
+  });
+
+  it("answers a signed-out request with the usual 401", async () => {
+    getSession.mockResolvedValueOnce(null);
+    await expect(requireAdmin(request())).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe("isAdminEmail", () => {
+  it("matches ADMIN_EMAILS without regard to case", () => {
+    expect(isAdminEmail("ED@example.com")).toBe(true);
+    expect(isAdminEmail("ed@example.org")).toBe(false);
   });
 });
 

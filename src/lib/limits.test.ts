@@ -51,6 +51,7 @@ describe("limits", () => {
     ["adStart", 20],
     ["applicationCreate", 30],
     ["applicationWrite", 120],
+    ["accountExport", 5],
   ] as const)("%s allows a burst of %i", (name, burst) => {
     const { limiter } = limits[name];
     for (let i = 0; i < burst; i++) expect(limiter.take("u1", 0).ok).toBe(true);

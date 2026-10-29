@@ -47,15 +47,21 @@ export function uniqueEmail(label: string): string {
 
 /** Signs in through the magic link that EMAIL_TRANSPORT=file writes to disk; lands on the dashboard. */
 export async function signIn(page: Page, email: string): Promise<void> {
+  const file = path.join(dataDir(), "magic-links", `${email.toLowerCase()}.txt`);
+  const readLink = async () => (await readFile(file, "utf8").catch(() => "")).trim();
+  // Signing in again with an address overwrites its file: wait for the new link, not the spent one.
+  const spent = await readLink();
   await page.goto("/signin");
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Email me a link" }).click();
   await expect(page.getByText("Check your email")).toBeVisible();
-  const file = path.join(dataDir(), "magic-links", `${email.toLowerCase()}.txt`);
   let link = "";
   await expect
-    .poll(async () => (link = (await readFile(file, "utf8").catch(() => "")).trim()), { message: `sign-in link in ${file}` })
-    .not.toBe("");
+    .poll(async () => {
+      link = await readLink();
+      return link !== "" && link !== spent;
+    }, { message: `a new sign-in link in ${file}` })
+    .toBe(true);
   await page.goto(link);
   await expect(page).toHaveURL(/\/$/);
 }
@@ -66,4 +72,12 @@ export async function seedExampleBank(page: Page): Promise<void> {
   // The request context carries the page's session cookie and sends no Origin header, so the proxy lets it through.
   const response = await page.request.put("/api/bank", { data: bank });
   expect(response.status()).toBe(200);
+}
+
+/** Plays the hosted project's test ad to the end from the page's only "Watch an ad" button. */
+export async function watchTestAd(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Watch an ad (+1 credit)" }).click();
+  const ad = page.getByRole("dialog", { name: "Test ad" });
+  await expect(ad).toBeVisible();
+  await expect(ad).toBeHidden({ timeout: 10_000 });
 }

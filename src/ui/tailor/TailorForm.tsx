@@ -10,12 +10,18 @@ import { type CreditProblem, creditProblem, creditsLabel } from "@/ui/ads/messag
 import { RewardedAdButton } from "@/ui/ads/RewardedAdButton";
 import { api, errorMessage, retryAfterOf } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
-import { Button } from "@/ui/Button";
+import { Button, buttonClass } from "@/ui/Button";
 import { useCountdown } from "@/ui/countdown";
 import { Field, Select, TextArea, TextInput } from "@/ui/Field";
 import { useMe } from "@/ui/useMe";
 
 type Mode = "ai" | "manual";
+
+/**
+ * What the block under the Tailor button will hold once the account has loaded: the cost and the ad button, the cost
+ * and a note that ads are not available, or nothing (self-hosted, unlimited, free tailoring).
+ */
+export type CostLine = "ad" | "note" | "none";
 
 /**
  * Why the last start failed. `short` keeps the server's numbers and is shown until the balance covers the cost;
@@ -72,7 +78,21 @@ function ModelChoice({
   );
 }
 
-export function TailorForm() {
+/** An invisible stand-in the size of the cost block, so the buttons below it do not jump when it appears. */
+function CostLinePlaceholder({ costLine }: { costLine: Exclude<CostLine, "none"> }) {
+  return (
+    <div aria-hidden="true" className="invisible grid gap-2">
+      <p className="text-xs">&nbsp;</p>
+      {costLine === "ad" ? (
+        <span className={buttonClass({ variant: "secondary" })}>&nbsp;</span>
+      ) : (
+        <p className="text-xs">&nbsp;</p>
+      )}
+    </div>
+  );
+}
+
+export function TailorForm({ costLine }: { costLine: CostLine }) {
   const router = useRouter();
   const { me, refresh, setCredits } = useMe();
   const [company, setCompany] = useState("");
@@ -222,7 +242,8 @@ export function TailorForm() {
           )}
           {notice?.kind === "short" && !(me && me.credits >= notice.needed) && (
             <Banner ref={noticeRef} tabIndex={-1} tone="warn" title="Not enough credits">
-              Tailoring costs {creditsLabel(notice.needed)} and you have {notice.credits}.
+              {/* The live balance: an ad watched since the refusal raises it. */}
+              Tailoring costs {creditsLabel(notice.needed)} and you have {me?.credits ?? notice.credits}.
             </Banner>
           )}
 
@@ -236,8 +257,7 @@ export function TailorForm() {
             >
               {busy === "ai" ? "Asking Claude…" : "Tailor with Claude"}
             </Button>
-            {/* Holds the cost line's place while the account loads, so the buttons below do not jump. */}
-            {me === null && <p aria-hidden="true" className="h-4" />}
+            {me === null && costLine !== "none" && <CostLinePlaceholder costLine={costLine} />}
             {chargesCredits && cost > 0 && (
               <div className="grid gap-2">
                 <p className={`text-xs ${short ? "text-warn" : "text-ink-faint"}`}>

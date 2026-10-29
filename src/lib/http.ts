@@ -140,6 +140,21 @@ export async function requireUser(request: Request): Promise<CurrentUser> {
   return { id, email, name, plan };
 }
 
+/** Whether the address is one of the operator's (ADMIN_EMAILS). */
+export function isAdminEmail(email: string): boolean {
+  return env.adminEmails.has(email.toLowerCase());
+}
+
+/**
+ * The signed-in operator for an admin request, whatever their plan. Any other signed-in account gets a 404 rather
+ * than a 403, so the admin pages are not advertised; a signed-out request gets the usual 401.
+ */
+export async function requireAdmin(request: Request): Promise<CurrentUser> {
+  const user = await requireUser(request);
+  if (!isAdminEmail(user.email)) throw new AppError("Not found", 404);
+  return user;
+}
+
 export function pdfResponse(pdf: Buffer, pages: number, filename: string): Response {
   return new Response(new Uint8Array(pdf), {
     headers: {

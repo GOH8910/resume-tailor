@@ -4,15 +4,16 @@ import "./globals.css";
 import { buttonClass } from "@/ui/Button";
 import { StatusCard } from "@/ui/StatusCard";
 
-// Replaces the root layout when that fails. Next prerenders this page at build time, so its scripts carry no CSP nonce
-// and never run: it has to work as plain HTML, with a link rather than a retry button, and classes rather than styles.
+// Replaces the root layout when that fails. It renders per request in the failed layout's place, so its scripts carry
+// the request's CSP nonce like any page's. It still keeps to plain HTML, a link and classes (no style="", which the
+// policy blocks): a page whose root layout just failed should not depend on anything else working.
 export default function GlobalError() {
   return (
     <html lang="en">
       <body className="min-h-screen">
         <title>Something went wrong · Resume Tailor</title>
         <StatusCard title="Something went wrong" message="The site could not load this page. Go back to your dashboard.">
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- no script runs here, so a plain link it is */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full page load, which does not rely on the client router */}
           <a href="/" className={buttonClass({ variant: "primary" })}>
             Go to your dashboard
           </a>

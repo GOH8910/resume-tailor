@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, seedExampleBank, signIn, test, uniqueEmail } from "./helpers";
+import { expect, seedExampleBank, signIn, test, uniqueEmail, watchTestAd } from "./helpers";
 
 // The hosted project (playwright.config.ts): APP_MODE=hosted, the test ad provider with a 1 s minimum watch,
 // 2 credits per tailor, no sign-up grant, and no Anthropic key, so tailoring itself answers 503.
@@ -11,13 +11,6 @@ const adButton = (page: Page) => page.getByRole("button", { name: "Watch an ad (
 async function fillJob(page: Page): Promise<void> {
   await page.getByLabel("Company").fill("Acme");
   await page.getByLabel("Job description").fill("We need Go engineers.");
-}
-
-async function watchTestAd(page: Page): Promise<void> {
-  await adButton(page).click();
-  const ad = page.getByRole("dialog", { name: "Test ad" });
-  await expect(ad).toBeVisible();
-  await expect(ad).toBeHidden({ timeout: 10_000 });
 }
 
 test("earns credits by watching test ads until a tailor is affordable", async ({ page }) => {

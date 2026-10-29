@@ -15,6 +15,8 @@ export type Me = {
   /** Whether this server has an ad network to earn credits with. */
   adsAvailable: boolean;
   ads: AdClientConfig;
+  /** Whether the account is one of the operator's (ADMIN_EMAILS), which may open /admin. */
+  isAdmin: boolean;
 };
 
 /** The policy for `plan` under this server's mode and model settings. */

@@ -224,7 +224,7 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
         <div className="grid gap-2 border-t border-rule bg-warn-soft/60 px-3 py-2.5">
           <p className="text-xs text-warn">
             {refusedShort &&
-              `A message costs ${creditsLabel(shortBy.needed)} and you have ${shortBy.credits}. `}
+              `A message costs ${creditsLabel(shortBy.needed)} and you have ${me?.credits ?? shortBy.credits}. `}
             {me?.adsAvailable ? "Watch an ad to keep chatting." : "You need more credits to keep chatting."}
           </p>
           <RewardedAdButton size="sm" />

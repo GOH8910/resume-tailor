@@ -128,11 +128,28 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
   or a `COMPILE_CONCURRENCY` above the TeX users in the image, shows as `"latexmk":"error: …"` with a 503 and
   fails the deploy. `?deep=1` also runs `select 1` against the database.
 - **Limits** (hosted mode, in memory, reset by a restart): per account, tailor 10/hour, chat 30/10 min,
-  compile 60/10 min, bank saves 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad starts 20/hour;
+  compile 60/10 min, bank saves 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad starts 20/hour,
+  data exports 5/hour;
   magic links 5/hour and sign-in verifications 20/hour per IP (Better Auth, production only). Each is a token
   bucket that starts full, so an account's first window can see up to about twice the figure (the burst plus
   what refills meanwhile). A refusal is a 429 with `details.retryAfter` and a `Retry-After` header; autosave
   keeps the edit and saves it again after the wait, and the preview retries a compile once.
+- **Admin page** (`/admin`, linked from the top bar): only for the accounts listed in `ADMIN_EMAILS`, whatever
+  their plan; any other account gets a 404. It shows the Claude spend today and this month (UTC days, as the budget
+  and the ad caps use), the part paid for with free credits against `FREE_DAILY_BUDGET_GBP`, and today's credits and
+  ad sessions. Press **Refresh** for new figures.
+  - **Pause free usage** stops AI calls for free accounts (tailoring and chat answer 402 "paused by the operator")
+    until you press **Resume free usage**. The switch is stored in the database (`settings.free_paused`), so it
+    holds across restarts and deploys. Unlimited accounts are never paused. Separately, free usage pauses on its own
+    once the day's free spend reaches the budget, and resumes at midnight UTC.
+  - **Set a plan** moves an existing account to Free or Unlimited, from its next request. `ADMIN_EMAILS` only picks
+    the plan when an account is first used, so use this for an account that signed up before you listed it, or to
+    take Unlimited away again. Removing an address from `ADMIN_EMAILS` (and restarting) takes away `/admin`, not the
+    plan.
+- **Account export and deletion**: every account can download its data and delete itself on `/account`. A deletion
+  removes the account's bank, resumes and PDFs, plan and sessions; its credits ledger, ad sessions and costed usage
+  stay, with no account attached, for the audit, the per-IP ad cap and the budget. A person who cannot sign in can be
+  deleted in psql with `delete from "user" where email = '…';`, which cascades the same way.
 - **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
   UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
   account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)
