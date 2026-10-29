@@ -1,6 +1,7 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { nextUtcDay, startOfUtcDay } from "@/credits/day";
+import { FOREIGN_KEY_VIOLATION, pgErrorCode } from "@/db/errors";
 import { settings, usageEvents } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { AppError } from "@/lib/errors";
@@ -15,7 +16,8 @@ export type UsageSettings = {
 };
 
 export type UsageEvent = {
-  userId: string;
+  /** Null for a call whose account was deleted while it ran. */
+  userId: string | null;
   kind: UsageKind;
   usage: ModelUsage;
   /** Paid for with free credits, so it counts against the daily budget. */
@@ -152,7 +154,7 @@ function pausedMessage(state: PauseState): string {
 /** Books a Claude call. The user has already been served by then, so a failure to book is logged, not thrown. */
 export async function recordUsageOrLog(usage: Pick<UsageService, "record">, event: UsageEvent): Promise<void> {
   try {
-    await usage.record(event);
+    await recordEvenWithoutAccount(usage, event);
   } catch (err) {
     const { model, inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0 } = event.usage;
     console.error(
@@ -160,5 +162,15 @@ export async function recordUsageOrLog(usage: Pick<UsageService, "record">, even
         `output=${outputTokens} cacheRead=${cacheReadTokens} cacheWrite=${cacheWriteTokens} free=${event.free}`,
       err,
     );
+  }
+}
+
+/** Anthropic billed the call even if the account was deleted while it ran: then it is booked without the account. */
+async function recordEvenWithoutAccount(usage: Pick<UsageService, "record">, event: UsageEvent): Promise<void> {
+  try {
+    await usage.record(event);
+  } catch (err) {
+    if (event.userId === null || pgErrorCode(err) !== FOREIGN_KEY_VIOLATION) throw err;
+    await usage.record({ ...event, userId: null });
   }
 }

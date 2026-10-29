@@ -45,12 +45,20 @@ test("export downloads the account's data as JSON, with the seeded bank", async 
     bank: { summary: string };
     applications: unknown[];
     credits: unknown[];
+    sessions: Array<{ userAgent: string | null }>;
   };
   const seeded = JSON.parse(await readFile(path.resolve("data/example/bank.json"), "utf8")) as { summary: string };
   expect(exported.email).toBe(email);
   expect(exported.bank.summary).toBe(seeded.summary);
   expect(exported.applications).toEqual([]);
   expect(exported.credits).toEqual([]);
+  // The browser it was downloaded in, without its session token.
+  expect(exported.sessions).toEqual([expect.objectContaining({ userAgent: expect.any(String) })]);
+  const cookie = (await page.context().cookies()).find((c) => c.name.endsWith("session_token"));
+  // The cookie holds the session token and its signature: "<token>.<signature>".
+  const sessionToken = decodeURIComponent(cookie?.value ?? "").split(".")[0];
+  expect(sessionToken).not.toBe("");
+  expect(JSON.stringify(exported)).not.toContain(sessionToken);
 });
 
 test("deleting the account signs out everywhere, and the same email starts afresh", async ({ page, request }) => {
@@ -73,6 +81,8 @@ test("deleting the account signs out everywhere, and the same email starts afres
   await deleteButton.click();
 
   await expect(page).toHaveURL(/\/signin/);
+  // The response expired the session cookie, rather than leaving it to name a session that no longer exists.
+  expect((await page.context().cookies()).filter((cookie) => cookie.name.endsWith("session_token"))).toEqual([]);
   await page.goto("/bank/experience");
   await expect(page).toHaveURL(/\/signin/);
   expect((await withOldCookie()).status()).toBe(401);

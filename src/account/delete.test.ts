@@ -22,6 +22,8 @@ let db: Db;
 const ADA = "user_ada";
 const BOB = "user_bob";
 const NOON = new Date("2026-10-29T12:00:00Z");
+const GRANTED = new Date("2026-10-29T12:00:08Z");
+const AN_HOUR_LATER = new Date("2026-10-29T13:00:00Z");
 const AD_SESSION = "7d3c0d0e-1b2a-4c5d-8e9f-0a1b2c3d4e5f";
 
 /** Gives the account a row in every table that holds account data. */
@@ -33,7 +35,7 @@ async function seed(userId: string, name: string) {
   await db.insert(applications).values({ userId, id: "acme", data: {} as never, pdf: Buffer.from("%PDF"), pdfPages: 1 });
   await db.insert(userPlans).values({ userId, credits: 1 });
   await db.insert(creditEvents).values({ userId, kind: "ad", amount: 1, ref: null, createdAt: NOON });
-  await db.insert(adSessions).values({ userId, ip: "203.0.113.1", provider: "test", startedAt: NOON, status: "granted" });
+  await db.insert(adSessions).values({ userId, ip: "203.0.113.1", provider: "test", startedAt: NOON, grantedAt: GRANTED, status: "granted" });
   await db.insert(usageEvents).values({ userId, kind: "tailor", model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 5, costGbp: 0.01, free: true });
 }
 
@@ -69,7 +71,7 @@ describe("deleteAccount", () => {
   });
 
   it("keeps the ledger, ad sessions and costed usage, anonymised", async () => {
-    await deleteAccount(db, ADA);
+    await deleteAccount(db, ADA, AN_HOUR_LATER);
 
     expect(await db.select().from(creditEvents).where(isNull(creditEvents.userId))).toEqual([
       expect.objectContaining({ kind: "ad", amount: 1 }),
@@ -82,6 +84,57 @@ describe("deleteAccount", () => {
     expect(await db.select().from(usageEvents).where(isNull(usageEvents.userId))).toEqual([
       expect.objectContaining({ kind: "tailor", costGbp: 0.01, free: true }),
     ]);
+  });
+
+  it("blanks the IPs the per-IP cap no longer needs, and today's grants still count towards it", async () => {
+    const ad = (startedAt: Date, status: "granted" | "rejected" | "started", grantedAt: Date | null = null) => ({
+      userId: ADA,
+      ip: "198.51.100.7",
+      provider: "test",
+      startedAt,
+      grantedAt,
+      status,
+    });
+    const yesterday = new Date("2026-10-28T15:00:00Z");
+    const lateLastNight = new Date("2026-10-28T23:59:58Z");
+    const [old, grantedAcrossMidnight, grantedToday, rejectedToday] = await db
+      .insert(adSessions)
+      .values([
+        ad(yesterday, "granted", new Date("2026-10-28T15:00:08Z")),
+        ad(lateLastNight, "granted", new Date("2026-10-29T00:00:06Z")),
+        ad(NOON, "granted", new Date("2026-10-29T12:00:08Z")),
+        ad(NOON, "rejected"),
+      ])
+      .returning({ id: adSessions.id });
+
+    await deleteAccount(db, ADA, AN_HOUR_LATER);
+
+    const ipOf = async (id: string) => (await db.select({ ip: adSessions.ip }).from(adSessions).where(eq(adSessions.id, id)))[0].ip;
+    expect(await ipOf(old.id)).toBe("");
+    expect(await ipOf(rejectedToday.id)).toBe("");
+    expect(await ipOf(grantedAcrossMidnight.id)).toBe("198.51.100.7");
+    expect(await ipOf(grantedToday.id)).toBe("198.51.100.7");
+    const credits = new CreditsService(async () => db, { perAccountPerDay: 10, perIpPerDay: 30, minWatchSeconds: 7 });
+    expect(await credits.grantedTodayByIp("198.51.100.7", AN_HOUR_LATER)).toBe(2);
+  });
+
+  it("clears the ledger's references to the account's resumes, whose ids carry the company's name", async () => {
+    await db.insert(creditEvents).values([
+      { userId: ADA, kind: "tailor", amount: -2, ref: "2026-10-29-acme-aaaaaaaa", createdAt: NOON },
+      { userId: ADA, kind: "chat", amount: -1, ref: "2026-10-29-acme-aaaaaaaa", createdAt: NOON },
+      { userId: ADA, kind: "refund", amount: 2, ref: "7d3c0d0e-1b2a-4c5d-8e9f-0a1b2c3d4e5f", createdAt: NOON },
+      { userId: BOB, kind: "tailor", amount: -2, ref: "2026-10-29-globex-bbbbbbbb", createdAt: NOON },
+    ]);
+
+    await deleteAccount(db, ADA);
+
+    const refs = await db.select({ kind: creditEvents.kind, ref: creditEvents.ref, userId: creditEvents.userId }).from(creditEvents);
+    expect(refs.filter((row) => row.userId === null && (row.kind === "tailor" || row.kind === "chat"))).toEqual([
+      { kind: "tailor", ref: null, userId: null },
+      { kind: "chat", ref: null, userId: null },
+    ]);
+    expect(refs).toContainEqual({ kind: "refund", ref: "7d3c0d0e-1b2a-4c5d-8e9f-0a1b2c3d4e5f", userId: null });
+    expect(refs).toContainEqual({ kind: "tailor", ref: "2026-10-29-globex-bbbbbbbb", userId: BOB });
   });
 
   it("leaves an ad started before the deletion with no account to grant to", async () => {

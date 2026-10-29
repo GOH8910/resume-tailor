@@ -146,10 +146,15 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
     the plan when an account is first used, so use this for an account that signed up before you listed it, or to
     take Unlimited away again. Removing an address from `ADMIN_EMAILS` (and restarting) takes away `/admin`, not the
     plan.
-- **Account export and deletion**: every account can download its data and delete itself on `/account`. A deletion
-  removes the account's bank, resumes and PDFs, plan and sessions; its credits ledger, ad sessions and costed usage
-  stay, with no account attached, for the audit, the per-IP ad cap and the budget. A person who cannot sign in can be
-  deleted in psql with `delete from "user" where email = '…';`, which cascades the same way.
+- **Account export and deletion**: every account can download its data and delete itself on `/account`. Exports are
+  streamed, one per account and two across the server at a time. A deletion removes the account's sign-ins, bank,
+  resumes and PDFs, plan, credits and sessions; its credits ledger, ad sessions and costed usage stay, with no account
+  attached, for the audit, the per-IP ad cap and the budget (the ledger without its resume references, the ad
+  sessions without their IPs except today's grants). A person who cannot sign in can be deleted in psql with
+  `delete from "user" where email = '…';`, which cascades the same way but keeps those references and IPs.
+- **IP retention**: ad sessions keep the client's IP (a /64 for IPv6) for 48 hours, for the per-IP daily ad cap;
+  each new ad start blanks the older ones. Better Auth's session rows also hold an IP and user agent per signed-in
+  browser; a row goes when that browser signs out or the account is deleted.
 - **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
   UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
   account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)

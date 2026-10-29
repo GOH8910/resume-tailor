@@ -42,6 +42,25 @@ async function watchAd(credits: CreditsService, userId: string, ip: string, at =
   return credits.grantAd({ userId, sessionId }, later(at, 7));
 }
 
+describe("CreditsService ad session IPs", () => {
+  it("blanks the IP of every session started more than 48 hours ago when an ad starts", async () => {
+    const at = (hoursAgo: number) => new Date(NOON.getTime() - hoursAgo * 3_600_000);
+    const [old, recent] = await db
+      .insert(adSessions)
+      .values([
+        { userId: BOB, ip: CAFE, provider: "test", startedAt: at(48.01), status: "granted" as const },
+        { userId: BOB, ip: CAFE, provider: "test", startedAt: at(47.99), status: "granted" as const },
+      ])
+      .returning({ id: adSessions.id });
+
+    const { sessionId } = await service().startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);
+
+    expect((await session(old.id)).ip).toBe("");
+    expect((await session(recent.id)).ip).toBe(CAFE);
+    expect((await session(sessionId)).ip).toBe(HOME);
+  });
+});
+
 describe("CreditsService ad sessions", () => {
   it("starts a pending session for the account and IP", async () => {
     const { sessionId } = await service().startAdSession({ userId: ADA, ip: HOME, provider: "test" }, NOON);

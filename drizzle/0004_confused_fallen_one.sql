@@ -1,0 +1,1 @@
+CREATE INDEX "ad_sessions_ip_retained_idx" ON "ad_sessions" USING btree ("started_at") WHERE "ad_sessions"."ip" <> '';

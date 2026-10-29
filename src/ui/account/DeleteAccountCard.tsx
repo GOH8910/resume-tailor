@@ -44,8 +44,8 @@ export function DeleteAccountCard({ email }: { email: string }) {
         Delete my account
       </h2>
       <p className="mt-1 text-sm text-ink-soft">
-        Deletes your bank, every tailored resume and its PDF, and signs you out everywhere. It cannot be undone, so
-        download your data first if you want a copy. Credit and AI usage records are kept without your account, for the
+        Deletes your sign-in, your bank, every tailored resume and its PDF, and any credits left, and signs you out
+        everywhere. It cannot be undone, so download your data first if you want a copy. Credit and AI usage records are kept without your account, for the
         daily limits and the bills.
       </p>
       <div className="mt-4">

@@ -76,7 +76,7 @@ Tables (Drizzle, migration added to `drizzle/`):
 | Table | Columns | Notes |
 | --- | --- | --- |
 | `credit_events` | id (uuid), user_id (fk set null), kind (`ad` / `signup` / `tailor` / `chat` / `admin` / `refund`), amount (int, signed), ref (text, null: ad session id, application id, or the refunded charge's row id), created_at | Append-only ledger. The balance is `sum(amount)`; `user_plans.credits` caches it and is updated in the same transaction. Kept anonymised when the account is deleted. |
-| `ad_sessions` | id (uuid), user_id (fk set null), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks name the session in `custom_data`; the unique transaction_id stops a replayed callback. Kept when the account is deleted, so the per-IP cap still counts it. |
+| `ad_sessions` | id (uuid), user_id (fk set null), ip (text), provider (text), started_at, granted_at (null), status (`started` / `granted` / `rejected`), reject_reason (text, null), transaction_id (text, null, unique) | One row per ad attempt. SSV callbacks name the session in `custom_data`; the unique transaction_id stops a replayed callback. Kept when the account is deleted, so the per-IP cap still counts it. `ip` is blanked (`''`) once the row is 48 hours old, at the next ad start; the cap only counts today. |
 | `usage_events` | id, user_id (fk), kind (`tailor` / `chat` / `seed`), model, input_tokens, output_tokens, cost_gbp (numeric), created_at | Every Claude call. Feeds the budget and the admin page. |
 
 Flow for a free account:
@@ -188,14 +188,23 @@ tailor and a chat message cost, and the last 50 ledger rows (`GET /api/account/c
 "Tailor", "Chat message", "Refund", "Adjustment").
 
 - "Download my data": `GET /api/account/export` (5/hour per account in hosted mode) answers a JSON attachment,
-  `resume-tailor-export.json`: `{ exportedAt, email, bank, applications, credits }` with the bank and the
-  applications as stored (no PDFs; they compile again from the JSON) and the whole ledger, oldest first.
+  `resume-tailor-export.json`: `{ exportedAt, email, profile { name, image, createdAt }, plan { plan, credits },
+  signIns [{ providerId, accountId, createdAt }], sessions [{ createdAt, expiresAt, ipAddress, userAgent }], credits
+  (the whole ledger), adSessions [{ startedAt, grantedAt, status, rejectReason, ip }], usage [{ kind, model, tokens,
+  costGbp, createdAt }], bank, applications }`, with no tokens and no PDFs (they compile again from the JSON). It is
+  streamed: everything but the applications is read first (so a failure there is an ordinary error response), then
+  the applications in keyset batches of 10 as the stored JSON text, never parsed. One export runs per account at a
+  time (409 "An export is already running") and two across the server (503 with `retryAfter: 10`).
 - "Delete my account": the user types the account's email; `POST /api/account/delete { email }` answers 400 on a
   mismatch. In one transaction the server locks the account's `ad_sessions` rows and then its `user_plans` row (the
   order an ad grant takes them, so a grant in flight and the deletion cannot deadlock), deletes its sessions and then
   the `user` row, which cascades to `banks`, `applications`, `user_plans` and `account`; `credit_events`,
-  `ad_sessions` and `usage_events` keep their rows with `user_id` set null. The response expires the session cookies
-  (Better Auth's sign-out); the client forgets its chats and loads `/`. Signing in again with the same email creates
+  `ad_sessions` and `usage_events` keep their rows with `user_id` set null. Before that, in the same transaction, the
+  tailor and chat ledger rows lose their `ref` (application ids carry the company's name) and the account's ad
+  sessions their IP, except today's grants, which the per-IP cap counts until midnight UTC. A call that finishes after
+  the deletion books its usage with no account (a foreign-key failure is retried with `user_id` null). The response
+  expires the session cookies through Next's cookie store (Better Auth's names and attributes, `Max-Age=0` and an
+  `Expires` in 1970); the client forgets its chats and loads `/`. Signing in again with the same email creates
   a fresh, empty account (the sign-up grant again: the per-IP ad cap still counts the old account's ads).
 
 `/admin` is for accounts whose email is in `ADMIN_EMAILS`, whatever their plan (`requireAdmin`); any other signed-in

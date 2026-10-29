@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.hoisted(() => vi.fn());
-const signOut = vi.hoisted(() => vi.fn());
+const authContext = vi.hoisted(() => ({ current: Promise.resolve({}) as Promise<unknown> }));
+const jar = vi.hoisted(() => ({ set: vi.fn() }));
 const plans = vi.hoisted(() => ({ get: vi.fn() }));
 const deleteAccount = vi.hoisted(() => vi.fn());
 const db = vi.hoisted(() => ({ name: "the database" }));
-vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession, signOut } }) }));
+vi.mock("@/lib/auth", () => ({
+  getAuth: () => ({
+    api: { getSession },
+    get $context() {
+      return authContext.current;
+    },
+  }),
+}));
+vi.mock("next/headers", () => ({ cookies: async () => jar }));
 vi.mock("@/lib/deps", () => ({ plans }));
 vi.mock("@/db/client", () => ({ getDb: async () => db }));
 vi.mock("@/account/delete", () => ({ deleteAccount }));
@@ -13,10 +22,13 @@ vi.mock("@/account/delete", () => ({ deleteAccount }));
 import { POST } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
-const EXPIRED = [
-  "better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
-  "better-auth.session_data=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
-];
+const attributes = { path: "/", secure: true, httpOnly: true, sameSite: "Lax" as const };
+const AUTH_COOKIES = {
+  sessionToken: { name: "__Secure-better-auth.session_token", attributes },
+  sessionData: { name: "__Secure-better-auth.session_data", attributes },
+  accountData: { name: "__Secure-better-auth.account_data", attributes },
+  dontRememberToken: { name: "__Secure-better-auth.dont_remember", attributes: { ...attributes, domain: "example.com" } },
+};
 
 function deleteAs(body: unknown, session: unknown = ADA) {
   getSession.mockResolvedValueOnce(session);
@@ -32,9 +44,7 @@ function deleteAs(body: unknown, session: unknown = ADA) {
 beforeEach(() => {
   vi.resetAllMocks();
   plans.get.mockResolvedValue({ plan: "free", credits: 0 });
-  const headers = new Headers();
-  for (const cookie of EXPIRED) headers.append("Set-Cookie", cookie);
-  signOut.mockResolvedValue({ headers, response: { success: true } });
+  authContext.current = Promise.resolve({ authCookies: AUTH_COOKIES });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -52,7 +62,7 @@ describe("POST /api/account/delete", () => {
     expect((await deleteAs({})).status).toBe(400);
     expect((await deleteAs({ email: 42 })).status).toBe(400);
     expect(deleteAccount).not.toHaveBeenCalled();
-    expect(signOut).not.toHaveBeenCalled();
+    expect(jar.set).not.toHaveBeenCalled();
   });
 
   it("deletes the signed-in account, matching the email without regard to case or spaces", async () => {
@@ -63,25 +73,27 @@ describe("POST /api/account/delete", () => {
     expect(deleteAccount).toHaveBeenCalledExactlyOnceWith(db, "u1");
   });
 
-  it("clears the session cookies in the same response, through Better Auth's sign-out", async () => {
-    const res = await deleteAs({ email: "ada@example.com" });
+  it("expires the session cookies in Next's cookie store, with an Expires date in the past", async () => {
+    await deleteAs({ email: "ada@example.com" });
 
-    expect(res.headers.getSetCookie()).toEqual(EXPIRED);
-    const [{ headers, returnHeaders }] = signOut.mock.calls[0];
-    expect(returnHeaders).toBe(true);
-    expect(headers.get("cookie")).toBe("better-auth.session_token=abc");
+    const expired = { maxAge: 0, expires: new Date(0), path: "/", secure: true, httpOnly: true, sameSite: "lax" };
+    expect(jar.set.mock.calls).toEqual([
+      ["__Secure-better-auth.session_token", "", expired],
+      ["__Secure-better-auth.session_data", "", expired],
+      ["__Secure-better-auth.dont_remember", "", { ...expired, domain: "example.com" }],
+    ]);
     // The account is deleted first: a failed deletion leaves the user signed in to try again.
-    expect(deleteAccount.mock.invocationCallOrder[0]).toBeLessThan(signOut.mock.invocationCallOrder[0]);
+    expect(deleteAccount.mock.invocationCallOrder[0]).toBeLessThan(jar.set.mock.invocationCallOrder[0]);
   });
 
   it("still answers 200 when the cookies cannot be cleared, since the account and its sessions are gone", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    signOut.mockRejectedValueOnce(new Error("boom"));
+    authContext.current = Promise.reject(new Error("boom"));
 
     const res = await deleteAs({ email: "ada@example.com" });
 
     expect(res.status).toBe(200);
-    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(jar.set).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledOnce();
     expect(JSON.stringify(log.mock.calls)).not.toContain("ada@example.com");
   });
@@ -93,6 +105,6 @@ describe("POST /api/account/delete", () => {
     const res = await deleteAs({ email: "ada@example.com" });
 
     expect(res.status).toBe(500);
-    expect(signOut).not.toHaveBeenCalled();
+    expect(jar.set).not.toHaveBeenCalled();
   });
 });

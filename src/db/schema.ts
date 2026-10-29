@@ -151,6 +151,7 @@ export const adSessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Set null rather than cascade, so deleting an account and signing up again does not reset the per-IP cap.
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    // Blanked ('') once older than the per-IP cap needs (AD_IP_RETENTION_MS in src/credits/service.ts).
     ip: text("ip").notNull(),
     provider: text("provider").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
@@ -163,6 +164,8 @@ export const adSessions = pgTable(
   (t) => [
     index("ad_sessions_user_id_started_at_idx").on(t.userId, t.startedAt),
     index("ad_sessions_ip_started_at_idx").on(t.ip, t.startedAt),
+    // Finds the rows whose IP is still to be blanked without scanning the ones already done.
+    index("ad_sessions_ip_retained_idx").on(t.startedAt).where(sql`${t.ip} <> ''`),
     // Must list AD_SESSION_STATUSES (src/credits/types.ts); changing either needs a migration.
     check("ad_sessions_status_check", sql`${t.status} in ('started', 'granted', 'rejected')`),
   ],

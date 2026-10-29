@@ -41,8 +41,9 @@ export function DataCard() {
         Your data
       </h2>
       <p className="mt-1 text-sm text-ink-soft">
-        One JSON file with your bank, every tailored resume and its job description, and your credit history. PDFs are
-        left out: they compile again from the file&apos;s contents.
+        One JSON file with everything stored about you: your bank, every tailored resume and its job description, your
+        credit history, the ads you watched, your AI usage and where you are signed in. PDFs are left out: they compile
+        again from the file&apos;s contents.
       </p>
       {error && (
         <div className="mt-3">

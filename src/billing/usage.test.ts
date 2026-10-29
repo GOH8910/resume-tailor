@@ -260,4 +260,27 @@ describe("recordUsageOrLog", () => {
     expect(err).toBe(failure);
     for (const part of ["[usage]", ADA, "tailor", "claude-haiku-5-5", "1234", "567", "89"]) expect(line).toContain(part);
   });
+
+  it("books the call without an account when the account was deleted while Claude ran", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await db.delete(user).where(eq(user.id, ADA));
+
+    await recordUsageOrLog(service(), { userId: ADA, kind: "chat", usage: poundsOfSonnet(1), free: true });
+
+    expect(await db.select().from(usageEvents)).toEqual([
+      expect.objectContaining({ userId: null, kind: "chat", model: "claude-sonnet-5-5", costGbp: 1, free: true }),
+    ]);
+    expect(logged).not.toHaveBeenCalled();
+    // So the budget still counts it.
+    expect(await service().freeSpendToday()).toBe(1);
+  });
+
+  it("does not retry other failures without the account", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const record = vi.fn(async () => Promise.reject(new Error("db down", { cause: { code: "57P01" } })));
+
+    await recordUsageOrLog({ record }, { userId: ADA, kind: "tailor", usage: poundsOfSonnet(1), free: true });
+
+    expect(record).toHaveBeenCalledOnce();
+  });
 });

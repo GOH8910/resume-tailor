@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lt, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, lt, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adSessions, creditEvents, userPlans } from "@/db/schema";
 import type { Db } from "@/db/types";
@@ -19,6 +19,12 @@ export type ChargeKind = Extract<CreditKind, "tailor" | "chat">;
 export type LedgerEntry = { id: string; kind: CreditKind; amount: number; ref: string | null; createdAt: Date };
 
 type CapScope = "account" | "ip";
+
+/**
+ * How long an ad session keeps its client IP. The per-IP cap only counts the current UTC day, so two days covers it
+ * with room to spare; after that the IP is blanked ('').
+ */
+export const AD_IP_RETENTION_MS = 48 * 60 * 60 * 1000;
 type GrantOutcome =
   | { kind: "granted"; userId: string; credits: number }
   | { kind: "not-pending" }
@@ -59,6 +65,7 @@ export class CreditsService {
     now = new Date(),
   ): Promise<{ sessionId: string }> {
     const db = await this.db();
+    await forgetOldIps(db, now);
     const scope = await this.capReached(db, userId, ip, now);
     if (scope) throw limitError(scope, now);
     const [row] = await db.insert(adSessions).values({ userId, ip, provider, startedAt: now }).returning({ id: adSessions.id });
@@ -218,6 +225,14 @@ async function grantedOn(db: Db, who: SQL, now: Date): Promise<number> {
       and(who, eq(adSessions.status, "granted"), gte(adSessions.grantedAt, startOfUtcDay(now)), lt(adSessions.grantedAt, nextUtcDay(now))),
     );
   return row?.granted ?? 0;
+}
+
+/** Blanks the IP of sessions past the retention window; the partial index on rows that still have one keeps it cheap. */
+async function forgetOldIps(db: Db, now: Date): Promise<void> {
+  await db
+    .update(adSessions)
+    .set({ ip: "" })
+    .where(and(lt(adSessions.startedAt, new Date(now.getTime() - AD_IP_RETENTION_MS)), ne(adSessions.ip, "")));
 }
 
 function limitError(scope: CapScope, now: Date): AppError {
