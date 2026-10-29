@@ -2,15 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.hoisted(() => vi.fn());
 const banks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
+const plans = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
-vi.mock("@/lib/deps", () => ({ banks }));
+vi.mock("@/lib/deps", () => ({ banks, plans }));
 
 import { GET, PUT } from "./route";
 
 const ADA = { user: { id: "u1", email: "ada@example.com", name: "Ada" }, session: { id: "s1" } };
 const get = () => GET(new Request("http://localhost/api/bank"));
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  plans.get.mockResolvedValue({ plan: "free", credits: 0 });
+});
 
 describe("GET /api/bank", () => {
   it("answers 401 without a session and touches no bank", async () => {

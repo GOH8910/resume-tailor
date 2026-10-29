@@ -1,5 +1,8 @@
 import { ZodError } from "zod";
+import { type Plan, signupPlan } from "@/billing/plan";
 import { getAuth } from "./auth";
+import { plans } from "./deps";
+import { env } from "./env";
 import { AppError } from "./errors";
 
 /** Run a handler and turn thrown errors into JSON responses. */
@@ -29,13 +32,16 @@ export async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-export type CurrentUser = { id: string; email: string; name: string };
+export type CurrentUser = { id: string; email: string; name: string; plan: Plan };
 
-/** The signed-in user for an API request, or a 401. */
+/** The signed-in user and their plan for an API request, or a 401. */
 export async function requireUser(request: Request): Promise<CurrentUser> {
   const session = await getAuth().api.getSession({ headers: request.headers });
   if (!session) throw new AppError("Sign in to continue", 401);
-  return { id: session.user.id, email: session.user.email, name: session.user.name };
+  const { id, email, name } = session.user;
+  // An account from before plans existed gets the plan it would have been given at sign-up.
+  const { plan } = await plans.get(id, signupPlan(email, env.adminEmails));
+  return { id, email, name, plan };
 }
 
 export function pdfResponse(pdf: Buffer, pages: number, filename: string): Response {

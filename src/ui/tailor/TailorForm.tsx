@@ -3,11 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Application } from "@/applications/schema";
-import { DEFAULT_MODEL_ID, MODEL_IDS, MODEL_LABELS, type ModelId } from "@/tailor/model";
+import type { Me } from "@/billing/policy";
+import { DEFAULT_MODEL_ID, MODEL_IDS, MODEL_LABELS, type ModelId, modelName } from "@/tailor/model";
 import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { Field, Select, TextArea, TextInput } from "@/ui/Field";
+import { useMe } from "@/ui/useMe";
 
 type Mode = "ai" | "manual";
 
@@ -15,8 +17,28 @@ function formatElapsed(totalSeconds: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
+/** Plans that pay in credits run on the model the server picks; the others choose one. */
+function ModelChoice({ me, model, onChange }: { me: Me | null; model: ModelId; onChange: (model: ModelId) => void }) {
+  if (!me) return null;
+  if (me.policy.chargesCredits) {
+    return <p className="text-sm text-ink-soft">Tailoring runs on {modelName(me.policy.model)}</p>;
+  }
+  return (
+    <Field label="Model">
+      <Select value={model} onChange={(e) => onChange(e.target.value as ModelId)}>
+        {MODEL_IDS.map((id) => (
+          <option key={id} value={id}>
+            {MODEL_LABELS[id]}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
 export function TailorForm() {
   const router = useRouter();
+  const { me } = useMe();
   const [company, setCompany] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
@@ -29,6 +51,7 @@ export function TailorForm() {
   const errorRef = useRef<HTMLDivElement>(null);
 
   const ready = company.trim().length > 0 && jobDescription.trim().length > 0 && busy === null;
+  const canPickModel = me !== null && !me.policy.chargesCredits;
 
   useEffect(() => {
     mounted.current = true;
@@ -60,7 +83,12 @@ export function TailorForm() {
     try {
       const { application } =
         mode === "ai"
-          ? await api.send<{ application: Application }>("/api/tailor", "POST", { company, roleTitle, jobDescription, model })
+          ? await api.send<{ application: Application }>("/api/tailor", "POST", {
+              company,
+              roleTitle,
+              jobDescription,
+              model: canPickModel ? model : undefined,
+            })
           : await api.send<{ application: Application }>("/api/applications", "POST", { company, roleTitle, jobDescription });
       // The AI call can take a minute; don't pull the user back if they left the page meanwhile.
       if (mounted.current) router.push(`/tailor/${application.id}`);
@@ -108,15 +136,7 @@ export function TailorForm() {
             <Field label="Role title (optional)">
               <TextInput value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} placeholder="e.g. Backend Engineer" />
             </Field>
-            <Field label="Model">
-              <Select value={model} onChange={(e) => setModel(e.target.value as ModelId)}>
-                {MODEL_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {MODEL_LABELS[id]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            <ModelChoice me={me} model={model} onChange={setModel} />
           </fieldset>
 
           {error && (

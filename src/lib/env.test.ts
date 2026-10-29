@@ -113,3 +113,139 @@ describe("parseEnv", () => {
     expect(env.signupEmails).toEqual(new Set(["ada@example.com", "bob@example.com"]));
   });
 });
+
+describe("parseEnv: modes, plans and credits", () => {
+  it("resolves APP_MODE to hosted in production and selfhost elsewhere", () => {
+    expect(parseEnv(production()).appMode).toBe("hosted");
+    expect(parseEnv({}).appMode).toBe("selfhost");
+    expect(parseEnv({ NODE_ENV: "test" }).appMode).toBe("selfhost");
+  });
+
+  it("honours an explicit APP_MODE", () => {
+    expect(parseEnv(production({ APP_MODE: "selfhost" })).appMode).toBe("selfhost");
+    expect(parseEnv({ APP_MODE: "hosted" }).appMode).toBe("hosted");
+  });
+
+  it("rejects an unknown APP_MODE", () => {
+    expect(() => parseEnv({ APP_MODE: "saas" })).toThrow();
+  });
+
+  it("parses ADMIN_EMAILS into a lowercased, trimmed set", () => {
+    expect(parseEnv({ ADMIN_EMAILS: " Ed@Example.com, ,ops@example.com" }).adminEmails).toEqual(
+      new Set(["ed@example.com", "ops@example.com"]),
+    );
+    expect(parseEnv({}).adminEmails.size).toBe(0);
+  });
+
+  it("defaults the ad provider to none", () => {
+    expect(parseEnv({ APP_MODE: "hosted" }).adProvider).toBe("none");
+  });
+
+  it("keeps the configured ad provider in hosted mode", () => {
+    expect(parseEnv({ APP_MODE: "hosted", AD_PROVIDER: "test" }).adProvider).toBe("test");
+    const google = parseEnv(production({ AD_PROVIDER: "google", AD_UNIT_PATH: "/123/rewarded" }));
+    expect(google.adProvider).toBe("google");
+    expect(google.AD_UNIT_PATH).toBe("/123/rewarded");
+  });
+
+  it("forces the ad provider to none in selfhost mode", () => {
+    expect(parseEnv({ APP_MODE: "selfhost", AD_PROVIDER: "test" }).adProvider).toBe("none");
+    expect(parseEnv(production({ APP_MODE: "selfhost", AD_PROVIDER: "google" })).adProvider).toBe("none");
+  });
+
+  it("rejects an unknown AD_PROVIDER", () => {
+    expect(() => parseEnv({ AD_PROVIDER: "adsense" })).toThrow();
+  });
+
+  it("refuses the test ad provider in production", () => {
+    expect(() => parseEnv(production({ AD_PROVIDER: "test" }))).toThrow("AD_PROVIDER=test is not allowed in production");
+  });
+
+  it("requires AD_UNIT_PATH for the Google ad provider in hosted production", () => {
+    expect(() => parseEnv(production({ AD_PROVIDER: "google" }))).toThrow(
+      "AD_UNIT_PATH must be set when AD_PROVIDER=google",
+    );
+  });
+
+  it("does not require AD_UNIT_PATH while `next build` runs", () => {
+    expect(() =>
+      parseEnv({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build", AD_PROVIDER: "google" }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["1", true],
+    ["true", true],
+    ["0", false],
+    ["false", false],
+    ["", false],
+    [undefined, false],
+  ])("reads AD_SSV_ENABLED=%j as %s", (value, expected) => {
+    expect(parseEnv({ AD_SSV_ENABLED: value }).AD_SSV_ENABLED).toBe(expected);
+  });
+
+  it("rejects an AD_SSV_ENABLED that is not a recognised boolean", () => {
+    expect(() => parseEnv({ AD_SSV_ENABLED: "yes please" })).toThrow();
+  });
+
+  it("falls back to the documented credit, limit, budget and model defaults", () => {
+    const env = parseEnv({});
+    expect(env).toMatchObject({
+      FREE_MODEL: "claude-haiku-5-5",
+      UNLIMITED_MODEL: "claude-sonnet-5-5",
+      CREDITS_PER_TAILOR: 2,
+      CREDITS_PER_CHAT_MESSAGE: 1,
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: 10,
+      AD_CREDITS_PER_IP_PER_DAY: 30,
+      AD_MIN_WATCH_SECONDS: 7,
+      SIGNUP_GRANT_CREDITS: 0,
+      FREE_DAILY_BUDGET_GBP: 2,
+      USD_TO_GBP: 0.78,
+      AD_SSV_ENABLED: false,
+    });
+  });
+
+  it("reads numeric settings from strings", () => {
+    const env = parseEnv({
+      CREDITS_PER_TAILOR: "3",
+      CREDITS_PER_CHAT_MESSAGE: "0",
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: "5",
+      AD_CREDITS_PER_IP_PER_DAY: "12",
+      AD_MIN_WATCH_SECONDS: "7.5",
+      SIGNUP_GRANT_CREDITS: "4",
+      FREE_DAILY_BUDGET_GBP: "1.5",
+      USD_TO_GBP: "0.8",
+    });
+    expect(env).toMatchObject({
+      CREDITS_PER_TAILOR: 3,
+      CREDITS_PER_CHAT_MESSAGE: 0,
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: 5,
+      AD_CREDITS_PER_IP_PER_DAY: 12,
+      AD_MIN_WATCH_SECONDS: 7.5,
+      SIGNUP_GRANT_CREDITS: 4,
+      FREE_DAILY_BUDGET_GBP: 1.5,
+      USD_TO_GBP: 0.8,
+    });
+  });
+
+  it.each([
+    ["CREDITS_PER_TAILOR", "-1"],
+    ["CREDITS_PER_TAILOR", "1.5"],
+    ["SIGNUP_GRANT_CREDITS", "two"],
+    ["AD_MIN_WATCH_SECONDS", "-3"],
+    ["FREE_DAILY_BUDGET_GBP", "-0.01"],
+    ["USD_TO_GBP", "0"],
+  ])("rejects %s=%s", (key, value) => {
+    expect(() => parseEnv({ [key]: value })).toThrow();
+  });
+
+  it("accepts other model ids for the free and unlimited plans", () => {
+    const env = parseEnv({ FREE_MODEL: "claude-sonnet-5-5", UNLIMITED_MODEL: "claude-opus-5-5" });
+    expect(env.FREE_MODEL).toBe("claude-sonnet-5-5");
+    expect(env.UNLIMITED_MODEL).toBe("claude-opus-5-5");
+  });
+
+  it("rejects an empty FREE_MODEL", () => {
+    expect(() => parseEnv({ FREE_MODEL: "" })).toThrow();
+  });
+});

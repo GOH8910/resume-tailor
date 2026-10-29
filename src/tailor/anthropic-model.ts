@@ -1,13 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createStructured } from "@/lib/anthropic";
-import type { ModelId, TailorModel, TailorRequest } from "./model";
+import type { TailorModel, TailorRequest } from "./model";
 import { type TailorResult, TailorResultSchema } from "./schema";
 
 export class AnthropicTailorModel implements TailorModel {
   private readonly client: Anthropic;
 
   constructor(
-    readonly id: ModelId,
+    readonly id: string,
     client?: Anthropic,
   ) {
     // The SDK reads ANTHROPIC_API_KEY from the environment (Next.js loads .env.local).

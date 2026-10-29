@@ -4,8 +4,9 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { getDbSync } from "@/db/client";
+import { signupPlan } from "@/billing/plan";
 import * as schema from "@/db/schema";
-import { banks } from "./deps";
+import { banks, plans } from "./deps";
 import { sendMagicLinkEmail } from "./email";
 import { env } from "./env";
 import { checkMagicLinkLimit } from "./magic-link-limit";
@@ -68,7 +69,10 @@ function createAuth() {
       user: {
         create: {
           before: async (user) => checkSignupAllowed(user.email, env.signupEmails),
-          after: async (user) => banks.createEmpty(user.id, user.name),
+          after: async (user) => {
+            await banks.createEmpty(user.id, user.name);
+            await plans.ensure(user.id, signupPlan(user.email, env.adminEmails));
+          },
         },
       },
     },

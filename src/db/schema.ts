@@ -1,6 +1,8 @@
-import { customType, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, customType, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 import type { Application } from "@/applications/schema";
 import type { Bank } from "@/bank/schema";
+import type { Plan } from "@/billing/plan";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -46,4 +48,19 @@ export const applications = pgTable(
       .notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.id] })],
+);
+
+/** One row per account: its plan and cached credit balance. */
+export const userPlans = pgTable(
+  "user_plans",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    plan: text("plan").$type<Plan>().notNull().default("free"),
+    credits: integer("credits").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  // Keeps the Plan type honest for rows written outside the app (a manual upgrade in psql).
+  (t) => [check("user_plans_plan_check", sql`${t.plan} in ('free', 'unlimited')`)],
 );

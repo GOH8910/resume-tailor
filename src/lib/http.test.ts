@@ -4,9 +4,15 @@ import { handle, requireUser } from "./http";
 
 // The real instance opens the database; these tests only need getSession.
 const getSession = vi.hoisted(() => vi.fn());
+const plans = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("./auth", () => ({ getAuth: () => ({ api: { getSession } }) }));
+vi.mock("./deps", () => ({ plans }));
+vi.mock("./env", () => ({ env: { adminEmails: new Set(["ed@example.com"]) } }));
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+});
 
 describe("handle", () => {
   it("answers an unexpected error with a generic 500 that leaks nothing", async () => {
@@ -43,18 +49,36 @@ describe("handle", () => {
 describe("requireUser", () => {
   const request = () => new Request("http://localhost/api/bank", { headers: { cookie: "session=abc" } });
 
-  it("rejects a request without a session with a 401", async () => {
-    getSession.mockResolvedValueOnce(null);
-    await expect(requireUser(request())).rejects.toMatchObject({ status: 401, message: "Sign in to continue" });
+  const session = (email: string) => ({
+    user: { id: "u1", email, name: "Ada", image: null },
+    session: { id: "s1" },
   });
 
-  it("returns the signed-in user, passing the request headers to Better Auth", async () => {
-    getSession.mockResolvedValueOnce({
-      user: { id: "u1", email: "ada@example.com", name: "Ada", image: null },
-      session: { id: "s1" },
-    });
+  it("rejects a request without a session with a 401, reading no plan", async () => {
+    getSession.mockResolvedValueOnce(null);
+    await expect(requireUser(request())).rejects.toMatchObject({ status: 401, message: "Sign in to continue" });
+    expect(plans.get).not.toHaveBeenCalled();
+  });
+
+  it("returns the signed-in user and their plan, passing the request headers to Better Auth", async () => {
+    getSession.mockResolvedValueOnce(session("ada@example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 4 });
     const req = request();
-    await expect(requireUser(req)).resolves.toEqual({ id: "u1", email: "ada@example.com", name: "Ada" });
+    await expect(requireUser(req)).resolves.toEqual({ id: "u1", email: "ada@example.com", name: "Ada", plan: "unlimited" });
     expect(getSession).toHaveBeenLastCalledWith({ headers: req.headers });
+  });
+
+  it("creates a missing plan as free for an ordinary account", async () => {
+    getSession.mockResolvedValueOnce(session("ada@example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "free", credits: 0 });
+    await requireUser(request());
+    expect(plans.get).toHaveBeenLastCalledWith("u1", "free");
+  });
+
+  it("creates a missing plan as unlimited for an admin account", async () => {
+    getSession.mockResolvedValueOnce(session("Ed@Example.com"));
+    plans.get.mockResolvedValueOnce({ plan: "unlimited", credits: 0 });
+    await requireUser(request());
+    expect(plans.get).toHaveBeenLastCalledWith("u1", "unlimited");
   });
 });
