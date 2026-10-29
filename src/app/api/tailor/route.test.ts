@@ -83,7 +83,7 @@ describe("POST /api/tailor daily budget and usage", () => {
     const { res } = await tailorAs("free", job);
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({
-      error: `Free tailoring is paused until ${resumesAt} (daily budget reached)`,
+      error: `Free AI features are paused until ${resumesAt} (daily budget reached)`,
       details: { paused: true, reason: "budget", resumesAt },
     });
     expect(runTailor).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe("POST /api/tailor daily budget and usage", () => {
     usage.isFreeUsagePaused.mockResolvedValue({ paused: true, reason: "manual" });
     const { res } = await tailorAs("free", job);
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "Free tailoring is paused by the operator", details: { paused: true, reason: "manual" } });
+    expect(await res.json()).toEqual({ error: "Free AI features are paused by the operator", details: { paused: true, reason: "manual" } });
     expect(runTailor).not.toHaveBeenCalled();
   });
 

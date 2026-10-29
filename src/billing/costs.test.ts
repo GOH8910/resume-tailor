@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseEnv } from "@/lib/env";
+import { MODEL_IDS } from "@/tailor/model";
 import { estimateCostGbp, knownModel, warnUnpricedModels } from "./costs";
 
 afterEach(() => vi.restoreAllMocks());
@@ -17,6 +19,18 @@ describe("estimateCostGbp", () => {
     const million = 1_000_000;
     expect(estimateCostGbp("claude-sonnet-5-5", { inputTokens: 0, outputTokens: 0, cacheReadTokens: million }, 1)).toBe(0.2);
     expect(estimateCostGbp("claude-sonnet-5-5", { inputTokens: 0, outputTokens: 0, cacheWriteTokens: million }, 1)).toBe(2.5);
+  });
+
+  it("prices Haiku at its long-prompt rates once the prompt is over 100k tokens", () => {
+    // At a rate of 2 the odd token count still costs a whole number of millionths.
+    expect(estimateCostGbp("claude-haiku-5-5", { inputTokens: 100_000, outputTokens: 100_000 }, 2)).toBe(0.12); // $0.10/$0.50
+    expect(estimateCostGbp("claude-haiku-5-5", { inputTokens: 100_001, outputTokens: 100_000 }, 2)).toBe(0.600001); // $0.50/$2.50
+  });
+
+  it("counts cached prompt tokens towards the long-prompt threshold", () => {
+    const at = (cacheReadTokens: number) => estimateCostGbp("claude-haiku-5-5", { inputTokens: 50_000, outputTokens: 0, cacheReadTokens }, 2);
+    expect(at(50_000)).toBe(0.011); // (50k × 0.10 + 50k × 0.01) × 2 / 1M
+    expect(at(50_001)).toBe(0.055); // (50k × 0.50 + 50,001 × 0.05) × 2 / 1M
   });
 
   it("rounds to six decimals, the precision the ledger stores", () => {
@@ -43,6 +57,12 @@ describe("knownModel", () => {
     expect(knownModel("claude-opus-5-5")).toBe(true);
     expect(knownModel("claude-opus-5-5-20261001")).toBe(false);
     expect(knownModel("toString")).toBe(false);
+  });
+
+  // Catches a model added to the picker or a default changed without a price.
+  it("prices every model the app offers or defaults to", () => {
+    const defaults = parseEnv({});
+    for (const id of [...MODEL_IDS, defaults.FREE_MODEL, defaults.UNLIMITED_MODEL]) expect(knownModel(id), id).toBe(true);
   });
 });
 

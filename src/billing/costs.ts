@@ -1,10 +1,12 @@
 import type { ModelUsage } from "./usage-types";
 
-type Price = { input: number; output: number };
+type Rates = { input: number; output: number };
+/** `longContext` replaces both rates for a call whose prompt, cached tokens included, is over `threshold` tokens. */
+type Price = Rates & { longContext?: Rates & { threshold: number } };
 
 /** List prices in USD per million tokens. A model missing here is costed at FALLBACK_MODEL's price. */
 const PRICES: Record<string, Price> = {
-  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, longContext: { threshold: 100_000, input: 0.5, output: 2.5 } },
   "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-opus-5-5": { input: 4, output: 20 },
 };
@@ -30,7 +32,7 @@ export function roundGbp(value: number): number {
 
 /** What a call cost in GBP at list prices, rounded to six decimals. */
 export function estimateCostGbp(model: string, usage: TokenCounts, usdToGbp: number): number {
-  const price = priceOf(model);
+  const price = ratesFor(priceOf(model), usage);
   const perMillion =
     usage.inputTokens * price.input +
     usage.outputTokens * price.output +
@@ -44,6 +46,11 @@ export function warnUnpricedModels(ids: string[]): void {
   for (const id of ids) {
     if (!knownModel(id)) warnUnpriced(id);
   }
+}
+
+function ratesFor(price: Price, usage: TokenCounts): Rates {
+  const prompt = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+  return price.longContext && prompt > price.longContext.threshold ? price.longContext : price;
 }
 
 function priceOf(model: string): Price {

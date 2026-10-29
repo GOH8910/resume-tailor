@@ -1,4 +1,5 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { nextUtcDay, startOfUtcDay } from "@/credits/day";
 import { settings, usageEvents } from "@/db/schema";
 import type { Db } from "@/db/types";
@@ -23,7 +24,14 @@ export type UsageEvent = {
 
 export type PauseState = { paused: boolean; reason?: "budget" | "manual"; resumesAt?: string };
 
-export type UsageTotals = { calls: number; inputTokens: number; outputTokens: number; costGbp: number };
+export type UsageTotals = {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costGbp: number;
+};
 export type UsageSummaryRow = { model: string; kind: UsageKind; free: boolean } & UsageTotals;
 export type UsageSummary = { rows: UsageSummaryRow[]; totalGbp: number; freeGbp: number };
 
@@ -88,30 +96,38 @@ export class UsageService {
       .onConflictDoUpdate({ target: settings.key, set: { value: paused, updatedAt: new Date() } });
   }
 
-  /** Usage since `since`, grouped by model, kind and whether it was free. */
-  async summary({ since }: { since: Date }): Promise<UsageSummary> {
+  /** Usage from `since` up to (not including) `until`, grouped by model, kind and whether it was free. */
+  async summary({ since, until }: { since: Date; until?: Date }): Promise<UsageSummary> {
     const db = await this.db();
+    const total = (column: AnyPgColumn) => sql<number>`coalesce(sum(${column}), 0)`.mapWith(Number);
     const rows = await db
       .select({
         model: usageEvents.model,
         kind: usageEvents.kind,
         free: usageEvents.free,
         calls: sql<number>`count(*)`.mapWith(Number),
-        inputTokens: sql<number>`coalesce(sum(${usageEvents.inputTokens}), 0)`.mapWith(Number),
-        outputTokens: sql<number>`coalesce(sum(${usageEvents.outputTokens}), 0)`.mapWith(Number),
-        costGbp: sql<number>`coalesce(sum(${usageEvents.costGbp}), 0)`.mapWith(Number),
+        inputTokens: total(usageEvents.inputTokens),
+        outputTokens: total(usageEvents.outputTokens),
+        cacheReadTokens: total(usageEvents.cacheReadTokens),
+        cacheWriteTokens: total(usageEvents.cacheWriteTokens),
+        costGbp: total(usageEvents.costGbp),
       })
       .from(usageEvents)
-      .where(gte(usageEvents.createdAt, since))
+      .where(and(gte(usageEvents.createdAt, since), until ? lt(usageEvents.createdAt, until) : undefined))
       .groupBy(usageEvents.model, usageEvents.kind, usageEvents.free);
     const sum = (list: UsageSummaryRow[]) => roundGbp(list.reduce((total, row) => total + row.costGbp, 0));
     return { rows, totalGbp: sum(rows), freeGbp: sum(rows.filter((row) => row.free)) };
   }
 
+  // Fails closed: the row may be written by hand in psql, so any value but jsonb `false` (1, the string "false")
+  // pauses. Compared in SQL because drizzle parses a jsonb string a second time on read, turning "false" into false.
   private async isPausedByHand(): Promise<boolean> {
     const db = await this.db();
-    const [row] = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, FREE_PAUSED_KEY));
-    return row?.value === true;
+    const [row] = await db
+      .select({ paused: sql<boolean>`${settings.value} <> 'false'::jsonb` })
+      .from(settings)
+      .where(eq(settings.key, FREE_PAUSED_KEY));
+    return row?.paused ?? false;
   }
 }
 
@@ -123,10 +139,14 @@ export async function ensureFreeUsageOpen(
   if (!policy.chargesCredits) return;
   const state = await usage.isFreeUsagePaused();
   if (!state.paused) return;
-  const message = state.resumesAt
-    ? `Free tailoring is paused until ${state.resumesAt} (daily budget reached)`
-    : "Free tailoring is paused by the operator";
-  throw new AppError(message, 402, { paused: true, reason: state.reason, resumesAt: state.resumesAt });
+  throw new AppError(pausedMessage(state), 402, { paused: true, reason: state.reason, resumesAt: state.resumesAt });
+}
+
+function pausedMessage(state: PauseState): string {
+  if (state.reason === "manual") return "Free AI features are paused by the operator";
+  return state.resumesAt
+    ? `Free AI features are paused until ${state.resumesAt} (daily budget reached)`
+    : "Free AI features are paused (daily budget is 0)";
 }
 
 /** Books a Claude call. The user has already been served by then, so a failure to book is logged, not thrown. */
@@ -134,6 +154,11 @@ export async function recordUsageOrLog(usage: Pick<UsageService, "record">, even
   try {
     await usage.record(event);
   } catch (err) {
-    console.error(`[usage] could not record a ${event.kind} call on ${event.usage.model} for user ${event.userId}`, err);
+    const { model, inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0 } = event.usage;
+    console.error(
+      `[usage] could not record a ${event.kind} call for user ${event.userId}: model=${model} input=${inputTokens} ` +
+        `output=${outputTokens} cacheRead=${cacheReadTokens} cacheWrite=${cacheWriteTokens} free=${event.free}`,
+      err,
+    );
   }
 }

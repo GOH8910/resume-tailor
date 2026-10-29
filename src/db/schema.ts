@@ -88,9 +88,8 @@ export const usageEvents = pgTable(
   "usage_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    // Kept when the account is deleted: Anthropic billed the call, so the budget and the history must still count it.
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     kind: text("kind").$type<UsageKind>().notNull(),
     model: text("model").notNull(),
     inputTokens: integer("input_tokens").notNull(),
@@ -105,6 +104,7 @@ export const usageEvents = pgTable(
   (t) => [
     index("usage_events_created_at_idx").on(t.createdAt),
     index("usage_events_user_id_created_at_idx").on(t.userId, t.createdAt),
+    // Must list USAGE_KINDS (src/billing/usage-types.ts); changing either needs a migration.
     check("usage_events_kind_check", sql`${t.kind} in ('tailor', 'chat', 'seed')`),
   ],
 );

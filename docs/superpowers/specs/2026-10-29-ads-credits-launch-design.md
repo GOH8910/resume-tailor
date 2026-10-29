@@ -51,7 +51,7 @@ Loss bounds, all settings with these defaults:
 | `AD_CREDITS_PER_IP_PER_DAY` | 30 | cap per client IP per day |
 | `AD_MIN_WATCH_SECONDS` | 7 | server-side minimum between ad start and grant |
 | `SIGNUP_GRANT_CREDITS` | 0 | credits a new account starts with |
-| `FREE_DAILY_BUDGET_GBP` | 2.00 | when the day's costed free usage exceeds this, free tailoring and chat pause until the next UTC day |
+| `FREE_DAILY_BUDGET_GBP` | 2.00 | when the day's costed free usage reaches (>=) this, free tailoring and chat pause until the next UTC day |
 | `FREE_MODEL` | `claude-haiku-5-5` | model for free accounts |
 | `UNLIMITED_MODEL` | `claude-sonnet-5-5` | model for unlimited accounts (the operator can still pick Opus) |
 

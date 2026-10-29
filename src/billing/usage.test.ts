@@ -1,9 +1,9 @@
 import { eq, sql } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { usageEvents, user } from "@/db/schema";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { settings, usageEvents, user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
-import { UsageService, type UsageSettings } from "./usage";
+import { ensureFreeUsageOpen, type PauseState, recordUsageOrLog, UsageService, type UsageSettings } from "./usage";
 import type { ModelUsage } from "./usage-types";
 
 let close: () => Promise<void>;
@@ -30,7 +30,10 @@ beforeEach(async () => {
     { id: BOB, name: "Bob", email: "bob@example.com" },
   ]);
 });
-afterEach(() => close());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await close();
+});
 
 describe("UsageService.record", () => {
   it("stores the call with its tokens and its cost in GBP", async () => {
@@ -69,10 +72,13 @@ describe("UsageService.record", () => {
     ).rejects.toThrow();
   });
 
-  it("is deleted with the account", async () => {
-    await service().record({ userId: ADA, kind: "tailor", usage: poundsOfSonnet(1), free: true }, NOON);
+  // Anthropic billed the call whether or not the account still exists.
+  it("outlives the account as an anonymous row that still counts against the budget", async () => {
+    const usage = service();
+    await usage.record({ userId: ADA, kind: "tailor", usage: poundsOfSonnet(1), free: true }, NOON);
     await db.delete(user).where(eq(user.id, ADA));
-    expect(await db.select().from(usageEvents)).toEqual([]);
+    expect(await db.select().from(usageEvents)).toEqual([expect.objectContaining({ userId: null, costGbp: 1 })]);
+    expect(await usage.freeSpendToday(NOON)).toBe(1);
   });
 });
 
@@ -123,6 +129,32 @@ describe("UsageService.isFreeUsagePaused", () => {
     expect(await service({ freeDailyBudgetGbp: 0 }).isFreeUsagePaused(NOON)).toEqual({ paused: true, reason: "budget" });
   });
 
+  it("fails closed on a hand-written pause flag: anything but false pauses", async () => {
+    const usage = service();
+    const flag = (value: unknown) =>
+      db.insert(settings).values({ key: "free_paused", value }).onConflictDoUpdate({ target: settings.key, set: { value } });
+    for (const value of ["true", 1, true, "false"]) {
+      await flag(value);
+      expect(await usage.isFreeUsagePaused(NOON), JSON.stringify(value)).toEqual({ paused: true, reason: "manual" });
+    }
+    await flag(false);
+    expect(await usage.isFreeUsagePaused(NOON)).toEqual({ paused: false });
+    await db.delete(settings);
+    expect(await usage.isFreeUsagePaused(NOON)).toEqual({ paused: false });
+  });
+
+  it("follows the SQL the operator runs by hand", async () => {
+    const usage = service();
+    const set = (value: "true" | "false") =>
+      db.execute(
+        sql.raw(`insert into settings (key, value) values ('free_paused', '${value}') on conflict (key) do update set value = excluded.value, updated_at = now()`),
+      );
+    await set("true");
+    expect(await usage.isFreeUsagePaused(NOON)).toEqual({ paused: true, reason: "manual" });
+    await set("false");
+    expect(await usage.isFreeUsagePaused(NOON)).toEqual({ paused: false });
+  });
+
   it("pauses by hand until resumed by hand, ahead of the budget", async () => {
     const usage = service();
     await usage.setFreePaused(true);
@@ -140,7 +172,7 @@ describe("UsageService.isFreeUsagePaused", () => {
 describe("UsageService.summary", () => {
   it("totals usage since a time by model, kind and whether it was free", async () => {
     const usage = service();
-    const haiku = { model: "claude-haiku-5-5", inputTokens: 1_000_000, outputTokens: 0 }; // £0.10
+    const haiku = { model: "claude-haiku-5-5", inputTokens: 0, outputTokens: 200_000 }; // £0.10
     await usage.record({ userId: ADA, kind: "tailor", usage: haiku, free: true }, new Date("2026-10-28T12:00:00Z")); // before
     await usage.record({ userId: ADA, kind: "tailor", usage: haiku, free: true }, NOON);
     await usage.record({ userId: BOB, kind: "tailor", usage: haiku, free: true }, NOON);
@@ -151,13 +183,81 @@ describe("UsageService.summary", () => {
 
     expect(summary.totalGbp).toBe(1.3);
     expect(summary.freeGbp).toBe(0.3);
+    const none = { cacheReadTokens: 0, cacheWriteTokens: 0 };
     expect(summary.rows).toEqual(
       expect.arrayContaining([
-        { model: "claude-haiku-5-5", kind: "tailor", free: true, calls: 2, inputTokens: 2_000_000, outputTokens: 0, costGbp: 0.2 },
-        { model: "claude-haiku-5-5", kind: "chat", free: true, calls: 1, inputTokens: 1_000_000, outputTokens: 0, costGbp: 0.1 },
-        { model: "claude-sonnet-5-5", kind: "tailor", free: false, calls: 1, inputTokens: 0, outputTokens: 100_000, costGbp: 1 },
+        { model: "claude-haiku-5-5", kind: "tailor", free: true, calls: 2, inputTokens: 0, outputTokens: 400_000, ...none, costGbp: 0.2 },
+        { model: "claude-haiku-5-5", kind: "chat", free: true, calls: 1, inputTokens: 0, outputTokens: 200_000, ...none, costGbp: 0.1 },
+        { model: "claude-sonnet-5-5", kind: "tailor", free: false, calls: 1, inputTokens: 0, outputTokens: 100_000, ...none, costGbp: 1 },
       ]),
     );
     expect(summary.rows).toHaveLength(3);
+  });
+
+  it("stops at `until` and totals cache tokens", async () => {
+    const usage = service();
+    const cached = { model: "claude-sonnet-5-5", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40 };
+    await usage.record({ userId: ADA, kind: "chat", usage: cached, free: false }, new Date("2026-10-29T08:00:00Z"));
+    await usage.record({ userId: ADA, kind: "chat", usage: cached, free: false }, new Date("2026-10-29T09:00:00Z"));
+    await usage.record({ userId: ADA, kind: "chat", usage: cached, free: false }, NOON); // at `until`: excluded
+
+    const summary = await usage.summary({ since: new Date("2026-10-29T00:00:00Z"), until: NOON });
+
+    expect(summary.rows).toEqual([
+      expect.objectContaining({ calls: 2, inputTokens: 20, outputTokens: 40, cacheReadTokens: 60, cacheWriteTokens: 80 }),
+    ]);
+  });
+});
+
+describe("ensureFreeUsageOpen", () => {
+  const free = { chargesCredits: true };
+  const refusal = async (state: PauseState) => {
+    const err = await ensureFreeUsageOpen({ isFreeUsagePaused: async () => state }, free).catch((e: unknown) => e);
+    return err as { status: number; message: string; details: unknown };
+  };
+
+  it("says when a spent budget lifts", async () => {
+    const resumesAt = "2026-10-30T00:00:00.000Z";
+    expect(await refusal({ paused: true, reason: "budget", resumesAt })).toMatchObject({
+      status: 402,
+      message: `Free AI features are paused until ${resumesAt} (daily budget reached)`,
+      details: { paused: true, reason: "budget", resumesAt },
+    });
+  });
+
+  it("says a budget of 0 keeps free usage paused", async () => {
+    expect(await refusal({ paused: true, reason: "budget" })).toMatchObject({
+      status: 402,
+      message: "Free AI features are paused (daily budget is 0)",
+      details: { paused: true, reason: "budget" },
+    });
+  });
+
+  it("says the operator paused it", async () => {
+    expect(await refusal({ paused: true, reason: "manual" })).toMatchObject({
+      status: 402,
+      message: "Free AI features are paused by the operator",
+      details: { paused: true, reason: "manual" },
+    });
+  });
+
+  it("lets the request through when open, and never asks for accounts that do not pay in credits", async () => {
+    await expect(ensureFreeUsageOpen({ isFreeUsagePaused: async () => ({ paused: false }) }, free)).resolves.toBeUndefined();
+    const isFreeUsagePaused = vi.fn();
+    await expect(ensureFreeUsageOpen({ isFreeUsagePaused }, { chargesCredits: false })).resolves.toBeUndefined();
+    expect(isFreeUsagePaused).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordUsageOrLog", () => {
+  it("logs a failure to record with the model and token counts, without throwing", async () => {
+    const failure = new Error("db down");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const used = { model: "claude-haiku-5-5", inputTokens: 1234, outputTokens: 567, cacheReadTokens: 89 };
+    await recordUsageOrLog({ record: async () => Promise.reject(failure) }, { userId: ADA, kind: "tailor", usage: used, free: true });
+    expect(logged).toHaveBeenCalledOnce();
+    const [line, err] = logged.mock.calls[0];
+    expect(err).toBe(failure);
+    for (const part of ["[usage]", ADA, "tailor", "claude-haiku-5-5", "1234", "567", "89"]) expect(line).toContain(part);
   });
 });

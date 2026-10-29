@@ -83,7 +83,7 @@ describe("POST /api/chat daily budget and usage", () => {
     const { res } = await chatAs("free", { messages });
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({
-      error: `Free tailoring is paused until ${resumesAt} (daily budget reached)`,
+      error: `Free AI features are paused until ${resumesAt} (daily budget reached)`,
       details: { paused: true, reason: "budget", resumesAt },
     });
     expect(runChat).not.toHaveBeenCalled();
