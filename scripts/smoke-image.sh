@@ -41,7 +41,8 @@ json() {
   node -e 'const v = process.argv[2].split(".").reduce((o, k) => o?.[k], JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")));
     process.stdout.write(typeof v === "string" ? v : JSON.stringify(v ?? null));' "$1" "$2"
 }
-in_app() { docker exec "$APP" sh -c "$1"; }
+# The image starts as root and the server drops to node (see the Dockerfile), so commands run as node too.
+in_app() { docker exec -u node "$APP" sh -c "$1"; }
 # as USER COMMAND: runs COMMAND in the app container as USER (tex1, tex2: the TeX users of compile slots 1 and 2).
 as() { docker exec -u "$1" "$APP" sh -c "$2"; }
 # The API checks that Origin matches Host on every /api request.
@@ -211,6 +212,14 @@ check "Better Auth's error page sends people to /signin (${location:-no redirect
 # Next renames its process to "next-server (v...)".
 server_pid=$(in_app 'for p in /proc/[0-9]*; do case "$(tr "\0" " " < "$p/cmdline" 2>/dev/null)" in next-server*|"node server.js"*) basename "$p";; esac; done' | head -1 || true)
 check "found the server process (pid ${server_pid:-none})" test -n "$server_pid"
+server_uid=$(in_app "awk '/^Uid:/ { print \$2 }' /proc/$server_pid/status" || true)
+check "the server runs as node, not root (uid ${server_uid:-unknown})" test "$server_uid" = "$(in_app 'id -u node')"
+server_groups=$(in_app "sed -n 's/^Groups://p' /proc/$server_pid/status" || true)
+for group in texrun1 texrun2; do
+  gid=$(in_app "getent group $group | cut -d: -f3" || true)
+  check "the server is in $group (gid ${gid:-none}), so it can hand compile folders to TeX" \
+    grep -qw -- "${gid:-none}" <<<"$server_groups"
+done
 check "control: node can read the server's environment" in_app "grep -qz '^BETTER_AUTH_SECRET=' /proc/$server_pid/environ"
 for user in tex1 tex2; do
   refused "$user cannot read the server's environment" as "$user" "cat /proc/$server_pid/environ"
@@ -241,7 +250,7 @@ check "no sleep process is left behind" test -z "$(processes | grep '^sleep 10' 
 
 # The same command line the app uses, on documents that try to escape or never finish.
 tex_run() {
-  docker exec -i "$APP" sh -s "$1" "$2" <<'SH'
+  docker exec -i -u node "$APP" sh -s "$1" "$2" <<'SH'
 d=$(mktemp -d /var/lib/compile/smoke-XXXXXX) && chgrp texrun1 "$d" && chmod 2770 "$d" && cd "$d" || exit 99
 printf '%s\n' "$2" > doc.tex
 openout_any=p sudo -n -u tex1 -- /usr/bin/timeout -k 3 "$1" latexmk -norc -no-shell-escape -pdf \
@@ -264,7 +273,7 @@ check "no TeX process is left behind" test -z "$(processes | grep -e '^pdflatex'
 # --- Concurrent compiles run as different slot users ---
 # Records the real uid of every TeX process (not sudo, which runs as root for node) until told to stop.
 watch_tex_uids() {
-  docker exec "$APP" sh -c 'rm -f /tmp/smoke-stop; until [ -e /tmp/smoke-stop ]; do
+  docker exec -u node "$APP" sh -c 'rm -f /tmp/smoke-stop; until [ -e /tmp/smoke-stop ]; do
     for p in /proc/[0-9]*; do
       # stderr first: a process that exits mid-scan makes the redirection itself fail.
       case "$(tr "\0" " " 2>/dev/null < "$p/cmdline")" in
