@@ -1,4 +1,4 @@
-app = "resume-tailor"
+app = "resume-tailor-goh"
 primary_region = "lhr"
 # Seconds a stopping machine gets before it is killed. Next finishes in-flight requests on the stop signal, and a
 # compile may take up to 60 s.

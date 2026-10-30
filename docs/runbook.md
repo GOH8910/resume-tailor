@@ -4,7 +4,7 @@ How to run the hosted service: Fly.io for the app, Neon for Postgres, Resend for
 To run a private copy instead, see the README's "Self-host" section.
 
 Placeholders: `<domain>` is the public host name (e.g. `resume.example.com`), `<you>` your email address,
-`<app>` the Fly app name (`resume-tailor` in `fly.toml`), `<slug>` the name of your old local data folder
+`<app>` the Fly app name (`resume-tailor-goh` in `fly.toml`), `<slug>` the name of your old local data folder
 (e.g. `ada` for `data/ada`).
 
 ## Phase 2a launch checklist
