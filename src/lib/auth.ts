@@ -4,8 +4,10 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { getDbSync } from "@/db/client";
+import { signupPlan } from "@/billing/plan";
 import * as schema from "@/db/schema";
-import { banks } from "./deps";
+import { signInRateRules } from "./auth-rate-limit";
+import { banks, credits, plans } from "./deps";
 import { sendMagicLinkEmail } from "./email";
 import { env } from "./env";
 import { checkMagicLinkLimit } from "./magic-link-limit";
@@ -33,6 +35,13 @@ export async function checkMagicLinkAllowed(
   checkSignupAllowed(email, allowed);
 }
 
+/** Sets up a new account: an empty bank named after it, its starting plan and its starting credits. */
+export async function onUserCreated(user: { id: string; email: string; name: string }): Promise<void> {
+  await banks.createEmpty(user.id, user.name);
+  await plans.ensure(user.id, signupPlan(user.email, env.adminEmails));
+  await credits.grantSignup(user.id, env.SIGNUP_GRANT_CREDITS);
+}
+
 function createAuth() {
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
@@ -41,6 +50,10 @@ function createAuth() {
     database: drizzleAdapter(getDbSync(), { provider: "pg", schema }),
     // Fly's proxy puts the real client IP in fly-client-ip; the rate limiter keys on it.
     advanced: { ipAddress: { ipAddressHeaders: ["fly-client-ip", "x-forwarded-for"] } },
+    rateLimit: { customRules: signInRateRules() },
+    // Failed OAuth callbacks (e.g. a state mismatch) land on our sign-in page with ?error=, which shows a message,
+    // instead of Better Auth's own error page.
+    onAPIError: { errorURL: "/signin" },
     socialProviders:
       env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
         ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } }
@@ -68,7 +81,7 @@ function createAuth() {
       user: {
         create: {
           before: async (user) => checkSignupAllowed(user.email, env.signupEmails),
-          after: async (user) => banks.createEmpty(user.id, user.name),
+          after: onUserCreated,
         },
       },
     },

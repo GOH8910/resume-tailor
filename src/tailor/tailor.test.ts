@@ -1,15 +1,17 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplicationRepository } from "@/applications/repository";
 import { BankRepository } from "@/bank/repository";
 import { user } from "@/db/schema";
 import { createTestDb } from "@/db/test-db";
 import { AppError } from "@/lib/errors";
 import { DEFAULT_LIMITS } from "./limits";
+import { usageFromError } from "@/billing/usage-error";
+import type { ModelUsage } from "@/billing/usage-types";
 import type { TailorModel, TailorRequest } from "./model";
 import { buildSystemPrompt } from "./prompt";
 import type { TailorResult } from "./schema";
-import { createManualApplication, runTailor } from "./tailor";
+import { cleanTailorInput, createManualApplication, runTailor } from "./tailor";
 
 let close: () => Promise<void>;
 let banks: BankRepository;
@@ -25,13 +27,15 @@ const fakeResult: TailorResult = {
   notes: "JD asks for Rust; bank has none.",
 };
 
+const fakeUsage: ModelUsage = { model: "fake-model", inputTokens: 10_000, outputTokens: 2_500 };
+
 class FakeModel implements TailorModel {
   readonly id = "fake-model";
   requests: TailorRequest[] = [];
   constructor(private readonly result: TailorResult) {}
-  async tailor(req: TailorRequest): Promise<TailorResult> {
+  async tailor(req: TailorRequest) {
     this.requests.push(req);
-    return this.result;
+    return { result: this.result, usage: fakeUsage };
   }
 }
 
@@ -46,13 +50,14 @@ beforeEach(async () => {
 afterEach(() => close());
 
 describe("runTailor", () => {
-  it("calls the model with the bank, validates, and saves an application", async () => {
+  it("calls the model with the bank, validates, saves an application and reports the tokens used", async () => {
     const model = new FakeModel(fakeResult);
     const now = () => new Date(2026, 9, 27, 9); // local time: ids use the local date
-    const app = await runTailor(
+    const { application: app, usage } = await runTailor(
       { userId: USER, jobDescription: "We need Go.", company: "Acme Corp", roleTitle: "Backend" },
       { banks, applications, model, now },
     );
+    expect(usage).toEqual(fakeUsage);
     expect(app.id).toMatch(/^2026-10-27-acme-corp-[0-9a-f]{8}$/);
     expect(app.model).toBe("fake-model");
     expect(app.notes).toContain("Rust");
@@ -71,6 +76,17 @@ describe("runTailor", () => {
   });
 });
 
+describe("cleanTailorInput", () => {
+  it("trims the fields and defaults the role title", () => {
+    expect(cleanTailorInput({ jobDescription: " JD ", company: " Acme " })).toEqual({ jobDescription: "JD", company: "Acme", roleTitle: "" });
+  });
+
+  it("refuses a blank job description or company with a 400", () => {
+    expect(() => cleanTailorInput({ jobDescription: " ", company: "Acme" })).toThrow("Job description is required");
+    expect(() => cleanTailorInput({ jobDescription: "JD", company: "" })).toThrow("Company is required");
+  });
+});
+
 describe("runTailor when the model fails", () => {
   it("rethrows and saves nothing", async () => {
     const failure = new AppError("boom", 502);
@@ -82,6 +98,25 @@ describe("runTailor when the model fails", () => {
     };
     await expect(runTailor({ userId: USER, jobDescription: "We need Go.", company: "Acme" }, { banks, applications, model })).rejects.toBe(failure);
     expect(await applications.list(USER)).toEqual([]);
+  });
+});
+
+describe("runTailor when saving fails after the model answered", () => {
+  it("rethrows the same error, tagged with the tokens the model used", async () => {
+    const failure = new AppError("Could not save", 500);
+    vi.spyOn(applications, "save").mockRejectedValue(failure);
+    const err = await runTailor(
+      { userId: USER, jobDescription: "We need Go.", company: "Acme" },
+      { banks, applications, model: new FakeModel(fakeResult) },
+    ).catch((e: unknown) => e);
+    expect(err).toBe(failure);
+    expect(usageFromError(err)).toEqual(fakeUsage);
+  });
+
+  it("tags no usage when the model was never called", async () => {
+    const model = new FakeModel(fakeResult);
+    const err = await runTailor({ userId: USER, jobDescription: " ", company: "Acme" }, { banks, applications, model }).catch((e: unknown) => e);
+    expect(usageFromError(err)).toBeUndefined();
   });
 });
 

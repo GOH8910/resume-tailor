@@ -1,6 +1,7 @@
 "use client";
 
 import type { Bank } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { Field, TextArea, TextInput } from "@/ui/Field";
 
 type Props = { bank: Bank; onChange: (fn: (bank: Bank) => Bank) => void };
@@ -38,6 +39,7 @@ export function ProfileForm({ bank, onChange }: Props) {
         >
           <TextArea
             rows={8}
+            maxLength={MAX_CHARS.summary}
             value={bank.summary}
             onChange={(e) => {
               const summary = e.target.value;

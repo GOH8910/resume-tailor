@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, chown, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isEnoent } from "@/lib/fs";
+import { groupId } from "./group-id";
 import { countPdfPages } from "./page-count";
 
 /**
@@ -13,8 +14,13 @@ export type CompileResult =
   | { ok: true; pdf: Buffer<ArrayBuffer>; pages: number; log: string }
   | { ok: false; message: string; log: string };
 
-/** `runAs` (default: LATEX_RUN_AS) runs TeX as that user through sudo; see latexCommand. */
-export type CompileOptions = { latexmkPath?: string; timeoutMs?: number; runAs?: string };
+/**
+ * Who runs TeX: `runAs` through sudo (see latexCommand), in a compile folder handed to `group`, one that user and
+ * the server are both in (see slotIdentity). They come together; without them TeX runs as the server's own user.
+ */
+export type TexIdentity = { runAs: string; group: string };
+
+export type CompileOptions = { latexmkPath?: string; timeoutMs?: number } & (TexIdentity | { runAs?: undefined; group?: undefined });
 
 export type LatexCommand = { file: string; args: string[] };
 
@@ -58,9 +64,9 @@ const BLOCKED = new Set(["TEXMFOUTPUT"]);
  * openout_any=p (kpathsea reads it from the environment, ahead of texmf.cnf) stops a document writing to
  * dotfiles, absolute paths or parent directories, so it can only write inside its temp folder.
  * Reads are not confined by TeX (TeX Live 2026 made openin_any a no-op): they rely on escapeLatex and, in the
- * container, on running TeX as a separate unprivileged user. That user isolates TeX from the server (its
- * environment, /app, /app/data), not one compile from another: every compile runs as the same user, so if escaping
- * ever failed a document could reach a concurrent compile's folder through /proc/<pid>/cwd.
+ * container, on running TeX as an unprivileged user per compile slot. That isolates TeX from the server (its
+ * environment, /app, /app/data) and one running compile from another: each slot's folder is open only to that
+ * slot's user, and a user cannot read another user's processes under /proc.
  */
 export function latexEnv(): NodeJS.ProcessEnv {
   const kept = Object.entries(process.env).filter(
@@ -90,11 +96,6 @@ export function latexCommand(latexmk: string, args: string[], runAs: string | un
     file: "sudo",
     args: ["-n", "-u", runAs, "--", GNU_TIMEOUT, "-k", String(INNER_KILL_AFTER_S), `${seconds}s`, latexmk, ...args],
   };
-}
-
-/** The user TeX runs as: the option, else LATEX_RUN_AS, else the server's own user. */
-export function latexRunAs(runAs?: string): string | undefined {
-  return runAs ?? (process.env.LATEX_RUN_AS || undefined);
 }
 
 /** Runs latexmk in its own process group so a timeout can stop latexmk AND its pdflatex child. */
@@ -156,13 +157,11 @@ export function compileRoot(): string {
 
 export async function compileTex(tex: string, options: CompileOptions = {}): Promise<CompileResult> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
-  const runAs = latexRunAs(options.runAs);
+  const { runAs } = options;
   const timeout = options.timeoutMs ?? 60_000;
   const dir = await mkdtemp(path.join(compileRoot(), "resume-tailor-"));
   try {
-    // TeX's user shares a group with the server. The setgid bit (a plain 0o770 would clear it) puts TeX's output
-    // files in that group, so the server can read the PDF; the server owns the folder, so it can remove them.
-    if (runAs) await chmod(dir, 0o2770);
+    if (options.runAs !== undefined) await shareWithTex(dir, options.group);
     await writeFile(path.join(dir, "resume.tex"), PREAMBLE_PREFIX + tex, "utf8");
     const run = await runLatexmk(latexCommand(latexmk, LATEXMK_ARGS, runAs, timeout), dir, timeout);
     // The captured output covers a timeout or an early latexmk failure, where no log file exists.
@@ -185,6 +184,16 @@ export async function compileTex(tex: string, options: CompileOptions = {}): Pro
       console.error(`Could not remove temp dir ${dir}:`, err);
     }
   }
+}
+
+/**
+ * Opens the compile folder (created 0700 by mkdtemp) to TeX's user, and to no one else, through the group it shares
+ * with the server (-1 keeps the server as the owner). The setgid bit (a plain 0o770 would clear it) puts TeX's
+ * output files in that group, so the server can read the PDF; the server owns the folder, so it can remove them.
+ */
+async function shareWithTex(dir: string, group: string): Promise<void> {
+  await chown(dir, -1, await groupId(group));
+  await chmod(dir, 0o2770);
 }
 
 function runFailure(run: RunResult, latexmk: string, runAs: string | undefined, timeoutMs: number): string | undefined {

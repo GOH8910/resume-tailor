@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LayoutSchema } from "@/latex/layout";
+import { MAX_CHARS } from "@/lib/input-caps";
 
 // Empty text/title/category names are allowed: the editor creates drafts while the user types.
 // The LaTeX builder and the prompt skip blank bullets and untitled entries.
@@ -45,6 +46,19 @@ export const BankSchema = z.object({
   skills: z.array(SkillCategorySchema),
   /** Default PDF layout for new resumes of this bank. */
   layout: LayoutSchema.optional(),
+});
+
+export const CappedBulletTextSchema = z.string().max(MAX_CHARS.bullet, `A bullet can be at most ${MAX_CHARS.bullet} characters`);
+export const CappedSummarySchema = z.string().max(MAX_CHARS.summary, `The summary can be at most ${MAX_CHARS.summary} characters`);
+
+const CappedEntrySchema = EntrySchema.extend({ bullets: z.array(BulletSchema.extend({ text: CappedBulletTextSchema })) });
+
+/** A bank as the editor may save it: BankSchema with caps on the free text. Stored banks are read without them. */
+export const BankInputSchema = BankSchema.extend({
+  summary: CappedSummarySchema,
+  education: z.array(CappedEntrySchema),
+  experience: z.array(CappedEntrySchema),
+  projects: z.array(CappedEntrySchema),
 });
 
 export type Bullet = z.infer<typeof BulletSchema>;

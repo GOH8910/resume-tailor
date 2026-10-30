@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { ResumeBullet, ResumeEntry } from "@/applications/schema";
 import type { Bullet, Entry } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { Button } from "@/ui/Button";
 import { TextArea } from "@/ui/Field";
 import { BulletDiff } from "./BulletDiff";
@@ -118,6 +119,7 @@ function BulletRow({ bullet, isFirst, isLast, onSetText, onRevert, onRemove, onM
           <TextArea
             rows={3}
             autoFocus
+            maxLength={MAX_CHARS.bullet}
             value={bullet.text}
             onChange={(e) => onSetText(e.target.value)}
             onBlur={() => setEditing(false)}

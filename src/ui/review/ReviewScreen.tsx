@@ -9,11 +9,15 @@ import { type Bank, SECTION_KEYS } from "@/bank/schema";
 import { applyResumeChanges } from "@/chat/apply-resume";
 import type { ResumeChange } from "@/chat/schema";
 import { resolveLayout } from "@/latex/layout";
+import { MAX_CHARS } from "@/lib/input-caps";
 import { api, errorMessage } from "@/ui/api";
 import { Banner } from "@/ui/Banner";
 import { Button, buttonClass } from "@/ui/Button";
 import { Field, TextArea } from "@/ui/Field";
 import { useChatContext } from "@/ui/chat/ChatProvider";
+import { useCountdown } from "@/ui/countdown";
+import { nextSaveDelay, saveRateLimitWait } from "@/ui/save-backoff";
+import { SavingAgain } from "@/ui/SavingAgain";
 import { loadApplication, saveApplication, saveApplicationOnExit } from "./application-saver";
 import { LayoutControls } from "./LayoutControls";
 import { PdfPreview } from "./PdfPreview";
@@ -42,9 +46,21 @@ function ApplicationReview({ applicationId }: Props) {
   const { preview, compiling, problem, compile } = usePdfCompiler(applicationId);
   const latest = useRef<ResumeState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When a rate-limited save may run again; edits made before then wait for it too.
+  const retryAt = useRef<number | null>(null);
+  const mounted = useRef(false);
+  const saveLatestRef = useRef<() => void>(() => {});
+  const { secondsLeft, start: startCountdown } = useCountdown();
   const dirty = resume !== saved;
   const saving = pendingSaves > 0;
   const { register: registerChat } = useChatContext();
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +93,7 @@ function ApplicationReview({ applicationId }: Props) {
       setPendingSaves((n) => n + 1);
       try {
         setApplication(await saveApplication(applicationId, state));
+        retryAt.current = null;
         setSaved(state); // the snapshot that was written, so edits made while saving stay dirty
         setSaveError(null);
       } finally {
@@ -93,8 +110,25 @@ function ApplicationReview({ applicationId }: Props) {
 
   const saveLatest = useCallback(() => {
     cancelTimer();
-    if (latest.current) save(latest.current).catch((err) => setSaveError(errorMessage(err)));
-  }, [cancelTimer, save]);
+    if (!latest.current) return;
+    save(latest.current).catch((err) => {
+      const wait = saveRateLimitWait(err);
+      if (wait === null) {
+        setSaveError(errorMessage(err));
+        return;
+      }
+      // The edits stay unsaved (dirty): the latest state is saved once the server's wait is over, unless the
+      // screen has gone.
+      retryAt.current = Date.now() + wait * 1000;
+      if (!mounted.current) return;
+      startCountdown(wait);
+      cancelTimer();
+      timer.current = setTimeout(() => saveLatestRef.current(), wait * 1000);
+    });
+  }, [cancelTimer, save, startCountdown]);
+  useEffect(() => {
+    saveLatestRef.current = saveLatest;
+  }, [saveLatest]);
 
   const change = useCallback(
     (fn: (state: ResumeState) => ResumeState) => {
@@ -106,7 +140,7 @@ function ApplicationReview({ applicationId }: Props) {
       latest.current = next; // computed outside the updater: no side effect inside setState
       setResume(next);
       cancelTimer();
-      timer.current = setTimeout(saveLatest, SAVE_DELAY_MS);
+      timer.current = setTimeout(saveLatest, nextSaveDelay(Date.now(), retryAt.current, SAVE_DELAY_MS));
     },
     [cancelTimer, saveLatest],
   );
@@ -187,7 +221,7 @@ function ApplicationReview({ applicationId }: Props) {
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <aside className="grid content-start gap-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-auto">
         <div>
-          <Link href="/" className="text-xs text-ink-faint hover:text-ink">
+          <Link href="/dashboard" className="text-xs text-ink-faint hover:text-ink">
             ← Dashboard
           </Link>
           <h1 className="mt-1 text-3xl leading-tight">{application.company}</h1>
@@ -230,7 +264,7 @@ function ApplicationReview({ applicationId }: Props) {
             {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
           </Button>
           <span className="ml-auto text-xs text-ink-faint" role="status">
-            {compiling ? "Compiling…" : dirty ? "Unsaved changes" : ""}
+            {secondsLeft > 0 ? <SavingAgain secondsLeft={secondsLeft} /> : compiling ? "Compiling…" : dirty ? "Unsaved changes" : ""}
           </span>
         </div>
 
@@ -272,6 +306,7 @@ function ApplicationReview({ applicationId }: Props) {
           <Field label="Summary paragraph">
             <TextArea
               rows={4}
+              maxLength={MAX_CHARS.summary}
               value={resume.summary}
               onChange={(e) => {
                 const summary = e.target.value;

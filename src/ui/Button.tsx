@@ -19,6 +19,9 @@ const SIZES: Record<Size, string> = {
 export const FOCUS_RING =
   "focus:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-paper";
 
+/** A text link: underlined in the surrounding text's colour, crimson on hover. */
+export const LINK_CLASS = `rounded-sm underline underline-offset-2 transition-colors hover:text-accent ${FOCUS_RING}`;
+
 /** Button styling as a class string, so links can look like buttons. */
 export function buttonClass({
   variant = "secondary",

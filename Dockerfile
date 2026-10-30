@@ -52,25 +52,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends perl sudo \
 COPY --from=texlive /usr/local/texlive /usr/local/texlive
 ENV PATH=/usr/local/texlive/bin/current:$PATH
 
-# TeX runs as "tex" (see docker/sudoers-latex), which isolates it from the server: a document cannot read the app's
-# environment under /proc, /app or /app/data. It does not isolate one compile from another: every compile runs as
-# tex, so if escaping ever failed a document could reach a concurrent compile's folder through /proc/<pid>/cwd.
-# Compile folders live under /var/lib/compile: node owns it, and its setgid group texrun (node and tex are both in
-# it) is handed to each compile folder. Group members may enter it but not list it.
+# Each compile slot runs TeX as its own user (see docker/sudoers-latex and src/latex/slot-user.ts): slot n is user
+# texN with its own group texrunN, which node is also in. That isolates TeX from the server (a document cannot read
+# the app's environment under /proc, /app or /app/data) and one running compile from another: each compile folder
+# is handed to its slot's group and closed to everyone else, and no TeX user can read another's processes.
+# Compile folders live under /var/lib/compile: node owns it, and the TeX users (group texrun) may pass through it
+# but not list it. COMPILE_CONCURRENCY compiles run at once, so it must not exceed COMPILE_SLOTS.
+ARG COMPILE_SLOTS=2
+ARG COMPILE_CONCURRENCY=2
 COPY docker/sudoers-latex /tmp/sudoers-latex
-RUN useradd --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin tex \
+RUN [ "$COMPILE_SLOTS" -ge 1 ] && [ "$COMPILE_CONCURRENCY" -ge 1 ] \
+ && { [ "$COMPILE_CONCURRENCY" -le "$COMPILE_SLOTS" ] \
+      || { echo "COMPILE_CONCURRENCY ($COMPILE_CONCURRENCY) must not exceed COMPILE_SLOTS ($COMPILE_SLOTS)" >&2; exit 1; }; } \
  && groupadd texrun \
- && usermod -aG texrun tex \
- && usermod -aG texrun node \
- && install -d -o node -g texrun -m 2710 /var/lib/compile \
- && sed "/^Defaults:node secure_path=/s|@TEXBIN@|$(readlink -f /usr/local/texlive/bin/current)|" /tmp/sudoers-latex \
-    > /etc/sudoers.d/latex \
+ && users="" \
+ && for n in $(seq 1 "$COMPILE_SLOTS"); do \
+      groupadd "texrun$n" \
+      && useradd --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin \
+           --no-user-group --gid "texrun$n" --groups texrun "tex$n" \
+      && usermod -aG "texrun$n" node \
+      && users="${users:+$users,}tex$n" || exit 1; \
+    done \
+ && install -d -o node -g texrun -m 0710 /var/lib/compile \
+ && sed -e "/^Defaults:node secure_path=/s|@TEXBIN@|$(readlink -f /usr/local/texlive/bin/current)|" \
+        -e "s|@TEXUSERS@|$users|" /tmp/sudoers-latex > /etc/sudoers.d/latex \
  && rm /tmp/sudoers-latex \
- && ! grep -q '@TEXBIN@\|secure_path=":' /etc/sudoers.d/latex \
+ && ! grep -q '@TEXBIN@\|@TEXUSERS@\|secure_path=":' /etc/sudoers.d/latex \
  && chmod 0440 /etc/sudoers.d/latex \
  && visudo -c -f /etc/sudoers.d/latex
 
-ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 LATEX_RUN_AS=tex COMPILE_ROOT=/var/lib/compile
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 LATEX_RUN_AS=tex COMPILE_ROOT=/var/lib/compile \
+    COMPILE_CONCURRENCY=$COMPILE_CONCURRENCY
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/templates ./templates

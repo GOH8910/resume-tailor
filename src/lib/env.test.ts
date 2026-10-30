@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "./env";
+import { DEFAULT_SOURCE_CODE_URL } from "./site";
 
 const SECRET = "x".repeat(32);
 
@@ -13,6 +14,7 @@ function production(overrides: Record<string, string | undefined> = {}) {
     EMAIL_FROM: "Resume Tailor <signin@example.com>",
     RESEND_API_KEY: "re_123",
     ANTHROPIC_API_KEY: "sk-ant-123",
+    PRIVACY_CONTACT_EMAIL: "privacy@example.com",
     ...overrides,
   };
 }
@@ -108,8 +110,257 @@ describe("parseEnv", () => {
     expect(() => parseEnv(production({ COMPILE_ROOT: "/var/lib/compile" }))).not.toThrow();
   });
 
+  it("takes LATEX_RUN_AS as a user-name prefix, refusing anything that could not start a user name", () => {
+    expect(() => parseEnv({ LATEX_RUN_AS: "tex", COMPILE_ROOT: "/c" })).not.toThrow();
+    for (const bad of ["Tex", "1tex", "tex user", "tex;id", "../tex"]) {
+      expect(() => parseEnv({ LATEX_RUN_AS: bad, COMPILE_ROOT: "/c" })).toThrow("LATEX_RUN_AS must be a user-name prefix");
+    }
+    expect(parseEnv({ LATEX_RUN_AS: "" }).LATEX_RUN_AS).toBeUndefined();
+  });
+
+  it("reads COMPILE_CONCURRENCY as a whole number of at least 1, default 2", () => {
+    expect(parseEnv({}).COMPILE_CONCURRENCY).toBe(2);
+    expect(parseEnv({ COMPILE_CONCURRENCY: "" }).COMPILE_CONCURRENCY).toBe(2);
+    expect(parseEnv({ COMPILE_CONCURRENCY: "3" }).COMPILE_CONCURRENCY).toBe(3);
+    for (const bad of ["0", "-1", "1.5", "abc"]) expect(() => parseEnv({ COMPILE_CONCURRENCY: bad })).toThrow();
+  });
+
   it("parses SIGNUP_EMAILS into a lowercased, trimmed set", () => {
     const env = parseEnv({ SIGNUP_EMAILS: " Ada@Example.com, bob@example.com ,," });
     expect(env.signupEmails).toEqual(new Set(["ada@example.com", "bob@example.com"]));
+  });
+});
+
+describe("parseEnv: modes, plans and credits", () => {
+  it("resolves APP_MODE to hosted in production and selfhost elsewhere", () => {
+    expect(parseEnv(production()).appMode).toBe("hosted");
+    expect(parseEnv({}).appMode).toBe("selfhost");
+    expect(parseEnv({ NODE_ENV: "test" }).appMode).toBe("selfhost");
+  });
+
+  it("honours an explicit APP_MODE", () => {
+    expect(parseEnv(production({ APP_MODE: "selfhost" })).appMode).toBe("selfhost");
+    expect(parseEnv({ APP_MODE: "hosted" }).appMode).toBe("hosted");
+  });
+
+  it("rejects an unknown APP_MODE", () => {
+    expect(() => parseEnv({ APP_MODE: "saas" })).toThrow();
+  });
+
+  it("parses ADMIN_EMAILS into a lowercased, trimmed set", () => {
+    expect(parseEnv({ ADMIN_EMAILS: " Ed@Example.com, ,ops@example.com" }).adminEmails).toEqual(
+      new Set(["ed@example.com", "ops@example.com"]),
+    );
+    expect(parseEnv({}).adminEmails.size).toBe(0);
+  });
+
+  it("defaults the ad provider to none", () => {
+    expect(parseEnv({ APP_MODE: "hosted" }).adProvider).toBe("none");
+  });
+
+  it("keeps the configured ad provider in hosted mode", () => {
+    expect(parseEnv({ APP_MODE: "hosted", AD_PROVIDER: "test" }).adProvider).toBe("test");
+    const google = parseEnv({ APP_MODE: "hosted", AD_PROVIDER: "google", AD_UNIT_PATH: "/123/rewarded" });
+    expect(google.adProvider).toBe("google");
+    expect(google.AD_UNIT_PATH).toBe("/123/rewarded");
+  });
+
+  it("forces the ad provider to none in selfhost mode", () => {
+    expect(parseEnv({ APP_MODE: "selfhost", AD_PROVIDER: "test" }).adProvider).toBe("none");
+    expect(parseEnv(production({ APP_MODE: "selfhost", AD_PROVIDER: "google" })).adProvider).toBe("none");
+  });
+
+  it("rejects an unknown AD_PROVIDER", () => {
+    expect(() => parseEnv({ AD_PROVIDER: "adsense" })).toThrow();
+  });
+
+  it("refuses the test ad provider in production", () => {
+    expect(() => parseEnv(production({ AD_PROVIDER: "test" }))).toThrow("AD_PROVIDER=test is not allowed in production");
+  });
+
+  // The Google provider is a stub until phase 2b; a server set to it would offer ads that cannot play.
+  it("refuses the Google ad provider in hosted production until it exists", () => {
+    for (const extra of [{}, { AD_UNIT_PATH: "/123/rewarded", AD_SSV_ENABLED: "true" }]) {
+      expect(() => parseEnv(production({ AD_PROVIDER: "google", ...extra }))).toThrow("AD_PROVIDER=google is not available yet");
+    }
+  });
+
+  it("does not refuse it while `next build` runs", () => {
+    expect(() =>
+      parseEnv({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build", AD_PROVIDER: "google" }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["1", true],
+    ["true", true],
+    ["0", false],
+    ["false", false],
+    ["", false],
+    [undefined, false],
+  ])("reads AD_SSV_ENABLED=%j as %s", (value, expected) => {
+    expect(parseEnv({ AD_SSV_ENABLED: value }).AD_SSV_ENABLED).toBe(expected);
+  });
+
+  it("rejects an AD_SSV_ENABLED that is not a recognised boolean", () => {
+    expect(() => parseEnv({ AD_SSV_ENABLED: "yes please" })).toThrow();
+  });
+
+  it("defaults the SSV keys URL to Google's published verifier keys, and reads a blank one as unset", () => {
+    const google = "https://www.gstatic.com/admob/reward/verifier-keys.json";
+    expect(parseEnv({}).AD_SSV_KEYS_URL).toBe(google);
+    expect(parseEnv({ AD_SSV_KEYS_URL: " " }).AD_SSV_KEYS_URL).toBe(google);
+    expect(parseEnv({ AD_SSV_KEYS_URL: "https://keys.example/k.json" }).AD_SSV_KEYS_URL).toBe("https://keys.example/k.json");
+  });
+
+  // Whoever controls the key list can sign their own reward callbacks.
+  it.each(["http://keys.example/k.json", "not a url"])("rejects AD_SSV_KEYS_URL=%s", (value) => {
+    expect(() => parseEnv({ AD_SSV_KEYS_URL: value })).toThrow();
+  });
+
+  it("falls back to the documented credit, limit, budget and model defaults", () => {
+    const env = parseEnv({});
+    expect(env).toMatchObject({
+      FREE_MODEL: "claude-haiku-5-5",
+      UNLIMITED_MODEL: "claude-sonnet-5-5",
+      CREDITS_PER_TAILOR: 2,
+      CREDITS_PER_CHAT_MESSAGE: 1,
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: 10,
+      AD_CREDITS_PER_IP_PER_DAY: 30,
+      AD_MIN_WATCH_SECONDS: 7,
+      SIGNUP_GRANT_CREDITS: 0,
+      FREE_DAILY_BUDGET_GBP: 2,
+      USD_TO_GBP: 0.78,
+      AD_SSV_ENABLED: false,
+    });
+  });
+
+  it("reads numeric settings from strings", () => {
+    const env = parseEnv({
+      CREDITS_PER_TAILOR: "3",
+      CREDITS_PER_CHAT_MESSAGE: "0",
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: "5",
+      AD_CREDITS_PER_IP_PER_DAY: "12",
+      AD_MIN_WATCH_SECONDS: "7.5",
+      SIGNUP_GRANT_CREDITS: "4",
+      FREE_DAILY_BUDGET_GBP: "1.5",
+      USD_TO_GBP: "0.8",
+    });
+    expect(env).toMatchObject({
+      CREDITS_PER_TAILOR: 3,
+      CREDITS_PER_CHAT_MESSAGE: 0,
+      AD_CREDITS_PER_ACCOUNT_PER_DAY: 5,
+      AD_CREDITS_PER_IP_PER_DAY: 12,
+      AD_MIN_WATCH_SECONDS: 7.5,
+      SIGNUP_GRANT_CREDITS: 4,
+      FREE_DAILY_BUDGET_GBP: 1.5,
+      USD_TO_GBP: 0.8,
+    });
+  });
+
+  it.each([
+    ["CREDITS_PER_TAILOR", "-1"],
+    ["CREDITS_PER_TAILOR", "1.5"],
+    ["SIGNUP_GRANT_CREDITS", "two"],
+    ["AD_MIN_WATCH_SECONDS", "-3"],
+    ["FREE_DAILY_BUDGET_GBP", "-0.01"],
+    ["USD_TO_GBP", "0"],
+  ])("rejects %s=%s", (key, value) => {
+    expect(() => parseEnv({ [key]: value })).toThrow();
+  });
+
+  it("accepts other model ids for the free and unlimited plans", () => {
+    const env = parseEnv({ FREE_MODEL: "claude-sonnet-5-5", UNLIMITED_MODEL: "claude-opus-5-5" });
+    expect(env.FREE_MODEL).toBe("claude-sonnet-5-5");
+    expect(env.UNLIMITED_MODEL).toBe("claude-opus-5-5");
+  });
+
+  it.each([
+    ["CREDITS_PER_TAILOR", 2],
+    ["CREDITS_PER_CHAT_MESSAGE", 1],
+    ["AD_CREDITS_PER_ACCOUNT_PER_DAY", 10],
+    ["AD_CREDITS_PER_IP_PER_DAY", 30],
+    ["AD_MIN_WATCH_SECONDS", 7],
+    ["SIGNUP_GRANT_CREDITS", 0],
+    ["FREE_DAILY_BUDGET_GBP", 2],
+    ["USD_TO_GBP", 0.78],
+  ])("reads a blank %s as unset, falling back to %s rather than 0", (key, fallback) => {
+    expect(parseEnv({ [key]: "" })).toMatchObject({ [key]: fallback });
+    expect(parseEnv({ [key]: "  " })).toMatchObject({ [key]: fallback });
+  });
+
+  it.each(["FREE_MODEL", "UNLIMITED_MODEL"])("rejects a blank %s", (key) => {
+    expect(() => parseEnv({ [key]: "" })).toThrow();
+    expect(() => parseEnv({ [key]: "   " })).toThrow();
+  });
+
+  it("trims the model ids", () => {
+    expect(parseEnv({ FREE_MODEL: " claude-haiku-5-5 " }).FREE_MODEL).toBe("claude-haiku-5-5");
+  });
+});
+
+describe("parseEnv: privacy contact", () => {
+  it("defaults the privacy contact to the address in EMAIL_FROM", () => {
+    expect(parseEnv({ EMAIL_FROM: "Resume Tailor <signin@example.com>" }).privacyContactEmail).toBe("signin@example.com");
+    expect(parseEnv({ EMAIL_FROM: "signin@example.com" }).privacyContactEmail).toBe("signin@example.com");
+    expect(parseEnv({}).privacyContactEmail).toBe("signin@localhost");
+  });
+
+  it("uses PRIVACY_CONTACT_EMAIL when set, and reads a blank one as unset", () => {
+    const from = { EMAIL_FROM: "Resume Tailor <signin@example.com>" };
+    expect(parseEnv({ ...from, PRIVACY_CONTACT_EMAIL: "privacy@example.com" }).privacyContactEmail).toBe("privacy@example.com");
+    expect(parseEnv({ ...from, PRIVACY_CONTACT_EMAIL: " " }).privacyContactEmail).toBe("signin@example.com");
+  });
+
+  it("rejects a PRIVACY_CONTACT_EMAIL that is not an email address", () => {
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "Privacy <privacy@example.com>" })).toThrow();
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: "a)b@example.com" })).toThrow();
+  });
+
+  // The browser's email syntax allows both in the local part, where they would start a mailto: query or fragment.
+  it.each(["a?cc=someone@example.com", "a#b@example.com"])("rejects %s, which would change the mailto: link", (address) => {
+    expect(() => parseEnv({ PRIVACY_CONTACT_EMAIL: address })).toThrow();
+    expect(() => parseEnv({ EMAIL_FROM: `Resume Tailor <${address}>` })).toThrow("PRIVACY_CONTACT_EMAIL");
+  });
+
+  it("refuses a fallback from EMAIL_FROM that is not an email address, naming the setting to fix", () => {
+    expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor" })).toThrow("PRIVACY_CONTACT_EMAIL");
+    expect(() => parseEnv({ EMAIL_FROM: "Resume Tailor <not an address>" })).toThrow("PRIVACY_CONTACT_EMAIL");
+  });
+
+  it("requires PRIVACY_CONTACT_EMAIL in hosted production", () => {
+    expect(() => parseEnv(production({ PRIVACY_CONTACT_EMAIL: undefined }))).toThrow(
+      "PRIVACY_CONTACT_EMAIL must be set in hosted production",
+    );
+    expect(() => parseEnv(production({ PRIVACY_CONTACT_EMAIL: " " }))).toThrow("PRIVACY_CONTACT_EMAIL must be set");
+  });
+
+  it("falls back to EMAIL_FROM in a self-hosted production server", () => {
+    const env = parseEnv(production({ APP_MODE: "selfhost", PRIVACY_CONTACT_EMAIL: undefined }));
+    expect(env.privacyContactEmail).toBe("signin@example.com");
+  });
+});
+
+describe("parseEnv: source code link", () => {
+  it("defaults to the upstream repository, and reads a blank value as unset", () => {
+    expect(parseEnv({}).SOURCE_CODE_URL).toBe(DEFAULT_SOURCE_CODE_URL);
+    expect(parseEnv({ SOURCE_CODE_URL: " " }).SOURCE_CODE_URL).toBe(DEFAULT_SOURCE_CODE_URL);
+  });
+
+  it("accepts another https URL, and nothing else", () => {
+    expect(parseEnv({ SOURCE_CODE_URL: "https://git.example.com/fork" }).SOURCE_CODE_URL).toBe("https://git.example.com/fork");
+    expect(() => parseEnv({ SOURCE_CODE_URL: "http://git.example.com/fork" })).toThrow();
+    expect(() => parseEnv({ SOURCE_CODE_URL: "javascript:alert(1)" })).toThrow();
+  });
+});
+
+describe("parseEnv: adsAvailable", () => {
+  it.each([
+    [{ APP_MODE: "hosted" }, false],
+    [{ APP_MODE: "hosted", AD_PROVIDER: "test" }, true],
+    [{ APP_MODE: "hosted", AD_PROVIDER: "google", AD_UNIT_PATH: "/1/x" }, true],
+    [{ APP_MODE: "selfhost", AD_PROVIDER: "test" }, false],
+  ])("is %j → %s: whether an ad can be watched on this server", (source, expected) => {
+    expect(parseEnv(source).adsAvailable).toBe(expected);
   });
 });

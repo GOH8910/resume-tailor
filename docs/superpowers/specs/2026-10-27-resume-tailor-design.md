@@ -9,9 +9,9 @@ A personal, locally-run web app that keeps a complete bank of a person's
 experience and project bullets, and, given a pasted job description (JD),
 uses Claude to **choose** the most relevant bullets, lightly reword them to
 fit the JD, and produce a one-page LaTeX resume in the same visual style as
-`CV_Edward.pdf`.
+the owner's CV (`CV.pdf`).
 
-Users: Edward, and possibly one other person (separate profile). No public
+Users: the owner, and possibly one other person (separate profile). No public
 hosting, no accounts.
 
 ## Non-goals
@@ -29,7 +29,7 @@ hosting, no accounts.
 | Matching | Claude picks and lightly rewords (Anthropic API). |
 | Hosting | Local only, `npm run dev`, data in JSON files in the repo folder. |
 | Output | Review screen, then PDF compiled from LaTeX via local `latexmk`. |
-| Template | Reproduce `CV_Edward.pdf` look (Crimson serif, measured A4 margins, FontAwesome icons, ruled headings). If the Overleaf `.tex` is supplied later, adapt it for exact match. |
+| Template | Reproduce the owner's CV (`CV.pdf`) look (Crimson serif, measured A4 margins, FontAwesome icons, ruled headings). If the Overleaf `.tex` is supplied later, adapt it for exact match. |
 | Stack | Next.js App Router, TypeScript, Tailwind, `@anthropic-ai/sdk`, Vitest. No database. |
 | Profiles | One folder per person under `data/`, switcher in the UI. |
 | Git | Private GitHub repo, work on a feature branch, user opens PRs manually. |
@@ -155,7 +155,7 @@ restores the review.
 
 ## 4. PDF generation
 
-- `templates/resume.tex` reproduces `CV_Edward.pdf` (measured: A4, 0.75in side and
+- `templates/resume.tex` reproduces the owner's CV (`CV.pdf`) (measured: A4, 0.75in side and
   0.8in top/bottom margins; embedded font Amiri, whose Latin glyphs derive from
   Crimson): `article`, Crimson (`crimson` package, pdflatex), `titlesec` for section
   headings with a rule, `enumitem` for tight bullets, `fontawesome5` for the
@@ -201,9 +201,9 @@ action creates a folder with an empty bank.
 ## 7. Seeding
 
 One-off script `scripts/seed-from-pdfs.ts`: runs `pdftotext -layout` on the
-CVs in Edward's Resumes folder, and Claude extracts entries and bullets into
+CVs in the owner's Resumes folder, and Claude extracts entries and bullets into
 the bank schema, deduplicating near-identical bullets. Output is written to
-`data/edward/bank.json` for Edward to clean up in the editor. The script is
+`data/<slug>/bank.json` for the owner to clean up in the editor. The script is
 run once by hand; it is not part of the app.
 
 ## 8. Error handling
@@ -259,5 +259,5 @@ stays local while the repo is still runnable.
 ## 11. Open items
 
 - Overleaf `.tex` source: not available locally. Template will be rebuilt from
-  the PDF; swap in the original later if Edward downloads it.
-- Anthropic API key: Edward to add to `.env.local` before using the tailor step.
+  the PDF; swap in the original later if the owner downloads it.
+- Anthropic API key: the owner to add to `.env.local` before using the tailor step.

@@ -8,6 +8,8 @@ import type { BankRepository } from "@/bank/repository";
 import { type Bank, BankSchema, emptyBank } from "@/bank/schema";
 import { countPdfPages } from "@/latex/page-count";
 import { isEnoent } from "@/lib/fs";
+import { jsonBytes, MAX_BANK_JSON_BYTES, MAX_RESUME_JSON_BYTES } from "@/lib/input-caps";
+import { fitBankToCaps, fitResumeToCaps } from "./fit-caps";
 
 export type ImportOptions = {
   /** A profile directory of the local app: `bank.json` plus optional `applications/<id>.json` and `<id>.pdf`. */
@@ -29,6 +31,8 @@ export type ImportResult = {
   pdfs: number;
   /** `applications/<file>: <reason>` for each application or PDF file that was not imported. */
   skipped: string[];
+  /** `<file>: <field>` for each text cut to the caps the editors are held to (see fit-caps.ts). */
+  truncated: string[];
 };
 
 type LocalApplication = { application: Application; pdf: Buffer | null };
@@ -42,20 +46,21 @@ const PLANNED: Record<BankDecision, ImportResult["bank"]> = {
 
 /** Reads and validates everything first, so a bad bank.json fails before anything is written. */
 export async function importLocalData(options: ImportOptions): Promise<ImportResult> {
-  const bank = await readBank(options.from);
-  const { found, skipped } = await readApplications(options.from);
+  const { bank, truncated: bankTruncated } = await readBank(options.from);
+  const { found, skipped, truncated: applicationsTruncated } = await readApplications(options.from);
+  const truncated = [...bankTruncated, ...applicationsTruncated];
   const pdfs = found.filter((a) => a.pdf).length;
   // find(), not read(): read() creates a missing bank, which a dry run must not do.
   const decision = decideBank(await options.banks.find(options.userId), options.replace);
 
-  if (options.dryRun) return { bank: PLANNED[decision], applications: found.length, pdfs, skipped };
+  if (options.dryRun) return { bank: PLANNED[decision], applications: found.length, pdfs, skipped, truncated };
 
   if (decision !== "keep") await options.banks.write(options.userId, bank);
   for (const { application, pdf } of found) {
     await options.applications.save(options.userId, application);
     if (pdf) await options.applications.savePdf(options.userId, application.id, pdf, countPdfPages(pdf));
   }
-  return { bank: DONE[decision], applications: found.length, pdfs, skipped };
+  return { bank: DONE[decision], applications: found.length, pdfs, skipped, truncated };
 }
 
 /**
@@ -67,7 +72,7 @@ function decideBank(current: Bank | null, replace: boolean): BankDecision {
   return replace ? "replace" : "keep";
 }
 
-async function readBank(from: string): Promise<Bank> {
+async function readBank(from: string): Promise<{ bank: Bank; truncated: string[] }> {
   const file = path.join(from, "bank.json");
   let raw: string;
   try {
@@ -80,21 +85,26 @@ async function readBank(from: string): Promise<Bank> {
   if (json === INVALID_JSON) throw new Error(`${file} is not valid JSON`);
   const parsed = BankSchema.safeParse(json);
   if (!parsed.success) throw new Error(`${file} is not a valid bank: ${describeIssues(parsed.error)}`);
-  return parsed.data;
+  const { bank, truncated } = fitBankToCaps(parsed.data);
+  if (jsonBytes(bank) > MAX_BANK_JSON_BYTES) {
+    throw new Error(`${file} is over ${MAX_BANK_JSON_BYTES / 1000} KB as JSON, more than the bank editor can save; trim it first`);
+  }
+  return { bank, truncated: truncated.map((field) => `bank.json: ${field}`) };
 }
 
-async function readApplications(from: string): Promise<{ found: LocalApplication[]; skipped: string[] }> {
+async function readApplications(from: string): Promise<{ found: LocalApplication[]; skipped: string[]; truncated: string[] }> {
   const dir = path.join(from, "applications");
   let names: string[];
   try {
     names = await readdir(dir);
   } catch (err) {
-    if (isEnoent(err)) return { found: [], skipped: [] };
+    if (isEnoent(err)) return { found: [], skipped: [], truncated: [] };
     throw err;
   }
 
   const found: LocalApplication[] = [];
   const skipped: string[] = [];
+  const truncated: string[] = [];
   for (const name of names.filter((n) => n.endsWith(".json")).sort()) {
     const label = `applications/${name}`;
     const json = parseJson(await readFile(path.join(dir, name), "utf8"));
@@ -112,15 +122,22 @@ async function readApplications(from: string): Promise<{ found: LocalApplication
       skipped.push(`${label}: id does not match the file name`);
       continue;
     }
+    const fitted = fitResumeToCaps(parsed.data.resume);
+    if (jsonBytes(fitted.resume) > MAX_RESUME_JSON_BYTES) {
+      skipped.push(`${label}: resume is over ${MAX_RESUME_JSON_BYTES / 1000} KB as JSON`);
+      continue;
+    }
+    truncated.push(...fitted.truncated.map((field) => `${label}: resume.${field}`));
+    const application = { ...parsed.data, resume: fitted.resume };
     const pdfName = `${parsed.data.id}.pdf`;
     let pdf = await readOptional(path.join(dir, pdfName));
     if (pdf && !isPdf(pdf)) {
       skipped.push(`applications/${pdfName}: not a PDF`);
       pdf = null;
     }
-    found.push({ application: parsed.data, pdf });
+    found.push({ application, pdf });
   }
-  return { found, skipped };
+  return { found, skipped, truncated };
 }
 
 function isPdf(bytes: Buffer): boolean {

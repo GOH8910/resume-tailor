@@ -1,8 +1,64 @@
-# Runbook: phase 1
+# Runbook
+
+How to run the hosted service: Fly.io for the app, Neon for Postgres, Resend for sign-in emails, Anthropic for the AI.
+To run a private copy instead, see the README's "Self-host" section.
 
 Placeholders: `<domain>` is the public host name (e.g. `resume.example.com`), `<you>` your email address,
 `<app>` the Fly app name (`resume-tailor` in `fly.toml`), `<slug>` the name of your old local data folder
-(e.g. `edward` for `data/edward`).
+(e.g. `ada` for `data/ada`).
+
+## Phase 2a launch checklist
+
+For an app already running phase 1. A new deployment does sections 1 to 6 first, setting these secrets with the rest
+in section 3.
+
+1. [ ] **Set the new secrets before deploying this version.** `--stage` stores them without restarting the running
+   machine; the deploy picks them up.
+
+   ```bash
+   fly secrets set --stage \
+     ADMIN_EMAILS='<you>' \
+     PRIVACY_CONTACT_EMAIL='privacy@<domain>' \
+     SIGNUP_GRANT_CREDITS=4 \
+     FREE_DAILY_BUDGET_GBP=2
+   # Optional: where the public pages link the source code (default: the upstream repository)
+   fly secrets set --stage SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
+   fly secrets list
+   ```
+
+   - `ADMIN_EMAILS` must be in place before your account's first request on the new version: that request creates
+     its plan, unlimited only if the email is listed then. Otherwise use **Set a plan** on `/admin`.
+   - `PRIVACY_CONTACT_EMAIL` is required: without it the new machine refuses to boot, and the blue-green deploy keeps
+     the old one serving.
+   - `SIGNUP_GRANT_CREDITS=4` gives each new account two tailors on Haiku (at the default `CREDITS_PER_TAILOR=2`)
+     while there are no ads (`AD_PROVIDER` stays `none`). Free accounts from phase 1 get it too, on their first
+     request after the deploy. `FREE_DAILY_BUDGET_GBP` caps what free accounts can spend per UTC day (default 2);
+     `FREE_DAILY_COST_PER_ACCOUNT_GBP` (default 0.10) and `FREE_CALLS_IN_FLIGHT` (default 4) keep their defaults
+     unless you set them (see "Spend bounds" in section 7).
+   - Keep `SIGNUP_EMAILS` for a private run. Removing it opens sign-up (step 7).
+   - Check that the Anthropic console has a monthly spend limit (section 1). It is the only cap on unlimited accounts
+     besides the rate limits, and the last line of defence for everything else.
+2. [ ] **Test the image.** `bash scripts/smoke-image.sh` must print no FAIL, and run
+   `docker build --platform linux/amd64 .` once (section 4).
+3. [ ] **Deploy and check.** `fly deploy`, then `fly status` (one machine) and
+   `curl -sS 'https://<domain>/api/health?deep=1'`, which must print `{"ok":true,"db":"ok","latexmk":"ok"}`. Sign in:
+   `/account` should say Unlimited, and `/admin` should load.
+4. [ ] **Read the legal pages** (`/privacy`, `/terms`, `/cookies`) against the notes under "The legal pages are
+   templates" in section 7. Confirm the terms' liability cap of £50 (`src/legal/terms.ts`). Consider having them
+   reviewed by someone qualified.
+5. [ ] **Check the PDF preview in Firefox and Safari** once: the tests only run Chromium.
+6. [ ] **Turn on private vulnerability reporting** on GitHub (the repository's Settings, "Advanced Security" or
+   "Code security", "Private vulnerability reporting"). `SECURITY.md` sends reporters there.
+7. [ ] **Open sign-up** with `fly secrets unset SIGNUP_EMAILS`. For the first week, look at `/admin` daily: the free
+   spend against the budget, credits granted and spent, and ad sessions by status, rejected ones especially.
+8. [ ] **Phase 2b, ads.** Apply for Google Ad Manager with the live landing, privacy and terms pages; create a
+   rewarded ad unit; set up Privacy & messaging for UK and EEA consent. Then wire the Google provider (the phase 2b
+   code, which also requires `AD_UNIT_PATH` and `AD_SSV_ENABLED` with it), deploy it, and set `SIGNUP_GRANT_CREDITS`
+   back to 0. Until that code ships, a production server refuses to boot with `AD_PROVIDER=google`.
+
+Developers with a local database from before this phase: migration 0002 was regenerated during development, so an
+old `data/pglite` no longer matches the migrations. Delete `data/pglite` once (this erases the local accounts and
+banks); the next start creates it again.
 
 ## 1. One-time accounts
 
@@ -16,7 +72,8 @@ Placeholders: `<domain>` is the public host name (e.g. `resume.example.com`), `<
    Credentials, Create OAuth client ID, Web application, with the authorized redirect URI
    `https://<domain>/api/auth/callback/google`. Keep the client ID and secret. While the consent screen is
    in Testing, only its listed test users can use Google.
-5. **Anthropic console**: create an API key, and set a monthly spend limit (Settings, Limits).
+5. **Anthropic console**: create an API key, and set a monthly spend limit (Settings, Limits). The limit is
+   mandatory: unlimited accounts are bounded only by it and the rate limits.
 6. **Domain**: you need to be able to edit its DNS records.
 
 ## 2. Create the Fly app
@@ -45,9 +102,16 @@ fly secrets set \
   EMAIL_FROM='Resume Tailor <signin@<domain>>' \
   RESEND_API_KEY='re_...' \
   ANTHROPIC_API_KEY='sk-ant-...' \
+  PRIVACY_CONTACT_EMAIL='privacy@<domain>' \
+  ADMIN_EMAILS='<you>' \
+  SIGNUP_GRANT_CREDITS=4 \
+  FREE_DAILY_BUDGET_GBP=2 \
   SIGNUP_EMAILS='<you>,friend@example.com'
 # Optional, both or neither:
 fly secrets set GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...'
+# Optional: where the public pages link the source code (default: the upstream repository). A modified copy run for
+# others must offer its own source under the AGPL.
+fly secrets set SOURCE_CODE_URL='https://github.com/<you>/resume-tailor'
 ```
 
 - `DATABASE_URL` is Neon's **direct** (unpooled) string with `sslmode=verify-full`. The app runs its
@@ -56,6 +120,14 @@ fly secrets set GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...'
   sign-up**: anyone who finds the site can create an account and spend Anthropic credit. Accounts that
   already exist can always sign in.
 - `EMAIL_FROM` must be on the domain verified in Resend.
+- `PRIVACY_CONTACT_EMAIL` is the address the privacy, terms and cookies pages give for questions and data requests
+  (a bare address, in a mailbox you read). It is required in hosted production: without it the machine refuses to
+  boot, naming it. Self-hosted servers and development fall back to the address in `EMAIL_FROM`.
+- `ADMIN_EMAILS` (comma-separated) get the unlimited plan when their account is first used, and the `/admin` page.
+  `SIGNUP_GRANT_CREDITS` is what a new account starts with: 4 until ads are live, then 0. `FREE_DAILY_BUDGET_GBP`
+  pauses free accounts' AI calls for the rest of the UTC day once their costed usage reaches it;
+  `FREE_DAILY_COST_PER_ACCOUNT_GBP` and `FREE_CALLS_IN_FLIGHT` bound one account and the calls running at once (see
+  "Spend bounds" in section 7). `.env.example` documents the other plan, credit and ad settings and their defaults.
 - `fly.toml` already sets `PORT`, `HOSTNAME`, `COMPILE_CONCURRENCY`, `EMAIL_TRANSPORT=resend`,
   `LATEX_RUN_AS` and `COMPILE_ROOT`. Do not set them as secrets.
 - A missing or invalid required value makes the new machine exit at boot (`[env] invalid configuration` in
@@ -124,8 +196,99 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 - **Rotate a secret**: `fly secrets set NAME='new value'` restarts the machine with it. For API keys, create
   the new key, set it, then revoke the old one. A new `BETTER_AUTH_SECRET` signs everyone out.
 - **Health**: `/api/health` (Fly, every 30 s) checks that the process answers and latexmk runs. latexmk runs
-  the way compiles do, through sudo as `tex`, so a broken sudo rule shows as `"latexmk":"error: …"` with a
-  503. `?deep=1` also runs `select 1` against the database.
+  the way compiles do, through sudo as the last compile slot's user (`tex2` by default), so a broken sudo rule,
+  or a `COMPILE_CONCURRENCY` above the TeX users in the image, shows as `"latexmk":"error: …"` with a 503 and
+  fails the deploy. `?deep=1` also runs `select 1` against the database.
+- **Limits** (hosted mode, in memory, reset by a restart): per account, tailor 10/hour, chat 30/10 min,
+  compile 60/10 min, bank saves 120/10 min, resume saves 120/10 min, new resumes 30/10 min, ad starts 20/hour,
+  data exports 5/hour;
+  magic links 5/hour and sign-in verifications 20/hour per IP (Better Auth, production only). Each is a token
+  bucket that starts full, so an account's first window can see up to about twice the figure (the burst plus
+  what refills meanwhile). A refusal is a 429 with `details.retryAfter` and a `Retry-After` header; autosave
+  keeps the edit and saves it again after the wait, and the preview retries a compile once.
+- **Admin page** (`/admin`, linked from the top bar): only for the accounts listed in `ADMIN_EMAILS`, whatever
+  their plan; any other account gets a 404. It shows the Claude spend today and this month (UTC days, as the budget
+  and the ad caps use), the part paid for with free credits against `FREE_DAILY_BUDGET_GBP`, and today's credits and
+  ad sessions. Press **Refresh** for new figures.
+  - **Pause free usage** stops AI calls for free accounts (tailoring and chat answer 402 "paused by the operator")
+    until you press **Resume free usage**. The switch is stored in the database (`settings.free_paused`), so it
+    holds across restarts and deploys. Unlimited accounts are never paused. Separately, free usage pauses on its own
+    once the day's free spend reaches the budget, and resumes at midnight UTC.
+  - **Set a plan** moves an existing account to Free or Unlimited, from its next request. `ADMIN_EMAILS` only picks
+    the plan when an account is first used, so use this for an account that signed up before you listed it, or to
+    take Unlimited away again. Removing an address from `ADMIN_EMAILS` (and restarting) takes away `/admin`, not the
+    plan.
+- **Spend bounds** (free accounts, hosted mode): the day's free spend pauses everyone at `FREE_DAILY_BUDGET_GBP`
+  (default £2), and each account at `FREE_DAILY_COST_PER_ACCOUNT_GBP` of its own (default £0.10; it then sees "You've
+  reached today's free AI limit for this account"). Both are checked before a call starts, so calls already running can
+  overshoot; `FREE_CALLS_IN_FLIGHT` (default 4, in memory) bounds that, answering 503 "The free AI is busy" beyond it.
+  The largest free call costs about £0.13 (about 1 MB of prompt at Haiku's long-context rate plus 16k output tokens),
+  so a day's free spend stays under about £2 + 4 × £0.13 ≈ £2.52, and one account's under about £0.10 + 4 × £0.13.
+  Unlimited accounts are bounded only by the rate limits and the Anthropic console's monthly spend limit.
+- **Public pages**: `/` (the landing page), `/privacy`, `/terms`, `/cookies` and `/signin` need no account;
+  every other page sends a signed-out visitor to `/signin`. The dashboard lives at `/dashboard`: a signed-in visit
+  to `/` or `/signin` goes there, and so does signing in without a `next`. The landing page shows
+  `CREDITS_PER_TAILOR`, `CREDITS_PER_CHAT_MESSAGE` and `FREE_MODEL` as configured, and says ads are still to come
+  (with `SIGNUP_GRANT_CREDITS`) while `AD_PROVIDER=none`; a self-hosted server shows "no ads, no credits" instead.
+  After a deletion the browser lands on `/?deleted=1`, which says so. `/robots.txt` lets crawlers read the public
+  pages and keeps them out of `/api/`; `/signin` asks not to be indexed.
+- **The legal pages are templates: check them before launch.** Their text is in `src/legal/` (`privacy.ts`,
+  `terms.ts`, `cookies.ts`), rendered by `src/ui/legal/LegalPage.tsx`; change a page's `updated` date with its
+  text. A self-hosted server (`APP_MODE=selfhost`) shows a short notice on each instead: its operator is
+  responsible for the data there and sets their own terms. They describe what the code did when they were written: the export's fields, what deletion removes and
+  keeps, the 48-hour IP retention for ads, the processors (Anthropic, Neon, Fly.io, Resend, Google) and their
+  London regions, and whether ads are on (from `AD_PROVIDER`). Check before launch, and again whenever those
+  change: the Neon plan's restore window (the privacy page says "up to 7 days": Neon's free plan keeps 6 hours
+  and Launch up to 7 days, so a longer window needs the text changed), Fly's log retention, Anthropic's API
+  retention (30 days when written), and the terms' liability cap of £50 (the owner's choice: confirm it). They are
+  not legal advice; have them read by someone qualified if you can. `src/legal/legal.test.ts` checks their length,
+  links and a few of these facts.
+- **Sample resume image**: `src/ui/landing/sample-resume.png` on the landing page is `data/example/bank.json`
+  rendered through the real template. After changing the template or the example bank, run
+  `npx tsx scripts/render-sample.ts` (needs latexmk and `pdftoppm`) and commit the PNG. The page imports it, so Next
+  serves it from `/_next/static/media/` under a content hash (cached as immutable) and reads its size itself.
+  There is no `public/` folder; if one is added, the Dockerfile must copy it, as Next's standalone output leaves
+  it out.
+- **Account export and deletion**: every account can download its data and delete itself on `/account`. Exports are
+  streamed, one per account and two across the server at a time; a download the browser stops reading for 60 s is
+  ended, which frees its slot (logged as `[account] a data export went unread`). A deletion removes the account's sign-ins, bank,
+  resumes and PDFs, plan, credits and sessions; its credits ledger, ad sessions and costed usage stay, with no account
+  attached, for the audit, the per-IP ad cap and the budget (the ledger without its resume references, the ad
+  sessions without their IPs except today's grants). A person who cannot sign in can be deleted in psql with
+  `delete from "user" where email = '…';`, which cascades the same way but keeps those references and IPs.
+- **IP retention**: ad sessions keep the client's IP (a /64 for IPv6) for 48 hours, for the per-IP daily ad cap.
+  The server blanks older ones at boot, every hour and at each ad start, skipping any row another request holds
+  (the next run gets it). A session can only be granted within an hour of starting, or a day for the ad network's
+  verified callback. Better Auth's session rows also hold an IP and user agent per signed-in
+  browser; a row goes when that browser signs out or the account is deleted.
+- **Size caps** (every mode): JSON bodies up to 1 MB, banks up to 300 KB and one resume up to 700 KB of JSON in
+  UTF-8 bytes (413), a chat request up to 20 messages and 40,000 characters, at most 200 saved resumes per
+  account (409). Text the server writes itself (chat's changes, tailored rewrites, the seed and import scripts)
+  is held to the editors' caps, so the API never refuses to save data it stored. Beyond 2 running and 8 waiting
+  compiles, the API answers 503 with `Retry-After: 10` and the review screen retries once.
+- **Security headers**: every response carries `Strict-Transport-Security` (production builds only),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`
+  (`next.config.ts`), and a `Content-Security-Policy` with a fresh nonce per request (`src/proxy.ts`, built by
+  `src/ads/csp.ts`). Scripts run only with that nonce or when a nonce'd script loads them (`'strict-dynamic'`);
+  styles only from our stylesheets; frames only our own and the PDF preview's `blob:`; nothing may frame the site.
+  With an https `BETTER_AUTH_URL` the policy also upgrades stray `http://` requests to https.
+  The nonce reaches Next's scripts only while a page renders, so the root layout renders every page per request.
+  If a page breaks after a dependency upgrade (blank areas, buttons that do nothing), open the browser console:
+  a refused script, style or frame is reported there as a Content Security Policy violation, naming the directive.
+  The e2e suites run under the dev policy (which allows eval and inline styles) and fail on any violation;
+  `scripts/smoke-image.sh` is the production-policy check: it walks the production image in a browser and fails on
+  any violation or console error.
+- **HSTS covers subdomains**: `includeSubDomains` tells browsers to use https for every subdomain of the site's
+  host for a year, and they remember it. Before the first deploy, either serve the app from a dedicated subdomain
+  (e.g. `resume.example.com`, so only its own subdomains are pinned) or make sure every subdomain of the domain
+  already works over https.
+- **Ads and the policy (phase 2b)**: Google's tag loads from hosts it does not publish in full. Enforce a loose
+  policy for ads first (`https:` in `img-src`, `frame-src` and `connect-src`), and at the same time send the tight
+  host lists from `src/ads/csp.ts` as `Content-Security-Policy-Report-Only`, with a `report-uri` to a
+  `/api/csp-report` endpoint (public, size-capped, rate-limited, log-only). The report-only policy should also cover
+  `style-src`, `font-src` and `media-src`. Tighten the enforced policy to the host lists once the reports are clean.
+- **More compile slots**: build with `--build-arg COMPILE_SLOTS=N` (creates `tex1..texN`) and raise
+  `COMPILE_CONCURRENCY` in `fly.toml` to at most N.
 - **Deploys during a compile**: `kill_timeout = 65` lets a stopping machine finish a compile (up to 60 s).
 - **Migrations** run at boot through the pool, so every statement is bounded by its 10 s `query_timeout`.
   `npm run db:migrate` uses the same pool and limit. A future migration that needs longer must be applied
@@ -154,15 +317,18 @@ bank. Do not edit the bank yet: the import in step 6 only fills a bank that is s
 
 ## 9. Residual risks
 
-- Both compile slots run as the same `tex` user. If LaTeX escaping ever failed, one compile could read a
-  concurrent compile's folder through `/proc`. Per-slot users are planned before public launch.
+- Each compile slot runs TeX as its own user (`tex1`, `tex2`) in a folder only that user and the server can
+  enter, so one running compile cannot reach another's files. Compiles that run one after the other in the same
+  slot share a user; each removes its folder when it ends, so nothing of an earlier one is left to read.
+- The rate limits are in memory on one machine; a restart or deploy resets them, and a second machine would
+  double them.
 - With `SIGNUP_EMAILS` unset, sign-up is open to anyone.
 - The magic-link throttle (5 links per address per hour) is in memory: per process, and reset by every
   restart and deploy.
 
-## 10. Phase 2 reminders
+## 10. Later phases
 
+- Phase 2b (ads): the Google provider (requiring `AD_UNIT_PATH` and `AD_SSV_ENABLED` with it), consent,
+  server-side verification and the report-only CSP rollout. The spec's "Phases" section lists what moved there.
 - Before Lemon Squeezy webhooks go live, add `/api/webhooks/` to the `PUBLIC` list in `src/proxy.ts`:
   webhook calls carry no session cookie.
-- `/` becomes public when the landing page lands. Add it to `PUBLIC` as an exact match (`/^\/$/`), so it
-  does not open every path.

@@ -81,7 +81,7 @@ describe("importLocalData", () => {
 
     const result = await run();
 
-    expect(result).toEqual({ bank: "imported", applications: 2, pdfs: 1, skipped: [] });
+    expect(result).toEqual({ bank: "imported", applications: 2, pdfs: 1, skipped: [], truncated: [] });
     expect(await banks.read(USER)).toEqual(bank());
     expect(await applications.get(USER, WITHOUT_PDF)).toEqual(app(WITHOUT_PDF, "Globex"));
     const list = await applications.list(USER);
@@ -159,6 +159,7 @@ describe("importLocalData", () => {
       applications: 2,
       pdfs: 0,
       skipped: [`applications/${WITH_PDF}.pdf: not a PDF`],
+      truncated: [],
     });
     expect(await applications.get(USER, WITH_PDF)).toEqual(app(WITH_PDF, "Acme"));
     expect(await applications.readPdf(USER, WITH_PDF)).toBeNull();
@@ -167,7 +168,7 @@ describe("importLocalData", () => {
   it("treats a missing applications directory as zero applications", async () => {
     await writeFixture({ "bank.json": JSON.stringify(bank()) });
 
-    expect(await run()).toEqual({ bank: "imported", applications: 0, pdfs: 0, skipped: [] });
+    expect(await run()).toEqual({ bank: "imported", applications: 0, pdfs: 0, skipped: [], truncated: [] });
   });
 
   it("fails with the file name when bank.json is missing or invalid, writing nothing", async () => {
@@ -187,7 +188,13 @@ describe("importLocalData", () => {
 
     const result = await run({ dryRun: true });
 
-    expect(result).toEqual({ bank: "would-import", applications: 2, pdfs: 1, skipped: [expect.stringMatching(/^applications\/broken\.json: /)] });
+    expect(result).toEqual({
+      bank: "would-import",
+      applications: 2,
+      pdfs: 1,
+      skipped: [expect.stringMatching(/^applications\/broken\.json: /)],
+      truncated: [],
+    });
     expect(await applications.list(USER)).toEqual([]);
     // Not banks.read(): it creates an empty bank on a miss.
     expect(await db.select().from(banksTable)).toEqual([]);
@@ -202,5 +209,50 @@ describe("importLocalData", () => {
     expect((await run({ dryRun: true, replace: true })).bank).toBe("would-replace");
     expect(await banks.read(USER)).toEqual(existing);
     expect(await applications.list(USER)).toEqual([]);
+  });
+
+  it("cuts text over the caps the editors are held to, and lists each field without its text", async () => {
+    const long = { ...bank(), summary: "s".repeat(2_100) };
+    long.experience[0].bullets[0].text = "x".repeat(650);
+    const application = app(WITH_PDF, "Acme");
+    application.resume = {
+      ...application.resume,
+      experience: [{ entryId: "e_1", rationale: "", bullets: [{ bulletId: "b_1", original: "Built it.", text: "y".repeat(700) }] }],
+    };
+    await writeFixture({ "bank.json": JSON.stringify(long), [`applications/${WITH_PDF}.json`]: JSON.stringify(application) });
+
+    const result = await run();
+
+    expect(result.truncated).toEqual([
+      "bank.json: summary",
+      "bank.json: experience.0.bullets.0.text",
+      `applications/${WITH_PDF}.json: resume.experience.0.bullets.0.text`,
+    ]);
+    const stored = await banks.read(USER);
+    expect(stored.summary).toHaveLength(2_000);
+    expect(stored.experience[0].bullets[0].text).toHaveLength(600);
+    expect((await applications.get(USER, WITH_PDF)).resume.experience[0].bullets[0].text).toHaveLength(600);
+    expect(JSON.stringify(result)).not.toContain("xxxx");
+  });
+
+  it("refuses a bank over 300 KB of JSON, writing nothing", async () => {
+    const big = bank();
+    big.experience[0].bullets = Array.from({ length: 600 }, (_, i) => ({ id: `b_${i}`, text: "é".repeat(300) }));
+    await writeFixture({ "bank.json": JSON.stringify(big) });
+    await expect(run()).rejects.toThrow(/bank\.json is over 300 KB as JSON/);
+    expect(await db.select().from(banksTable)).toEqual([]);
+  });
+
+  it("skips an application whose resume is over 700 KB of JSON", async () => {
+    await standardFixture();
+    const big = app(WITHOUT_PDF, "Globex");
+    const bullets = Array.from({ length: 1_200 }, (_, i) => ({ bulletId: `b_${i}`, original: "", text: "x".repeat(600) }));
+    big.resume = { ...big.resume, experience: [{ entryId: "e_1", rationale: "", bullets }] };
+    await writeFixture({ [`applications/${WITHOUT_PDF}.json`]: JSON.stringify(big) });
+
+    const result = await run();
+
+    expect(result.applications).toBe(1);
+    expect(result.skipped).toEqual([`applications/${WITHOUT_PDF}.json: resume is over 700 KB as JSON`]);
   });
 });

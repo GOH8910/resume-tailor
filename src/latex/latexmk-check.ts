@@ -1,5 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { type LatexCommand, latexCommand, latexEnv, latexRunAs } from "./compile";
+import { env } from "@/lib/env";
+import { type LatexCommand, latexCommand, latexEnv } from "./compile";
+import { slotUser } from "./slot-user";
 
 export type LatexmkStatus = "ok" | "missing" | `error: ${string}`;
 export type LatexmkCheckOptions = { latexmkPath?: string; timeoutMs?: number; runAs?: string };
@@ -20,8 +22,9 @@ export function resetLatexmkCache(): void {
 }
 
 /**
- * Whether `latexmk -version` runs, the same way compiles run it (through sudo when LATEX_RUN_AS is set, so a
- * broken sudo rule shows up here). Only an ok answer is cached: a failure is re-probed on the next check,
+ * Whether `latexmk -version` runs, the same way compiles run it: by default through sudo as the last compile
+ * slot's user when LATEX_RUN_AS is set, so a broken sudo rule, or a COMPILE_CONCURRENCY above the users the image
+ * has, shows up here. Only an ok answer is cached: a failure is re-probed on the next check,
  * so a one-off timeout under load does not keep the machine marked unhealthy for five minutes.
  * Checks that arrive while a probe is running share it, so a burst on the public endpoint spawns one process.
  * Never rejects.
@@ -39,7 +42,7 @@ export function checkLatexmk(options: LatexmkCheckOptions = {}): Promise<Latexmk
 
 async function runProbe(options: LatexmkCheckOptions): Promise<LatexmkStatus> {
   const latexmk = options.latexmkPath ?? process.env.LATEXMK_PATH ?? "latexmk";
-  const runAs = latexRunAs(options.runAs);
+  const runAs = options.runAs ?? slotUser(env.LATEX_RUN_AS, env.COMPILE_CONCURRENCY - 1);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const status = await probe(latexCommand(latexmk, ["-version"], runAs, timeoutMs), runAs !== undefined, timeoutMs);
   if (status === "ok") lastOk = Date.now();

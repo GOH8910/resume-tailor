@@ -1,8 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
+import type { ModelUsage } from "@/billing/usage-types";
 import { AppError } from "@/lib/errors";
 
+// A retry after a client-side timeout can be billed by Anthropic a second time, and only the call that answered
+// is recorded in usage_events. Accepted: one extra call at most, on a rare path.
 const REQUEST_OPTIONS = { timeout: 5 * 60_000, maxRetries: 1 };
 
 export function hasApiKey(): boolean {
@@ -17,12 +20,33 @@ export type StructuredRequest = {
   maxTokens?: number;
 };
 
+export type Structured<T> = { value: T; usage: ModelUsage };
+
 /**
- * One Messages call whose reply must be JSON matching `schema`.
+ * Claude answered, and Anthropic billed the call, but the reply cannot be used (refused, truncated, unparseable).
+ * `usage` is for booking the cost on the server; `handle()` sends only the message.
+ */
+export class ModelCallError extends AppError {
+  declare readonly usage: ModelUsage;
+
+  constructor(message: string, status: number, usage: ModelUsage) {
+    super(message, status);
+    this.name = "ModelCallError";
+    // Not enumerable, like attachUsage: nothing serialised from the error carries it.
+    Object.defineProperty(this, "usage", { value: usage, enumerable: false });
+  }
+}
+
+/**
+ * One Messages call whose reply must be JSON matching `schema`, with the tokens it used.
  * Uses create() + manual parse: parse() would throw on truncated or refused output
  * before stop_reason could be checked, hiding the real cause.
  */
-export async function createStructured<S extends z.ZodType>(client: Anthropic, schema: S, request: StructuredRequest): Promise<z.infer<S>> {
+export async function createStructured<S extends z.ZodType>(
+  client: Anthropic,
+  schema: S,
+  request: StructuredRequest,
+): Promise<Structured<z.infer<S>>> {
   const format = zodOutputFormat(schema);
   const response = await client.messages
     .create(
@@ -39,21 +63,34 @@ export async function createStructured<S extends z.ZodType>(client: Anthropic, s
     .catch((err: unknown) => {
       throw toAppError(err);
     });
+  const usage = usageOf(request.model, response.usage);
   if (response.stop_reason === "refusal") {
     const why = response.stop_details?.explanation ?? "no explanation given";
-    throw new AppError(`Claude declined this request: ${why}`, 502);
+    throw new ModelCallError(`Claude declined this request: ${why}`, 502, usage);
   }
   if (response.stop_reason === "max_tokens") {
-    throw new AppError("Claude ran out of output tokens before finishing. Try a shorter request.", 502);
+    throw new ModelCallError("Claude ran out of output tokens before finishing. Try a shorter request.", 502, usage);
   }
   const text = response.content.find((block) => block.type === "text");
   try {
     if (!text) throw new Error("Claude returned no text block");
-    return format.parse(text.text);
+    return { value: format.parse(text.text), usage };
   } catch (err) {
     console.error("Claude structured output failed to parse", err);
-    throw new AppError("Claude returned output that did not match the expected schema. Try again.", 502);
+    throw new ModelCallError("Claude returned output that did not match the expected schema. Try again.", 502, usage);
   }
+}
+
+// Booked under the requested id, not response.model: the API may answer with a dated snapshot id that the
+// price table does not list.
+function usageOf(model: string, usage: Anthropic.Usage): ModelUsage {
+  return {
+    model,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    ...(usage.cache_read_input_tokens != null && { cacheReadTokens: usage.cache_read_input_tokens }),
+    ...(usage.cache_creation_input_tokens != null && { cacheWriteTokens: usage.cache_creation_input_tokens }),
+  };
 }
 
 export function toAppError(err: unknown): AppError {

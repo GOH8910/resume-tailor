@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { ModelUsage } from "@/billing/usage-types";
 import { createStructured } from "@/lib/anthropic";
-import type { ModelId } from "@/tailor/model";
 import type { ChatModel } from "./model";
 import { type ChatMessage, type ChatResult, ChatResultSchema } from "./schema";
 
@@ -8,19 +8,20 @@ export class AnthropicChatModel implements ChatModel {
   private readonly client: Anthropic;
 
   constructor(
-    readonly id: ModelId,
+    readonly id: string,
     client?: Anthropic,
   ) {
     this.client = client ?? new Anthropic();
   }
 
-  chat(system: string, messages: ChatMessage[]): Promise<ChatResult> {
-    return createStructured(this.client, ChatResultSchema, {
+  async chat(system: string, messages: ChatMessage[]): Promise<{ result: ChatResult; usage: ModelUsage }> {
+    const { value, usage } = await createStructured(this.client, ChatResultSchema, {
       model: this.id,
       system,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       effort: "medium",
       maxTokens: 8000,
     });
+    return { result: value, usage };
   }
 }

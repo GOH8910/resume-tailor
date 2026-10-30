@@ -1,6 +1,16 @@
 import { isAPIError } from "better-auth/api";
-import { describe, expect, it, vi } from "vitest";
-import { checkMagicLinkAllowed, checkSignupAllowed } from "./auth";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const banks = vi.hoisted(() => ({ createEmpty: vi.fn() }));
+const plans = vi.hoisted(() => ({ ensure: vi.fn() }));
+const credits = vi.hoisted(() => ({ grantSignup: vi.fn() }));
+vi.mock("./deps", () => ({ banks, plans, credits }));
+vi.mock("./env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./env")>();
+  return { ...actual, env: { ...actual.env, adminEmails: new Set(["ed@example.com"]), SIGNUP_GRANT_CREDITS: 4 } };
+});
+
+import { checkMagicLinkAllowed, checkSignupAllowed, onUserCreated } from "./auth";
 
 describe("checkSignupAllowed", () => {
   it("lets anyone sign up when no allowlist is configured", () => {
@@ -47,5 +57,26 @@ describe("checkMagicLinkAllowed", () => {
     const hasAccount = vi.fn(async () => true);
     await expect(checkMagicLinkAllowed("grace@example.com", invited, hasAccount)).resolves.toBeUndefined();
     expect(hasAccount).toHaveBeenCalledWith("grace@example.com");
+  });
+});
+
+describe("onUserCreated", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("gives a new account an empty bank named after it and the free plan", async () => {
+    await onUserCreated({ id: "u1", email: "ada@example.com", name: "Ada" });
+    expect(banks.createEmpty).toHaveBeenCalledWith("u1", "Ada");
+    expect(plans.ensure).toHaveBeenCalledWith("u1", "free");
+  });
+
+  it("grants the starting credits once the plan exists", async () => {
+    await onUserCreated({ id: "u1", email: "ada@example.com", name: "Ada" });
+    expect(credits.grantSignup).toHaveBeenCalledExactlyOnceWith("u1", 4);
+    expect(plans.ensure.mock.invocationCallOrder[0]).toBeLessThan(credits.grantSignup.mock.invocationCallOrder[0]);
+  });
+
+  it("gives an admin address the unlimited plan, ignoring case", async () => {
+    await onUserCreated({ id: "u2", email: "Ed@Example.com", name: "Ed" });
+    expect(plans.ensure).toHaveBeenCalledWith("u2", "unlimited");
   });
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BankSchema } from "@/bank/schema";
+import { BankInputSchema, BankSchema } from "@/bank/schema";
 import { applyBankChanges } from "./apply-bank";
 import { type BankChange, EMPTY_BANK_CHANGE } from "./schema";
 
@@ -70,5 +70,60 @@ describe("applyBankChanges", () => {
     ]);
     expect(next.summary).toBe("New summary");
     expect(next.profile.linkedin).toBe("https://linkedin.com/in/x");
+  });
+});
+
+describe("applyBankChanges caps (stored banks must stay within what the bank editor may save)", () => {
+  const long = "x".repeat(601);
+
+  it("skips an added bullet over 600 characters with a warning, keeping the others", () => {
+    const { bank: next, applied, warnings } = applyBankChanges(
+      bank,
+      [{ ...blank, kind: "addBullets", entryId: "e_exp1", texts: [long, "Mentored two interns"] }],
+      makeId,
+    );
+    expect(next.experience[0].bullets.map((b) => b.text)).toContain("Mentored two interns");
+    expect(next.experience[0].bullets.some((b) => b.text === long)).toBe(false);
+    expect(applied[0]).toContain("1 bullet");
+    expect(warnings).toEqual([`Skipped 1 bullet over 600 characters in "${bank.experience[0].title}"`]);
+    expect(BankInputSchema.safeParse(next).success).toBe(true);
+  });
+
+  it("warns instead of adding when every new bullet is too long", () => {
+    const { bank: next, warnings } = applyBankChanges(bank, [{ ...blank, kind: "addBullets", entryId: "e_exp1", texts: [long, long + "y"] }], makeId);
+    expect(next).toBe(bank);
+    expect(warnings).toEqual([`Skipped 2 bullets over 600 characters in "${bank.experience[0].title}"`]);
+  });
+
+  it("adds an entry without its over-long bullets, with a warning", () => {
+    const entry = { ...EMPTY_BANK_CHANGE.entry, title: "Barista", bullets: [long, "Served 200 customers a day"] };
+    const { bank: next, warnings } = applyBankChanges(bank, [{ ...blank, kind: "addEntry", section: "experience", entry }], makeId);
+    expect(next.experience[0].bullets.map((b) => b.text)).toEqual(["Served 200 customers a day"]);
+    expect(warnings).toEqual(['Skipped 1 bullet over 600 characters in "Barista"']);
+  });
+
+  it("skips an edit to over 600 characters, keeping the bullet as it was", () => {
+    const { bank: next, warnings } = applyBankChanges(bank, [{ ...blank, kind: "editBullet", entryId: "e_exp1", bulletId: "b_exp1b", text: long }], makeId);
+    expect(next).toBe(bank);
+    expect(warnings).toEqual([`Skipped an edit to a bullet in "${bank.experience[0].title}": over 600 characters`]);
+  });
+
+  it("skips a summary over 2,000 characters", () => {
+    const { bank: next, warnings } = applyBankChanges(bank, [{ ...blank, kind: "setSummary", text: "y".repeat(2_001) }], makeId);
+    expect(next.summary).toBe(bank.summary);
+    expect(warnings).toEqual(["Skipped the new summary: over 2,000 characters"]);
+  });
+
+  it("accepts text exactly at the caps", () => {
+    const { bank: next, warnings } = applyBankChanges(
+      bank,
+      [
+        { ...blank, kind: "setSummary", text: "y".repeat(2_000) },
+        { ...blank, kind: "editBullet", entryId: "e_exp1", bulletId: "b_exp1b", text: "z".repeat(600) },
+      ],
+      makeId,
+    );
+    expect(warnings).toEqual([]);
+    expect(BankInputSchema.safeParse(next).success).toBe(true);
   });
 });

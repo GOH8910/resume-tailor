@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A local Next.js app that stores a complete bank of resume bullets per person, asks Claude to pick and lightly reword the bullets that fit a pasted job description, lets the user review and edit the picks, and compiles a one-page LaTeX PDF in the style of `CV_Edward.pdf`.
+**Goal:** A local Next.js app that stores a complete bank of resume bullets per person, asks Claude to pick and lightly reword the bullets that fit a pasted job description, lets the user review and edit the picks, and compiles a one-page LaTeX PDF in the style of the owner's CV (`CV.pdf`).
 
 **Architecture:** Thin Next.js App Router route handlers call pure TypeScript modules under `src/` (bank, tailor, latex, applications). Data lives in JSON files under `data/<profile>/`. Claude is called through the official SDK with a zod structured-output schema; its answer is validated against the bank before anything is saved. PDFs are produced by filling `templates/resume.tex` and running local `latexmk`.
 
@@ -16,7 +16,7 @@
 - `data/` is git-ignored except `data/example/`. Never `git add` anything else under `data/`.
 - Run `npm test` before each commit that touches `src/`.
 - Immutability: every state helper returns a new object. Never mutate inputs.
-- Paths below are relative to `/Users/edwardgoh/Desktop/resume`.
+- Paths below are relative to the repository root, `<repo>`.
 
 ---
 
@@ -98,18 +98,18 @@ e2e/smoke.spec.ts                Playwright smoke test (manual run)
 - [ ] **Step 1: Scaffold into a scratch folder, then copy in (the project folder already has README.md, which create-next-app refuses to overwrite)**
 
 ```bash
-cd /private/tmp/claude-501/-Users-edwardgoh-Desktop-resume/2331e7e3-6c35-48e8-bcce-e37c4d03d7de/scratchpad
+cd <scratch folder>
 rm -rf scaffold
 npx -y create-next-app@latest scaffold --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --disable-git --no-agent-feedback --skip-install --yes
-rsync -a --exclude README.md --exclude .gitignore --exclude node_modules scaffold/ /Users/edwardgoh/Desktop/resume/
-cd /Users/edwardgoh/Desktop/resume && ls
+rsync -a --exclude README.md --exclude .gitignore --exclude node_modules scaffold/ <repo>/
+cd <repo> && ls
 ```
 Expected: `package.json`, `src/app/`, `next.config.ts`, `tsconfig.json`, `eslint.config.mjs`, `postcss.config.mjs` now exist next to `README.md`, `docs/`, `.gitignore`.
 
 - [ ] **Step 2: Install dependencies**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npm install
 npm install @anthropic-ai/sdk zod diff
 npm install -D vitest tsx @playwright/test
@@ -139,7 +139,7 @@ Then edit the `"scripts"` block so it reads:
 - [ ] **Step 4: Append project-specific ignores to `.gitignore`**
 
 ```bash
-cat >> /Users/edwardgoh/Desktop/resume/.gitignore <<'EOF'
+cat >> <repo>/.gitignore <<'EOF'
 
 # next.js generated
 next-env.d.ts
@@ -307,7 +307,7 @@ button {
 - [ ] **Step 9: Verify the app boots and the test runner runs**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npx tsc --noEmit
 npm test
 ```
@@ -316,7 +316,7 @@ Expected: `tsc` exits 0. Vitest prints `No test files found` and exits 0 (or 1 w
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 git add -A
 git status --short
 git commit -m "chore: scaffold next.js app with vitest, tokens and example bank"
@@ -1002,7 +1002,7 @@ Expected: FAIL, modules not found.
 - [ ] **Step 3: Create the template `templates/resume.tex`**
 
 ```latex
-%% Resume Tailor template. Reproduces the look of CV_Edward.pdf (measured: A4, 0.75in sides,
+%% Resume Tailor template. Reproduces the look of the owner's CV (measured: A4, 0.75in sides,
 %% 0.8in top/bottom, Amiri whose Latin derives from Crimson): Crimson serif, ruled section
 %% headings, right-aligned dates, FontAwesome contact icons.
 %% src/latex/build.ts replaces the marker line just after \begin{document} with the generated body.
@@ -3017,7 +3017,7 @@ export async function POST(request: Request) {
 
 Start the server in the background, then exercise it:
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npx tsc --noEmit
 (npm run dev -- --port 3050 > /tmp/resume-dev.log 2>&1 &) ; sleep 8
 curl -s localhost:3050/api/profiles
@@ -3360,7 +3360,7 @@ export function TopBar() {
                   if (e.key === "Enter") void submit();
                   if (e.key === "Escape") setCreating(false);
                 }}
-                placeholder="slug, e.g. edward"
+                placeholder="slug, e.g. ada"
                 aria-label="New profile slug"
                 className="w-44 rounded-md border border-rule bg-card px-2 py-1 text-sm focus:border-ink focus:outline-none"
               />
@@ -3603,7 +3603,7 @@ export function ApplicationList() {
 - [ ] **Step 6: Remove scaffold leftovers and verify**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 rm -f public/*.svg
 npx tsc --noEmit && npm run lint
 (npm run dev -- --port 3050 > /tmp/resume-dev.log 2>&1 &) ; sleep 8
@@ -4113,7 +4113,7 @@ function ItemsField({ items, onCommit }: { items: string[]; onCommit: (items: st
 - [ ] **Step 6: Verify in the browser**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npx tsc --noEmit && npm run lint
 ```
 Then run `npm run dev`, open http://localhost:3000/bank/experience with the `example` profile, add a bullet to Acme Corp, type text, wait a second and confirm the "Saved" indicator. Reload: the bullet is still there. Check `git status` shows `data/example/bank.json` modified, then restore it with `git checkout data/example/bank.json` so the example stays pristine.
@@ -4273,7 +4273,7 @@ export function TailorForm() {
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume && npx tsc --noEmit && npm run lint
+cd <repo> && npx tsc --noEmit && npm run lint
 ```
 Run `npm run dev`, open http://localhost:3000/tailor, fill company and JD, click "Start from full bank (no AI)". You should land on `/tailor/<id>` (a 404 page is expected until Task 15 exists; the application JSON appears under `data/example/applications/`). Delete that JSON afterwards so the example folder stays clean. Also click "Tailor with Claude" once: the red banner must say the API key is missing.
 
@@ -4889,7 +4889,7 @@ export function ReviewScreen({ applicationId }: Props) {
 - [ ] **Step 8: Verify end to end in the browser**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume && npx tsc --noEmit && npm run lint
+cd <repo> && npx tsc --noEmit && npm run lint
 ```
 Run `npm run dev`. On `/tailor` with the `example` profile, start from full bank, then on the review screen:
 1. Remove a bullet, edit another (the diff shows), revert it.
@@ -4907,12 +4907,12 @@ git commit -m "feat: add review screen with diff, reorder, compile preview and d
 
 ---
 
-### Task 16: Bank merge utility, seed script, and Edward's bank
+### Task 16: Bank merge utility, seed script, and the owner's bank
 
 **Files:**
 - Create: `src/bank/merge.ts`, `scripts/seed-from-pdfs.ts`
 - Test: `src/bank/merge.test.ts`
-- Create (not committed, main session only): `data/edward/bank.json`
+- Create (not committed, main session only): `data/<slug>/bank.json`
 
 - [ ] **Step 1: Write the failing test `src/bank/merge.test.ts`**
 
@@ -5117,7 +5117,7 @@ Expected: 3 tests pass. Ids are allocated in call order: experience entry `e_1`,
 ```ts
 /**
  * Seed or enrich a profile's bank from resume PDFs.
- *   npm run seed -- --profile edward "/path/to/CV one.pdf" "/path/to/CV two.pdf"
+ *   npm run seed -- --profile <slug> "/path/to/CV one.pdf" "/path/to/CV two.pdf"
  * Needs: pdftotext (brew install poppler) and ANTHROPIC_API_KEY (read from .env.local if not set).
  */
 import { execFileSync } from "node:child_process";
@@ -5265,7 +5265,7 @@ main().catch((err) => {
 
 Check it type-checks and prints usage:
 ```bash
-cd /Users/edwardgoh/Desktop/resume && npx tsc --noEmit && npm run seed
+cd <repo> && npx tsc --noEmit && npm run seed
 ```
 Expected: `tsc` clean; the script prints the usage line and exits 1.
 
@@ -5276,20 +5276,20 @@ git add src/bank/merge.ts src/bank/merge.test.ts scripts/seed-from-pdfs.ts
 git commit -m "feat: add bank merge utility and pdf seed script"
 ```
 
-- [ ] **Step 7: Create Edward's bank (main session only; personal data, not committed)**
+- [ ] **Step 7: Create the owner's bank (main session only; personal data, not committed)**
 
-The main Claude session, not a subagent, writes `data/edward/bank.json` by transcribing `/Users/edwardgoh/Library/Mobile Documents/com~apple~CloudDocs/Documents/Resumes/CV_Edward.pdf` into the bank schema: profile (name, email, phone, LinkedIn and GitHub URLs if the PDF text contains them, otherwise leave those two empty for Edward to fill in), the summary paragraph, one education entry (institution as title, degree as org, both bullets), both experience entries with every bullet, both projects with every bullet, and the five skill categories with their items in order. Ids follow the `e_`, `b_`, `s_` prefixes with 8 hex chars. The content is deliberately not reproduced in this plan so Edward's phone number and email stay out of git. Verify with:
+The main Claude session, not a subagent, writes `data/<slug>/bank.json` by transcribing `<resumes folder>/CV.pdf` into the bank schema: profile (name, email, phone, LinkedIn and GitHub URLs if the PDF text contains them, otherwise leave those two empty for the owner to fill in), the summary paragraph, one education entry (institution as title, degree as org, both bullets), both experience entries with every bullet, both projects with every bullet, and the five skill categories with their items in order. Ids follow the `e_`, `b_`, `s_` prefixes with 8 hex chars. The content is deliberately not reproduced in this plan so the owner's phone number and email stay out of git. Verify with:
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
-npx tsx -e 'import { BankSchema } from "./src/bank/schema"; import { readFileSync } from "node:fs"; const b = BankSchema.parse(JSON.parse(readFileSync("data/edward/bank.json","utf8"))); console.log(b.experience.length, "experience,", b.projects.length, "projects,", b.skills.length, "skill categories")'
+cd <repo>
+npx tsx -e 'import { BankSchema } from "./src/bank/schema"; import { readFileSync } from "node:fs"; const b = BankSchema.parse(JSON.parse(readFileSync("data/<slug>/bank.json","utf8"))); console.log(b.experience.length, "experience,", b.projects.length, "projects,", b.skills.length, "skill categories")'
 git status --short data/
 ```
 Expected: `2 experience, 2 projects, 5 skill categories` and `git status` shows nothing under `data/` (it is ignored).
 
-Later, Edward can enrich it from the older CVs with, for example:
+Later, the owner can enrich it from the older CVs with, for example:
 ```bash
-npm run seed -- --profile edward "/Users/edwardgoh/Library/Mobile Documents/com~apple~CloudDocs/Documents/Resumes/CV SWE.pdf" "/Users/edwardgoh/Library/Mobile Documents/com~apple~CloudDocs/Documents/Resumes/CV AI.pdf"
+npm run seed -- --profile <slug> "<resumes folder>/CV SWE.pdf" "<resumes folder>/CV AI.pdf"
 ```
 
 ---
@@ -5363,7 +5363,7 @@ test("manual application compiles to a one-page PDF", async ({ page }) => {
 - [ ] **Step 3: Run it once**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npx playwright install chromium
 npm run test:e2e
 ```
@@ -5377,7 +5377,7 @@ Expected: 2 passed. (The second test really compiles LaTeX, so it takes several 
 A local web app for one or two people. It keeps a complete bank of your
 experience and project bullets, asks Claude to pick the ones that fit a pasted
 job description (and lightly reword them), lets you review every change, and
-compiles a one-page LaTeX resume in the style of `CV_Edward.pdf`.
+compiles a one-page LaTeX resume in the style of the owner's CV (`CV.pdf`).
 
 Design spec: `docs/superpowers/specs/2026-10-27-resume-tailor-design.md`
 
@@ -5412,7 +5412,7 @@ npm run dev                     # open http://localhost:3000 (use the localhost 
 ## Seeding a bank from old resumes
 
 ```bash
-npm run seed -- --profile edward "/path/to/CV one.pdf" "/path/to/CV two.pdf"
+npm run seed -- --profile <slug> "/path/to/CV one.pdf" "/path/to/CV two.pdf"
 ```
 Each PDF is extracted with `pdftotext`, structured by Claude, and merged into
 `data/<profile>/bank.json` without duplicating bullets you already have.
@@ -5468,7 +5468,7 @@ git commit -m "docs: add README and playwright smoke test"
 - [ ] **Step 1: Full check**
 
 ```bash
-cd /Users/edwardgoh/Desktop/resume
+cd <repo>
 npm test && npm run lint && npx tsc --noEmit && npm run build
 git status --short
 ```
@@ -5478,6 +5478,6 @@ Expected: all green; `git status` clean (nothing under `data/` except the exampl
 
 ```bash
 git push -u origin feat/resume-tailor
-echo https://github.com/GOH8910/resume-tailor/tree/feat/resume-tailor
+echo https://github.com/<owner>/resume-tailor/tree/feat/resume-tailor
 ```
 Do not open a PR; the user opens it manually.

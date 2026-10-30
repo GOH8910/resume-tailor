@@ -5,13 +5,17 @@ const MIGRATION_RETRY_MS = 30_000;
 export async function registerNode() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
+  let env: (typeof import("@/lib/env"))["env"];
   try {
-    await import("@/lib/env");
+    ({ env } = await import("@/lib/env"));
   } catch (err) {
     // A misconfigured release must fail its deploy, not serve errors: unlike a database outage it will not recover.
     console.error("[env] invalid configuration, refusing to start", err);
     return process.exit(1);
   }
+  // Not fatal: an unpriced model is still costed, at the most expensive price.
+  const { warnUnpricedModels } = await import("@/billing/costs");
+  warnUnpricedModels([env.FREE_MODEL, env.UNLIMITED_MODEL]);
 
   const { getDb } = await import("@/db/client");
   try {
@@ -22,6 +26,10 @@ export async function registerNode() {
     console.error(`[db] migration at boot failed, retrying every ${MIGRATION_RETRY_MS / 1000} s`, err);
     retryMigration(getDb);
   }
+
+  // Ad sessions keep the client's IP for two days; this blanks older ones even when nobody starts an ad.
+  const { startIpPurge } = await import("@/credits/ip-purge");
+  startIpPurge(getDb);
 }
 
 function retryMigration(getDb: () => Promise<unknown>): void {

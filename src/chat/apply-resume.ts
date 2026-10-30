@@ -3,6 +3,7 @@ import { toResumeBullet } from "@/applications/resume-state";
 import type { ResumeState } from "@/applications/schema";
 import type { Bank, Bullet, Entry, SectionKey } from "@/bank/schema";
 import { SECTION_KEYS } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import type { ResumeChange } from "./schema";
 
 export type ApplyResumeResult = { state: ResumeState; applied: string[]; warnings: string[] };
@@ -38,6 +39,8 @@ function applyOne(state: ResumeState, bank: Bank, c: ResumeChange): Step {
     case "setSummary": {
       const text = c.text.trim();
       if (!text) return "setSummary needs text";
+      // Over the cap, the review screen could not save the result.
+      if (text.length > MAX_CHARS.summary) return `Skipped the new summary: over ${MAX_CHARS.summary.toLocaleString("en")} characters`;
       return { state: edit.setSummary(state, text), message: "Rewrote the summary" };
     }
     case "setSkills": {
@@ -81,6 +84,9 @@ function applyOne(state: ResumeState, bank: Bank, c: ResumeChange): Step {
       const bullet = locateBullet(entry, c);
       const text = c.text.trim();
       if (!bullet || !text) return `editBullet for "${entry.title}" needs a bullet and text`;
+      if (text.length > MAX_CHARS.bullet) {
+        return `Skipped a reworded bullet in "${entry.title}": over ${MAX_CHARS.bullet.toLocaleString("en")} characters`;
+      }
       return { state: edit.setBulletText(state, section, entry.id, bullet.id, text), message: `Reworded a bullet in "${entry.title}"` };
     }
     case "moveBullet": {

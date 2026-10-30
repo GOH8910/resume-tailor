@@ -3,6 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The probe's default user comes from the parsed settings; each test sets what it needs.
+const env = vi.hoisted(() => ({ LATEX_RUN_AS: undefined as string | undefined, COMPILE_CONCURRENCY: 2 }));
+vi.mock("@/lib/env", () => ({ env }));
+
 import { latexEnv } from "./compile";
 import { writeFakeSudo } from "./fake-sudo";
 import { checkLatexmk, resetLatexmkCache } from "./latexmk-check";
@@ -30,6 +35,8 @@ beforeAll(async () => {
 });
 afterAll(() => rm(dir, { recursive: true, force: true }));
 beforeEach(async () => {
+  env.LATEX_RUN_AS = undefined;
+  env.COMPILE_CONCURRENCY = 2;
   resetLatexmkCache();
   runs = path.join(dir, `runs-${Math.random().toString(36).slice(2)}`);
 });
@@ -111,7 +118,6 @@ describe("checkLatexmk as another user (stand-in sudo)", () => {
   afterAll(() => rm(bin, { recursive: true, force: true }));
   beforeEach(() => {
     vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
-    vi.stubEnv("LATEX_RUN_AS", undefined);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -124,9 +130,16 @@ describe("checkLatexmk as another user (stand-in sudo)", () => {
     expect(await runCount()).toBe(1);
   });
 
-  it("takes the user from LATEX_RUN_AS", async () => {
-    vi.stubEnv("LATEX_RUN_AS", "tex");
-    const latexmkPath = await fakeLatexmk("env-tex", '[ "$FAKE_SUDO_RUN_AS" = tex ] || exit 5\nexit 0');
+  // The last slot's user is the one missing when COMPILE_CONCURRENCY exceeds the users in the image.
+  it("probes as the last compile slot's user by default", async () => {
+    env.LATEX_RUN_AS = "tex";
+    env.COMPILE_CONCURRENCY = 3;
+    const latexmkPath = await fakeLatexmk("env-tex", '[ "$FAKE_SUDO_RUN_AS" = tex3 ] || exit 5\nexit 0');
+    expect(await checkLatexmk({ latexmkPath })).toBe("ok");
+  });
+
+  it("runs latexmk directly when LATEX_RUN_AS is unset", async () => {
+    const latexmkPath = await fakeLatexmk("direct", '[ -z "$FAKE_SUDO_RUN_AS" ] || exit 5\nexit 0');
     expect(await checkLatexmk({ latexmkPath })).toBe("ok");
   });
 

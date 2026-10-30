@@ -1,21 +1,25 @@
 import { newId } from "@/bank/ids";
 import type { Bank, Bullet, Entry, SectionKey, SkillCategory } from "@/bank/schema";
 import { SECTION_KEYS } from "@/bank/schema";
+import { MAX_CHARS } from "@/lib/input-caps";
 import type { BankChange } from "./schema";
 
 export type ApplyBankResult = { bank: Bank; applied: string[]; warnings: string[] };
 type MakeId = (prefix: string) => string;
-type Outcome = { ok: true; bank: Bank; message: string } | { ok: false; message: string };
+type Outcome = { ok: true; bank: Bank; message: string; warnings?: string[] } | { ok: false; message: string };
 
 const norm = (s: string) => s.trim().toLowerCase();
 const clean = (s: string | undefined): string | undefined => {
   const t = s?.trim();
   return t ? t : undefined;
 };
-const ok = (bank: Bank, message: string): Outcome => ({ ok: true, bank, message });
+const ok = (bank: Bank, message: string, warnings: string[] = []): Outcome => ({ ok: true, bank, message, warnings });
 const fail = (message: string): Outcome => ({ ok: false, message });
 
-/** Apply Claude's bank changes in order. Unknown targets become warnings; nothing is invented. */
+/**
+ * Apply Claude's bank changes in order. Unknown targets become warnings; nothing is invented. Text over the caps
+ * the bank editor is held to (MAX_CHARS) is skipped with a warning, so the stored bank stays one the editor can save.
+ */
 export function applyBankChanges(bank: Bank, changes: BankChange[], makeId: MakeId = newId): ApplyBankResult {
   const applied: string[] = [];
   const warnings: string[] = [];
@@ -25,6 +29,7 @@ export function applyBankChanges(bank: Bank, changes: BankChange[], makeId: Make
     if (outcome.ok) {
       next = outcome.bank;
       applied.push(outcome.message);
+      warnings.push(...(outcome.warnings ?? []));
     } else {
       warnings.push(outcome.message);
     }
@@ -57,15 +62,23 @@ function applyOne(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
       );
     case "addBullets":
       return withEntry(bank, c, (section, index, entry) => {
-        const fresh = newBullets(c.texts, entry.bullets, makeId);
-        if (fresh.length === 0) return fail(`No new bullets to add to "${entry.title}"`);
-        return ok(replaceEntry(bank, section, index, { ...entry, bullets: [...entry.bullets, ...fresh] }), `Added ${fresh.length} bullet${fresh.length === 1 ? "" : "s"} to "${entry.title}"`);
+        const { bullets: fresh, tooLong } = newBullets(c.texts, entry.bullets, makeId);
+        const skipped = tooLongWarnings(tooLong, entry.title);
+        if (fresh.length === 0) return fail(skipped[0] ?? `No new bullets to add to "${entry.title}"`);
+        return ok(
+          replaceEntry(bank, section, index, { ...entry, bullets: [...entry.bullets, ...fresh] }),
+          `Added ${fresh.length} bullet${fresh.length === 1 ? "" : "s"} to "${entry.title}"`,
+          skipped,
+        );
       });
     case "editBullet":
       return withEntry(bank, c, (section, index, entry) => {
         const text = clean(c.text);
         if (!c.bulletId || !text) return fail(`editBullet for "${entry.title}" needs bulletId and text`);
         if (!entry.bullets.some((b) => b.id === c.bulletId)) return fail(`Bullet ${c.bulletId} is not in "${entry.title}"`);
+        if (text.length > MAX_CHARS.bullet) {
+          return fail(`Skipped an edit to a bullet in "${entry.title}": over ${MAX_CHARS.bullet.toLocaleString("en")} characters`);
+        }
         const bullets = entry.bullets.map((b) => (b.id === c.bulletId ? { ...b, text } : b));
         return ok(replaceEntry(bank, section, index, { ...entry, bullets }), `Edited a bullet in "${entry.title}"`);
       });
@@ -78,6 +91,9 @@ function applyOne(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
     case "setSummary": {
       const text = clean(c.text);
       if (!text) return fail("setSummary needs text");
+      if (text.length > MAX_CHARS.summary) {
+        return fail(`Skipped the new summary: over ${MAX_CHARS.summary.toLocaleString("en")} characters`);
+      }
       return ok({ ...bank, summary: text }, "Updated the master summary");
     }
     case "setProfileField": {
@@ -93,6 +109,7 @@ function applyOne(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
 
 function addEntry(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
   if (!c.section || !c.entry.title.trim()) return fail("addEntry needs a section and an entry with a title");
+  const { bullets, tooLong } = newBullets(c.entry.bullets, [], makeId);
   const entry: Entry = {
     id: makeId("e"),
     title: c.entry.title.trim(),
@@ -101,12 +118,13 @@ function addEntry(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
     start: c.entry.start.trim(),
     end: c.entry.end.trim(),
     link: clean(c.entry.link),
-    bullets: newBullets(c.entry.bullets, [], makeId),
+    bullets,
   };
   const existing = bank[c.section];
   const list = c.position === "bottom" ? [...existing, entry] : [entry, ...existing];
   const n = entry.bullets.length;
-  return ok({ ...bank, [c.section]: list }, `Added ${c.section} entry "${entry.title}" with ${n} bullet${n === 1 ? "" : "s"}`);
+  const message = `Added ${c.section} entry "${entry.title}" with ${n} bullet${n === 1 ? "" : "s"}`;
+  return ok({ ...bank, [c.section]: list }, message, tooLongWarnings(tooLong, entry.title));
 }
 
 function addSkills(bank: Bank, c: BankChange, makeId: MakeId): Outcome {
@@ -152,15 +170,26 @@ function replaceEntry(bank: Bank, section: SectionKey, index: number, entry: Ent
   return { ...bank, [section]: bank[section].map((e, i) => (i === index ? entry : e)) };
 }
 
-/** New bullet objects for texts that are non-blank and not already in `existing`. */
-function newBullets(texts: string[], existing: Bullet[], makeId: MakeId): Bullet[] {
+/** New bullet objects for texts that are non-blank, within the cap and not already in `existing`. */
+function newBullets(texts: string[], existing: Bullet[], makeId: MakeId): { bullets: Bullet[]; tooLong: number } {
   const seen = new Set(existing.map((b) => norm(b.text)));
-  const out: Bullet[] = [];
+  const bullets: Bullet[] = [];
+  let tooLong = 0;
   for (const raw of texts) {
     const text = raw.trim();
     if (!text || seen.has(norm(text))) continue;
+    if (text.length > MAX_CHARS.bullet) {
+      tooLong++;
+      continue;
+    }
     seen.add(norm(text));
-    out.push({ id: makeId("b"), text });
+    bullets.push({ id: makeId("b"), text });
   }
-  return out;
+  return { bullets, tooLong };
+}
+
+function tooLongWarnings(count: number, title: string): string[] {
+  if (count === 0) return [];
+  const bullets = `${count} bullet${count === 1 ? "" : "s"}`;
+  return [`Skipped ${bullets} over ${MAX_CHARS.bullet.toLocaleString("en")} characters in "${title}"`];
 }

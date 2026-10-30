@@ -15,8 +15,11 @@ kill_timeout = 65
   PORT = "3000"
   # Also set in the image; repeated so the server listens on all interfaces whatever the platform sets.
   HOSTNAME = "0.0.0.0"
+  # Each running compile needs its own TeX user, so this must not exceed the users in the image (the Dockerfile's
+  # COMPILE_SLOTS build arg, default 2); the health check fails otherwise, and with it the deploy.
   COMPILE_CONCURRENCY = "2"
   EMAIL_TRANSPORT = "resend"
+  # A prefix: compile slot n runs TeX as user texN, in a folder of group texrunN (both created by the Dockerfile).
   LATEX_RUN_AS = "tex"
   COMPILE_ROOT = "/var/lib/compile"
 

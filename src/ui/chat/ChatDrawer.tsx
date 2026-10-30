@@ -3,11 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { Bank } from "@/bank/schema";
 import type { ChatMessage, ResumeChange } from "@/chat/schema";
-import { api, errorMessage } from "@/ui/api";
+import { MAX_CHARS } from "@/lib/input-caps";
+import { creditProblem, creditsLabel } from "@/ui/ads/messages";
+import { RewardedAdButton } from "@/ui/ads/RewardedAdButton";
+import { api, errorMessage, retryAfterOf } from "@/ui/api";
+import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
 import { FOCUS_RING } from "@/ui/Button";
+import { useCountdown } from "@/ui/countdown";
+import { useMe } from "@/ui/useMe";
 import { chatStorageKey } from "./chat-storage";
 import { useChatContext } from "./ChatProvider";
+import { recentMessages } from "./recent-messages";
 
 type Turn = ChatMessage & { applied?: string[]; warnings?: string[] };
 
@@ -18,6 +25,8 @@ type ChatResponse = {
   bank: Bank;
   bankChanged: boolean;
   resumeChanges: ResumeChange[];
+  /** The balance after the charge, for accounts that pay in credits. */
+  credits?: number;
 };
 
 export function ChatDrawer() {
@@ -52,12 +61,32 @@ function readTurns(key: string): Turn[] {
 
 function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () => void }) {
   const { handlers } = useChatContext();
+  const { me, refresh, setCredits } = useMe();
   const [turns, setTurns] = useState<Turn[]>(() => readTurns(storageKey));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paused, setPaused] = useState<string | null>(null);
+  // The server's numbers from a 402, shown until the balance covers the cost again.
+  const [shortBy, setShortBy] = useState<{ credits: number; needed: number } | null>(null);
+  // The wait a 429 asked for, kept for the screen-reader text while the countdown runs.
+  const [limitedFor, setLimitedFor] = useState<number | null>(null);
+  const countdown = useCountdown();
+  const limited = countdown.secondsLeft > 0;
+  const chargesCredits = me?.policy.chargesCredits ?? false;
+  const cost = me?.creditsPerChatMessage ?? 0;
+  const credits = me?.credits ?? 0;
+  const refusedShort = shortBy !== null && !(me && me.credits >= shortBy.needed);
+  const short = (chargesCredits && credits < cost) || refusedShort;
   const list = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const wasShort = useRef(short);
+
+  // Earning the missing credit removes the ad prompt, and the focused ad button with it: carry on in the message box.
+  useEffect(() => {
+    if (wasShort.current && !short) textarea.current?.focus();
+    wasShort.current = short;
+  }, [short]);
 
   useEffect(() => {
     try {
@@ -70,18 +99,20 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
 
   async function send() {
     const content = input.trim();
-    if (!content || busy) return;
+    if (!content || busy || short || limited) return;
     const history: Turn[] = [...turns, { role: "user", content }];
     setTurns(history);
     setInput("");
     setBusy(true);
     setError(null);
+    setPaused(null);
+    setShortBy(null);
     try {
       await handlers?.flush?.();
       const res = await api.send<ChatResponse>("/api/chat", "POST", {
         applicationId: handlers?.applicationId,
         resume: handlers?.getResume?.() ?? undefined,
-        messages: history.map(({ role, content: text }) => ({ role, content: text })),
+        messages: recentMessages(history),
       });
       let applied = res.applied;
       let warnings = res.warnings;
@@ -92,8 +123,30 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
       }
       if (res.bankChanged) await handlers?.reloadBank?.();
       setTurns((t) => [...t, { role: "assistant", content: res.reply, applied, warnings }]);
+      if (res.credits !== undefined) setCredits(res.credits);
     } catch (err) {
-      setError(errorMessage(err));
+      const wait = retryAfterOf(err);
+      const problem = creditProblem(err);
+      if (wait !== null || problem) {
+        // Claude never saw the message: take it back out of the conversation so it can be sent again later.
+        setTurns(turns);
+        setInput(content);
+      }
+      if (wait !== null) {
+        setLimitedFor(wait);
+        countdown.start(wait);
+      } else if (problem) {
+        if (problem.kind === "short") {
+          setCredits(problem.credits);
+          setShortBy({ credits: problem.credits, needed: problem.needed });
+        } else {
+          setPaused(problem.message);
+        }
+        // Without the account there is no balance to correct: load it.
+        if (me === null) refresh();
+      } else {
+        setError(errorMessage(err));
+      }
     } finally {
       setBusy(false);
       textarea.current?.focus();
@@ -156,7 +209,27 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
             {error}
           </p>
         )}
+        {paused && <Banner tone="warn">{paused}</Banner>}
+        {limited && (
+          <Banner tone="warn">
+            <span className="sr-only">Too many requests, try again in {limitedFor} seconds.</span>
+            <span aria-hidden="true">
+              Too many requests, try again in <span className="tabular-nums">{countdown.secondsLeft}</span> s
+            </span>
+          </Banner>
+        )}
       </div>
+
+      {short && (
+        <div className="grid gap-2 border-t border-rule bg-warn-soft/60 px-3 py-2.5">
+          <p className="text-xs text-warn">
+            {refusedShort &&
+              `A message costs ${creditsLabel(shortBy.needed)} and you have ${me?.credits ?? shortBy.credits}. `}
+            {me?.adsAvailable ? "Watch an ad to keep chatting." : "You need more credits to keep chatting."}
+          </p>
+          <RewardedAdButton size="sm" />
+        </div>
+      )}
 
       <form
         className="border-t border-rule p-3"
@@ -176,13 +249,19 @@ function ChatPanel({ storageKey, onClose }: { storageKey: string; onClose: () =>
             }
           }}
           rows={3}
+          maxLength={MAX_CHARS.chatMessage}
           placeholder="Type or paste here. Enter to send, Shift+Enter for a new line."
           aria-label="Message"
           className="w-full resize-none rounded-md border border-rule bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
           disabled={busy}
         />
         <div className="mt-2 flex items-center justify-end gap-2">
-          <Button type="submit" variant="primary" size="sm" disabled={busy || !input.trim()}>
+          {chargesCredits && cost > 0 && (
+            <p className="mr-auto text-xs text-ink-faint">
+              {creditsLabel(cost)} per message · you have {credits}
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="sm" disabled={busy || short || limited || !input.trim()}>
             {busy ? "Sending…" : "Send"}
           </Button>
         </div>
