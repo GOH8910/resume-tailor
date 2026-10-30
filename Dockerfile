@@ -92,6 +92,9 @@ COPY --from=build /app/drizzle ./drizzle
 RUN chown root:node /app && chmod 750 /app \
  && install -d -o node -g node -m 700 /app/data \
  && install -d -o node -g node -m 755 /app/.next/cache
-USER node
 EXPOSE 3000
+# The server runs as node, and needs node's texrunN groups to hand each compile folder to its slot's TeX user. Fly's
+# init applies an image's USER without its supplementary groups, so the image starts as root and setpriv drops to node
+# with all of node's groups (sudo still works: setpriv sets no no_new_privs flag). A failed drop stops the start.
+ENTRYPOINT ["setpriv", "--reuid=node", "--regid=node", "--init-groups", "--"]
 CMD ["node", "server.js"]
