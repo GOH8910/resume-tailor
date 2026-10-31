@@ -22,7 +22,7 @@ describe("buildCsp", () => {
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",
-        "frame-ancestors 'none'",
+        "frame-ancestors 'self'",
         "upgrade-insecure-requests",
       ].join("; "),
     );
@@ -33,7 +33,7 @@ describe("buildCsp", () => {
     expect(policy.get("script-src")).toBe(`script-src 'self' 'nonce-${NONCE}' 'strict-dynamic' 'unsafe-eval'`);
     // A nonce in style-src would make browsers ignore 'unsafe-inline', so development lists none.
     expect(policy.get("style-src")).toBe("style-src 'self' 'unsafe-inline'");
-    expect(policy.get("frame-ancestors")).toBe("frame-ancestors 'none'");
+    expect(policy.get("frame-ancestors")).toBe("frame-ancestors 'self'");
   });
 
   it("asks browsers to upgrade http requests only when told to, in production or not", () => {

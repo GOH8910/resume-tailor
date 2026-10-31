@@ -53,7 +53,9 @@ export function buildCsp({ nonce, dev, googleAds, upgradeInsecure }: Options): s
     ["object-src", "'none'"],
     ["base-uri", "'self'"],
     ["form-action", "'self'"],
-    ["frame-ancestors", "'none'"],
+    // 'self', not 'none': the preview's blob: document inherits this policy, and Safari then applies it to the
+    // preview frame itself, leaving it blank. 'self' still stops every other site from framing ours.
+    ["frame-ancestors", "'self'"],
     ...(upgradeInsecure ? [["upgrade-insecure-requests"]] : []),
   ];
   return directives.map((parts) => parts.join(" ")).join("; ");

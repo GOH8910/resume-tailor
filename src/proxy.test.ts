@@ -118,7 +118,7 @@ describe("proxy content security policy", () => {
   it("sends a policy with a fresh nonce on every page", () => {
     const first = csp(proxy(request("/signin")));
     const second = csp(proxy(request("/signin")));
-    expect(first).toContain("frame-ancestors 'none'");
+    expect(first).toContain("frame-ancestors 'self'");
     expect(nonceIn(first)).toBeTruthy();
     expect(nonceIn(second)).toBeTruthy();
     expect(nonceIn(first)).not.toBe(nonceIn(second));
