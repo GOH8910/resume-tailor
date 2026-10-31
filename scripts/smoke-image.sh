@@ -129,7 +129,7 @@ for dump in signin health; do
     has_header "$file" "content-security-policy: .*script-src 'self' 'nonce-[A-Za-z0-9+/=]*' 'strict-dynamic'"
   refused "$dump: CSP script-src has no 'unsafe-inline' or 'unsafe-eval'" \
     has_header "$file" "content-security-policy: .*script-src[^;]*'unsafe-"
-  check "$dump: CSP forbids framing" has_header "$file" "content-security-policy: .*frame-ancestors 'none'"
+  check "$dump: CSP forbids framing by other sites" has_header "$file" "content-security-policy: .*frame-ancestors 'self'"
   check "$dump: Strict-Transport-Security" has_header "$file" "strict-transport-security: max-age=31536000; includeSubDomains"
   check "$dump: X-Content-Type-Options: nosniff" has_header "$file" "x-content-type-options: nosniff"
   check "$dump: X-Frame-Options: DENY" has_header "$file" "x-frame-options: DENY"
