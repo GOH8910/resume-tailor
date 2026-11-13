@@ -11,6 +11,7 @@ import { banks, credits, plans } from "./deps";
 import { sendMagicLinkEmail } from "./email";
 import { env } from "./env";
 import { checkMagicLinkLimit } from "./magic-link-limit";
+import { sitePassword } from "./site-password";
 
 const DEV_SECRET = "dev-only-secret-dev-only-secret-dev-only";
 
@@ -65,6 +66,7 @@ function createAuth() {
           return sendMagicLinkEmail(email, url);
         },
       }),
+      sitePassword(env.SITE_PASSWORD),
       // nextCookies() must stay last: it sets cookies for the plugins' server-action calls.
       nextCookies(),
     ],

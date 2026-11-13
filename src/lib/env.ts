@@ -35,6 +35,8 @@ const Schema = z.object({
   // Linked from the public pages, as the AGPL asks of a modified copy that others use over a network.
   SOURCE_CODE_URL: blankAsUnset(z.url({ protocol: /^https$/ }).default(DEFAULT_SOURCE_CODE_URL)),
   SIGNUP_EMAILS: z.string().optional(),
+  // The one password everyone signs in with (see site-password.ts). Unset: password sign-in is off.
+  SITE_PASSWORD: blankAsUnset(z.string().optional()),
   ANTHROPIC_API_KEY: z.string().optional(),
   // A prefix: compile slot n (from 1) runs TeX as user `${LATEX_RUN_AS}${n}`, in a folder of group `${LATEX_RUN_AS}run${n}`.
   LATEX_RUN_AS: blankAsUnset(z.string().regex(/^[a-z_][a-z0-9_-]*$/, "LATEX_RUN_AS must be a user-name prefix such as tex").optional()),
