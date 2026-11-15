@@ -41,6 +41,7 @@ describe("signInRateRules", () => {
     expect(signInRateRules()).toEqual({
       "/sign-in/magic-link": { window: 3600, max: 5 },
       "/magic-link/verify": { window: 3600, max: 20 },
+      "/sign-in/site-password": { window: 3600, max: 10 },
     });
   });
 

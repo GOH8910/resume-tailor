@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "@/ui/auth-client";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -8,9 +8,9 @@ import { forgetChats } from "@/ui/chat/chat-storage";
 import { Field, TextInput } from "@/ui/Field";
 
 const MESSAGES = new Map([
+  ["WRONG_PASSWORD", "Wrong password."],
   ["SIGNUP_INVITE_ONLY", "Sign-ups are invite-only right now."],
-  ["TOO_MANY_MAGIC_LINKS", "Too many sign-in links requested. Try again in an hour."],
-  ["INVALID_TOKEN", "That link has expired or was already used. Request a new one."],
+  ["INVALID_TOKEN", "That link has expired or was already used. Sign in again."],
 ]);
 
 function messageFor(code: string | undefined): string {
@@ -23,11 +23,10 @@ type Props = { googleEnabled: boolean; next: string; error?: string };
 
 export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
   const [email, setEmail] = useState("");
-  const [pending, setPending] = useState<"link" | "google" | null>(null);
-  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState<string | null>(errorCode ? messageFor(errorCode) : null);
-  const sentRef = useRef<HTMLDivElement>(null);
-  // A failed link or Google sign-in comes back to this page with ?error=, still headed for `next`.
+  // A failed Google sign-in comes back to this page with ?error=, still headed for `next`.
   const errorCallbackURL = `/signin?next=${encodeURIComponent(next)}`;
 
   // A session can expire without a sign-out, which would leave the last account's chats in this tab for the next one.
@@ -35,13 +34,8 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
     forgetChats();
   }, []);
 
-  // The form is replaced by the confirmation, so move focus there rather than let it fall to the page.
-  useEffect(() => {
-    if (sentTo) sentRef.current?.focus();
-  }, [sentTo]);
-
   /** Runs an auth client call; true when it succeeded. HTTP errors come back as `error`, network failures throw. */
-  async function attempt(kind: "link" | "google", call: AuthCall): Promise<boolean> {
+  async function attempt(kind: "password" | "google", call: AuthCall): Promise<boolean> {
     setPending(kind);
     setError(null);
     try {
@@ -56,12 +50,15 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
     }
   }
 
-  async function sendLink(event: FormEvent<HTMLFormElement>) {
+  async function signInWithPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const address = email.trim();
-    if (!address || pending) return;
-    const sent = await attempt("link", () => authClient.signIn.magicLink({ email: address, callbackURL: next, errorCallbackURL }));
-    if (sent) setSentTo(address);
+    if (!address || !password || pending) return;
+    const signedIn = await attempt("password", () =>
+      authClient.$fetch("/sign-in/site-password", { method: "POST", body: { email: address, password } }),
+    );
+    // A full load, so the server renders the next page with the new session cookie.
+    if (signedIn) window.location.assign(next);
   }
 
   function signInWithGoogle() {
@@ -69,18 +66,10 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
     void attempt("google", () => authClient.signIn.social({ provider: "google", callbackURL: next, errorCallbackURL }));
   }
 
-  if (sentTo) {
-    return (
-      <Banner ref={sentRef} tabIndex={-1} tone="ok" title="Check your email for a sign-in link (valid for 5 minutes)">
-        Sent to {sentTo}.
-      </Banner>
-    );
-  }
-
   return (
     <div className="grid gap-4">
       {error && <Banner tone="error">{error}</Banner>}
-      <form onSubmit={(e) => void sendLink(e)} className="grid gap-3">
+      <form onSubmit={(e) => void signInWithPassword(e)} className="grid gap-3">
         <Field label="Email">
           <TextInput
             type="email"
@@ -91,8 +80,17 @@ export function SignInForm({ googleEnabled, next, error: errorCode }: Props) {
             placeholder="you@example.com"
           />
         </Field>
-        <Button type="submit" variant="primary" disabled={pending !== null || !email.trim()}>
-          {pending === "link" ? "Sending…" : "Email me a link"}
+        <Field label="Password">
+          <TextInput
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
+        <Button type="submit" variant="primary" disabled={pending !== null || !email.trim() || !password}>
+          {pending === "password" ? "Signing in…" : "Sign in"}
         </Button>
       </form>
       {googleEnabled && (

@@ -10,5 +10,7 @@ export function signInRateRules() {
   return {
     "/sign-in/magic-link": { window: HOUR_S, max: 5 },
     "/magic-link/verify": { window: HOUR_S, max: 20 },
+    // Slows password guessing: 10 tries an hour per IP.
+    "/sign-in/site-password": { window: HOUR_S, max: 10 },
   };
 }
